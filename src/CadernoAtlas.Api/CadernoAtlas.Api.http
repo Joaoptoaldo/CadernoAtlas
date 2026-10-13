@@ -1,0 +1,6 @@
+@CadernoAtlas.Api_HostAddress = http://localhost:5233
+
+GET {{CadernoAtlas.Api_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###

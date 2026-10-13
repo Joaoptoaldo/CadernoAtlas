@@ -1,0 +1,5 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/CadernoAtlas.Api/CadernoAtlas.Api.csproj" />
+  </Folder>
+</Solution>
