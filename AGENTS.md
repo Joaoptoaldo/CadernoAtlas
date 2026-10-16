@@ -91,6 +91,8 @@ Confirme quais funcionalidades foram implementadas antes de reutilizar ou amplia
 
 ## 8. Testes e validação
 
+Para o fluxo completo de trabalho, consulte `docs/fluxo-agentes.md`, que detalha preparação, análise, implementação, testes e validação.
+
 Depois de mudanças no código:
 
 1. Execute `dotnet build .\CadernoAtlas.slnx`.
