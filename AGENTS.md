@@ -2,11 +2,30 @@
 
 ## 1. Objetivo do projeto
 
-O CadernoAtlas é uma aplicação em desenvolvimento com C#/.NET. A direção planejada do produto é ajudar estudantes e candidatos a concursos públicos a organizar a preparação, acompanhar o conteúdo do edital e analisar o próprio desempenho. Cadernos e anotações continuam fazendo parte da ideia original.
+O CadernoAtlas é uma **plataforma de organização e planejamento acadêmico adaptativo** em desenvolvimento com C#/.NET 10. O projeto ajuda estudantes com rotinas exigentes a centralizar demandas acadêmicas (provas, trabalhos, tarefas, atividades recorrentes), organizá-las com prioridades explícitas e ajustar seus planos conforme a realidade muda.
 
-Trate essa direção como contexto de produto, não como prova de que essas funcionalidades já existem. Antes de implementar algo, confira o código atual e diferencie funcionalidades implementadas, decisões confirmadas e ideias futuras.
+O objetivo é transformar um conjunto de obrigações acadêmicas em um plano de ação realista, organizado e ajustável à rotina do estudante, sem presumir disponibilidade ilimitada ou culpabilizar o usuário por dificuldades.
 
-## 2. Antes de alterar o código
+Funcionalmente, o projeto foi iniciado com foco em organização de concursos e editais. Essa verticalização continua válida e deve evoluir em coerência com a visão de planejamento adaptativo. Novos recursos devem ser alinhados com os princípios de produto (seção 3).
+
+Trate a visão de produto como contexto para orientar decisões, não como especificação completa. Antes de implementar, confira o código atual e diferencie funcionalidades implementadas, decisões confirmadas e ideias futuras.
+
+## 2. Princípios de produto
+
+Incorpore os seguintes princípios ao avaliar decisões técnicas e de escopo:
+
+1. **Planejamento adaptativo:** planos podem e devem ser ajustados quando a realidade do estudante mudar.
+2. **Prioridades explicáveis:** recomendações devem ter critérios compreensíveis, sem decisões arbitrárias ou caixas-pretas desnecessárias.
+3. **Ações concretas:** orientar sobre o próximo passo executável, em vez de apresentar listas extensas e vagas.
+4. **Realismo:** considerar prazos, esforço, disponibilidade e dependências. Não presumir que tudo pode ser concluído simultaneamente.
+5. **Controle do usuário:** o sistema pode sugerir prioridades, mas o estudante deve poder revisar e alterar as decisões.
+6. **Evolução incremental:** desenvolver funcionalidades em etapas pequenas e verificáveis.
+7. **Simplicidade antes da complexidade:** não introduzir abstrações, serviços, padrões ou tecnologias sem necessidade concreta.
+8. **Validação de hipóteses:** tratar as necessidades identificadas como hipóteses a validar, sem presumir que representam todos os usuários.
+9. **Continuidade:** preservar as funcionalidades já implementadas e evoluí-las coerentemente com a nova visão.
+10. **Aprendizado técnico:** como o projeto também serve para aprofundar conhecimentos em C#, APIs, modelagem relacional e Entity Framework Core, as mudanças devem ser compreensíveis e justificadas.
+
+## 3. Antes de alterar o código
 
 1. Confirme a raiz do repositório e o estado do Git (`git rev-parse --show-toplevel` e `git status --short`).
 2. Leia os arquivos relevantes e os testes existentes antes de propor mudanças.
@@ -16,7 +35,7 @@ Trate essa direção como contexto de produto, não como prova de que essas func
 
 Não presuma que um arquivo, tipo, endpoint, projeto de teste ou funcionalidade existe só porque aparece em documentação antiga. Verifique o estado atual do repositório.
 
-## 3. Tecnologias e arquitetura
+## 4. Tecnologias e arquitetura
 
 O projeto foi iniciado como uma ASP.NET Core Web API com controllers em .NET 10. A configuração conhecida inclui Entity Framework Core, o provedor Npgsql para PostgreSQL e OpenAPI. A solução fica em `CadernoAtlas.slnx`, e o projeto principal conhecido fica em `src/CadernoAtlas.Api`.
 
@@ -29,7 +48,7 @@ Use esses dados como ponto de partida e confira os arquivos `.slnx`, `.csproj`, 
 - Prefira recursos assíncronos nas operações de I/O e propague `CancellationToken` quando apropriado e compatível com os padrões existentes.
 - Preserve nullable reference types e implicit usings conforme configurados no projeto.
 
-## 4. C# e estilo
+## 5. C# e estilo
 
 - Siga `.editorconfig` e os padrões de código já usados no repositório.
 - Use nomes em `PascalCase` para tipos e membros públicos; use `camelCase` para parâmetros e variáveis locais.
@@ -38,7 +57,7 @@ Use esses dados como ponto de partida e confira os arquivos `.slnx`, `.csproj`, 
 - Não adicione documentação XML a todos os membros mecanicamente; documente APIs públicas quando isso trouxer valor real.
 - Mantenha as alterações focadas na tarefa solicitada.
 
-## 5. Banco de dados e migrations
+## 6. Banco de dados e migrations
 
 O ambiente de desenvolvimento foi configurado para usar PostgreSQL local, com configurações não secretas em `appsettings.json` e senha em User Secrets. Confirme a configuração real antes de executar operações no banco.
 
@@ -50,16 +69,27 @@ O ambiente de desenvolvimento foi configurado para usar PostgreSQL local, com co
 - Não aplique migrations a um banco sem confirmar que a connection string aponta para o ambiente correto.
 - Não presuma que tabelas foram criadas só porque o banco existe ou o build passou.
 
-## 6. Produto e regras de negócio
+## 7. Produto e regras de negócio
 
-As funcionalidades de edital verticalizado, disciplinas e tópicos, ciclo de estudos, sessões de estudo, desempenho em questões, revisões e anotações relacionadas a concursos são direções planejadas. Confirme quais foram implementadas antes de reutilizar ou ampliar seus conceitos.
+O CadernoAtlas está evoluindo de uma ferramenta centrada em concursos e editais para uma plataforma de organização e planejamento acadêmico adaptativo. Ambas as vertentes devem conviver e evoluir coerentemente.
 
-- Não invente regras de negócio ou marque funcionalidades planejadas como concluídas.
-- Antes de alterar uma regra já implementada, identifique os comportamentos e telas/endpoints afetados.
-- Ao registrar questões, acertos ou progresso, preserve a consistência dos dados e evite métricas cuja definição não esteja clara.
-- Não trate recomendações de estudo como garantias de aprovação ou de resultado.
+**Funcionalidades implementadas:**
+- Cadastro e gerenciamento de concursos.
+- Cadastro e gerenciamento de cadernos de estudo.
+- Cadastro e gerenciamento de disciplinas vinculadas a concursos.
+- Cadastro e gerenciamento de tópicos de edital, com subtópicos, status de estudo e ordenação.
 
-## 7. Testes e validação
+**Direção planejada para o MVP expandido:**
+- Cadastro de demandas acadêmicas genéricas (provas, trabalhos, tarefas, atividades recorrentes).
+- Registro de prazos, importância, esforço estimado e situação.
+- Divisão de demandas em tarefas menores.
+- Consulta de demandas e progresso.
+- Organização e priorização de atividades.
+- Planejamento semanal e replanejamento adaptativo (evolução posterior).
+
+Confirme quais funcionalidades foram implementadas antes de reutilizar ou ampliar seus conceitos. Não invente regras de negócio nem marque funcionalidades planejadas como concluídas. Ao registrar demandas, acertos ou progresso, preserve a consistência dos dados e evite métricas cuja definição não esteja clara.
+
+## 8. Testes e validação
 
 Depois de mudanças no código:
 
@@ -70,7 +100,7 @@ Depois de mudanças no código:
 
 Não afirme que testes passaram se não foram executados. Se uma verificação não puder ser executada, informe qual foi e por quê. Não esconda avisos ou falhas de compilação.
 
-## 8. Git e preservação do trabalho
+## 9. Git e preservação do trabalho
 
 - Inspecione `git status --short` antes de editar e antes de concluir.
 - Preserve alterações preexistentes do usuário. Não as sobrescreva, descarte ou reformate em massa.
@@ -78,13 +108,13 @@ Não afirme que testes passaram se não foram executados. Se uma verificação n
 - Não altere a configuração ou o diretório `.git` sem antes explicar o problema e obter aprovação.
 - Não modifique arquivos fora do escopo solicitado.
 
-## 9. Dependências e mudanças de escopo
+## 10. Dependências e mudanças de escopo
 
 Não instale pacotes nem altere versões de SDK, pacotes ou ferramentas sem explicar a necessidade e o impacto esperado. Para mudanças de dependências, arquitetura, esquema de banco ou contratos públicos, apresente o plano para revisão antes de executar.
 
 Prefira a menor mudança que resolva o problema. Não antecipe requisitos hipotéticos nem acrescente funcionalidades não solicitadas.
 
-## 10. Relato final
+## 11. Relato final
 
 Ao concluir uma tarefa, resuma:
 
