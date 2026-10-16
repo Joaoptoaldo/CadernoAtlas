@@ -8,6 +8,27 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddControllers();
 builder.Services.AddOpenApi();
 
+// Fuso horário usado para determinar a data atual na priorização.
+var fusoHorarioId = builder.Configuration["FusoHorario"]
+    ?? throw new InvalidOperationException(
+        "Configuração ausente: FusoHorario");
+
+TimeZoneInfo fusoHorario;
+
+try
+{
+    fusoHorario = TimeZoneInfo.FindSystemTimeZoneById(fusoHorarioId);
+}
+catch (TimeZoneNotFoundException)
+{
+    throw new InvalidOperationException(
+        $"Fuso horário inválido: '{fusoHorarioId}'. " +
+        "Use um identificador IANA válido, como 'America/Sao_Paulo'.");
+}
+
+builder.Services.AddSingleton(fusoHorario);
+
+
 // Lê as configurações não secretas.
 var databaseHost = builder.Configuration["Database:Host"]
     ?? throw new InvalidOperationException(

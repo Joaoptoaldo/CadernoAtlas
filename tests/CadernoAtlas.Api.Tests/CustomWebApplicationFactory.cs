@@ -35,6 +35,7 @@ public sealed class CustomWebApplicationFactory
         builder.UseSetting("Database:Name", "cadernoatlas_test");
         builder.UseSetting("Database:Username", "test");
         builder.UseSetting("Database:Password", "test");
+        builder.UseSetting("FusoHorario", "America/Sao_Paulo");
 
 
         builder.ConfigureServices(services =>

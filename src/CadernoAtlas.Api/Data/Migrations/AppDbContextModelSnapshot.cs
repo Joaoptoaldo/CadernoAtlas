@@ -87,6 +87,57 @@ namespace CadernoAtlas.Api.Data.Migrations
                     b.ToTable("Concursos");
                 });
 
+            modelBuilder.Entity("CadernoAtlas.Api.Models.DemandaAcademica", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("CriadoEm")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Descricao")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<int?>("EsforcoEstimadoMinutos")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Importancia")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<DateOnly?>("Prazo")
+                        .HasColumnType("date");
+
+                    b.Property<string>("Situacao")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<string>("Tipo")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)");
+
+                    b.Property<string>("Titulo")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Situacao", "Prazo");
+
+                    b.ToTable("DemandasAcademicas", t =>
+                        {
+                            t.HasCheckConstraint("CK_DemandasAcademicas_EsforcoNaoNegativo", "\"EsforcoEstimadoMinutos\" IS NULL OR \"EsforcoEstimadoMinutos\" >= 0");
+                        });
+                });
+
             modelBuilder.Entity("CadernoAtlas.Api.Models.DisciplinaEdital", b =>
                 {
                     b.Property<int>("Id")
@@ -111,6 +162,44 @@ namespace CadernoAtlas.Api.Data.Migrations
                     b.HasIndex("ConcursoId", "Ordem");
 
                     b.ToTable("DisciplinasEdital");
+                });
+
+            modelBuilder.Entity("CadernoAtlas.Api.Models.TarefaDemanda", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<int>("DemandaAcademicaId")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Descricao")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<int>("Ordem")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Situacao")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<string>("Titulo")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("DemandaAcademicaId", "Ordem");
+
+                    b.ToTable("TarefasDemanda", t =>
+                        {
+                            t.HasCheckConstraint("CK_TarefasDemanda_OrdemNaoNegativa", "\"Ordem\" >= 0");
+                        });
                 });
 
             modelBuilder.Entity("CadernoAtlas.Api.Models.TopicoEdital", b =>
@@ -160,6 +249,17 @@ namespace CadernoAtlas.Api.Data.Migrations
                     b.Navigation("Concurso");
                 });
 
+            modelBuilder.Entity("CadernoAtlas.Api.Models.TarefaDemanda", b =>
+                {
+                    b.HasOne("CadernoAtlas.Api.Models.DemandaAcademica", "DemandaAcademica")
+                        .WithMany("Tarefas")
+                        .HasForeignKey("DemandaAcademicaId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("DemandaAcademica");
+                });
+
             modelBuilder.Entity("CadernoAtlas.Api.Models.TopicoEdital", b =>
                 {
                     b.HasOne("CadernoAtlas.Api.Models.DisciplinaEdital", "DisciplinaEdital")
@@ -181,6 +281,11 @@ namespace CadernoAtlas.Api.Data.Migrations
             modelBuilder.Entity("CadernoAtlas.Api.Models.Concurso", b =>
                 {
                     b.Navigation("Disciplinas");
+                });
+
+            modelBuilder.Entity("CadernoAtlas.Api.Models.DemandaAcademica", b =>
+                {
+                    b.Navigation("Tarefas");
                 });
 
             modelBuilder.Entity("CadernoAtlas.Api.Models.DisciplinaEdital", b =>

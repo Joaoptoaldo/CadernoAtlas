@@ -10,18 +10,82 @@ public class AppDbContext : DbContext
     {
     }
 
+    public DbSet<DemandaAcademica> DemandasAcademicas => Set<DemandaAcademica>();
+
+    public DbSet<TarefaDemanda> TarefasDemanda => Set<TarefaDemanda>();
+
     public DbSet<Caderno> Cadernos => Set<Caderno>();
 
     public DbSet<Concurso> Concursos => Set<Concurso>();
 
-    public DbSet<DisciplinaEdital> DisciplinasEdital
-        => Set<DisciplinaEdital>();
+    public DbSet<DisciplinaEdital> DisciplinasEdital => Set<DisciplinaEdital>();
 
     public DbSet<TopicoEdital> TopicosEdital => Set<TopicoEdital>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
+
+        modelBuilder.Entity<DemandaAcademica>(entity =>
+        {
+            entity.ToTable(t => t.HasCheckConstraint(
+                "CK_DemandasAcademicas_EsforcoNaoNegativo",
+                "\"EsforcoEstimadoMinutos\" IS NULL OR \"EsforcoEstimadoMinutos\" >= 0"));
+
+            entity.Property(x => x.Titulo)
+                .HasMaxLength(150)
+                .IsRequired();
+
+            entity.Property(x => x.Descricao)
+                .HasMaxLength(1000);
+
+            entity.Property(x => x.Tipo)
+                .HasConversion<string>()
+                .HasMaxLength(30)
+                .IsRequired();
+
+            entity.Property(x => x.Importancia)
+                .HasConversion<string>()
+                .HasMaxLength(20)
+                .IsRequired();
+
+            entity.Property(x => x.Situacao)
+                .HasConversion<string>()
+                .HasMaxLength(20)
+                .IsRequired();
+
+            entity.HasIndex(x => new { x.Situacao, x.Prazo });
+        });
+
+        modelBuilder.Entity<TarefaDemanda>(entity =>
+        {
+            entity.ToTable(t => t.HasCheckConstraint(
+                "CK_TarefasDemanda_OrdemNaoNegativa",
+                "\"Ordem\" >= 0"));
+
+            entity.Property(x => x.Titulo)
+                .HasMaxLength(150)
+                .IsRequired();
+
+            entity.Property(x => x.Descricao)
+                .HasMaxLength(1000);
+
+            entity.Property(x => x.Situacao)
+                .HasConversion<string>()
+                .HasMaxLength(20)
+                .IsRequired();
+
+            entity.HasOne(x => x.DemandaAcademica)
+                .WithMany(x => x.Tarefas)
+                .HasForeignKey(x => x.DemandaAcademicaId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasIndex(x => new
+            {
+                x.DemandaAcademicaId,
+                x.Ordem
+            });
+        });
 
         modelBuilder.Entity<Caderno>(entity =>
         {
