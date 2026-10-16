@@ -4,7 +4,7 @@ using CadernoAtlas.Api.Models;
 
 namespace CadernoAtlas.Api.Contracts.TopicosEdital;
 
-public sealed class CriarTopicoEditalRequest
+public sealed class CriarTopicoEditalRequest : IValidatableObject
 {
     [Required]
     [StringLength(500, MinimumLength = 2)]
@@ -19,4 +19,16 @@ public sealed class CriarTopicoEditalRequest
     [JsonConverter(typeof(JsonStringEnumConverter))]
     public StatusTopicoEdital Status { get; init; }
         = StatusTopicoEdital.Pendente;
+
+    public IEnumerable<ValidationResult> Validate(
+    ValidationContext validationContext)
+    {
+        if (string.IsNullOrWhiteSpace(Descricao) ||
+            Descricao.Trim().Length < 2)
+        {
+            yield return new ValidationResult(
+                "A descrição deve conter pelo menos 2 caracteres após remover os espaços externos.",
+                new[] { nameof(Descricao) });
+        }
+    }
 }
