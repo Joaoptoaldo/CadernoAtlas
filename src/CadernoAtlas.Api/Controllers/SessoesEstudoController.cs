@@ -23,10 +23,33 @@ public sealed class SessoesEstudoController : ControllerBase
 
     [HttpGet]
     public async Task<ActionResult<IReadOnlyList<SessaoEstudoResponse>>> Listar(
+        [FromQuery] DateOnly? dataDe,
+        [FromQuery] DateOnly? dataAte,
+        [FromQuery] SituacaoSessaoEstudo? situacao,
         CancellationToken cancellationToken)
     {
-        var sessoes = await _context.SessoesEstudo
-            .AsNoTracking()
+        var consulta = _context.SessoesEstudo
+            .AsNoTracking();
+
+        if (dataDe.HasValue)
+        {
+            consulta = consulta.Where(
+                sessao => sessao.DataPlanejada >= dataDe.Value);
+        }
+
+        if (dataAte.HasValue)
+        {
+            consulta = consulta.Where(
+                sessao => sessao.DataPlanejada <= dataAte.Value);
+        }
+
+        if (situacao.HasValue)
+        {
+            consulta = consulta.Where(
+                sessao => sessao.Situacao == situacao.Value);
+        }
+
+        var sessoes = await consulta
             .OrderBy(sessao => sessao.DataPlanejada)
             .ThenBy(sessao => sessao.HoraInicioPlanejada)
             .ThenBy(sessao => sessao.Id)
