@@ -164,6 +164,36 @@ namespace CadernoAtlas.Api.Data.Migrations
                     b.ToTable("DisciplinasEdital");
                 });
 
+            modelBuilder.Entity("CadernoAtlas.Api.Models.DisponibilidadeEstudo", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("CriadoEm")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateOnly>("Data")
+                        .HasColumnType("date");
+
+                    b.Property<TimeOnly>("HoraFim")
+                        .HasColumnType("time without time zone");
+
+                    b.Property<TimeOnly>("HoraInicio")
+                        .HasColumnType("time without time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Data", "HoraInicio");
+
+                    b.ToTable("DisponibilidadesEstudo", t =>
+                        {
+                            t.HasCheckConstraint("CK_DisponibilidadesEstudo_HoraFimPosteriorInicio", "\"HoraFim\" > \"HoraInicio\"");
+                        });
+                });
+
             modelBuilder.Entity("CadernoAtlas.Api.Models.SessaoEstudo", b =>
                 {
                     b.Property<int>("Id")

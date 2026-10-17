@@ -10,11 +10,12 @@ Este documento descreve detalhadamente todos os endpoints HTTP implementados na 
 2. [Demandas Acadêmicas](#1-demandas-acadêmicas)
 3. [Tarefas de Demandas Acadêmicas](#2-tarefas-de-demandas-acadêmicas)
 4. [Sessões de Estudo](#3-sessões-de-estudo)
-5. [Concursos Públicos](#4-concursos-públicos)
-6. [Disciplinas do Edital](#5-disciplinas-do-edital)
-7. [Tópicos e Subtópicos do Edital](#6-tópicos-e-subtópicos-do-edital)
-8. [Cadernos de Estudo](#7-cadernos-de-estudo)
-9. [Endpoints de Desenvolvimento e Suporte](#8-endpoints-de-desenvolvimento-e-suporte)
+5. [Disponibilidades de Estudo](#4-disponibilidades-de-estudo)
+6. [Concursos Públicos](#5-concursos-públicos)
+7. [Disciplinas do Edital](#6-disciplinas-do-edital)
+8. [Tópicos e Subtópicos do Edital](#7-tópicos-e-subtópicos-do-edital)
+9. [Cadernos de Estudo](#8-cadernos-de-estudo)
+10. [Endpoints de Desenvolvimento e Suporte](#9-endpoints-de-desenvolvimento-e-suporte)
 
 ---
 
@@ -399,7 +400,126 @@ As sessões de estudo possuem um ciclo de vida estrito com quatro estados possí
 
 ---
 
-## 4. Concursos Públicos
+## 4. Disponibilidades de Estudo
+
+Representa janelas de tempo livre disponíveis para dedicação aos estudos em datas específicas. Permite registrar a data e o intervalo de horários (início e término) em que o estudante pode estudar, servindo de base para o planejamento da rotina acadêmica.
+
+### Rotas
+
+| Método | Caminho | Finalidade |
+|---|---|---|
+| `GET` | `/api/disponibilidades-estudo` | Listar disponibilidades de estudo com suporte a filtro opcional por intervalo de datas (`dataDe` e `dataAte`), ordenadas cronologicamente por `Data`, `HoraInicio` e `Id`. |
+| `POST` | `/api/disponibilidades-estudo` | Cadastrar um novo intervalo de disponibilidade de estudo para uma data específica. |
+
+> **Nota de integridade:** A API não disponibiliza endpoints para atualização (`PUT`) ou exclusão física (`DELETE`) de disponibilidades, nem consulta por identificador individual (`GET /{id}`). Além disso, não há suporte a recorrência automática de horários nem relacionamento ou chave estrangeira com outras entidades nesta versão.
+
+### Parâmetros de Consulta (`GET /api/disponibilidades-estudo`)
+
+| Parâmetro | Tipo | Obrigatório | Descrição |
+|---|---|---|---|
+| `dataDe` | `DateOnly` | Não | Limite inicial do período no formato `yyyy-MM-dd`. Filtra disponibilidades com data maior ou igual (`>=`). |
+| `dataAte` | `DateOnly` | Não | Limite final do período no formato `yyyy-MM-dd`. Filtra disponibilidades com data menor ou igual (`<=`). |
+
+### Campos do DTO
+
+#### Criação (`CriarDisponibilidadeEstudoRequest`)
+
+| Campo | Tipo | Obrigatório | Restrições e Validações |
+|---|---|---|---|
+| `data` | `DateOnly?` | Sim | Data da disponibilidade no formato `yyyy-MM-dd`. Campo obrigatório. |
+| `horaInicio` | `TimeOnly?` | Sim | Horário de início no formato `HH:mm` ou `HH:mm:ss`. Campo obrigatório. |
+| `horaFim` | `TimeOnly?` | Sim | Horário de término no formato `HH:mm` ou `HH:mm:ss`. Campo obrigatório. Deve ser estritamente posterior ao horário de início. |
+
+#### Resposta (`DisponibilidadeEstudoResponse`)
+
+| Campo | Tipo | Descrição |
+|---|---|---|
+| `id` | `int` | Identificador único da disponibilidade de estudo gerado pelo banco. |
+| `data` | `DateOnly` | Data do intervalo disponível (`yyyy-MM-dd`). |
+| `horaInicio` | `TimeOnly` | Horário inicial da disponibilidade (`HH:mm:ss`). |
+| `horaFim` | `TimeOnly` | Horário final da disponibilidade (`HH:mm:ss`). |
+| `criadoEm` | `DateTime` | Carimbo temporal UTC de registro da disponibilidade (`ISO 8601`). |
+
+### Regras de Negócio e Validações
+
+#### Validações no Nível da Aplicação (API)
+- **Campos Obrigatórios:** A requisição de cadastro deve conter `data`, `horaInicio` e `horaFim`. Valores ausentes ou nulos resultam em `400 Bad Request`.
+- **Ordem dos Horários (`HoraFim > HoraInicio`):** A validação do DTO (`IValidatableObject`) exige que `HoraFim` seja estritamente posterior a `HoraInicio`. Se o horário final for igual ou anterior ao inicial, a requisição é rejeitada com `400 Bad Request` e a mensagem de validação *"O horário final deve ser posterior ao horário inicial."*.
+- **Período de Filtro Inválido:** Ao consultar disponibilidades com `dataDe` e `dataAte`, a data inicial não pode ser posterior à data final (`dataDe > dataAte`). Caso ocorra, a API retorna `400 Bad Request` contendo objeto `ProblemDetails` (`title: "Período inválido."`, `detail: "A data inicial deve ser anterior ou igual à data final."`).
+- **Prevenção de Sobreposição:** Antes da inserção, a API verifica se já existe no banco outra disponibilidade na mesma data com intervalo sobreposto (`item.Data == data && item.HoraInicio < horaFim && item.HoraFim > horaInicio`). Havendo conflito, retorna `409 Conflict` com `ProblemDetails` (`title: "Disponibilidade sobreposta."`, `detail: "Já existe uma disponibilidade que se sobrepõe ao intervalo informado."`).
+  - *Nota:* Intervalos consecutivos (onde o horário de término de um coincide com o início do outro, como 09:00–10:00 e 10:00–11:00) **não** caracterizam sobreposição e são permitidos.
+- **Ordenação Determinística:** A consulta sempre retorna os registros ordenados sequencialmente por:
+  1. `Data` ascendente;
+  2. `HoraInicio` ascendente;
+  3. `Id` ascendente (desempate estável).
+
+#### Restrições Garantidas pelo Banco de Dados (PostgreSQL / EF Core)
+- **Check Constraint:** A tabela possui a restrição `CK_DisponibilidadesEstudo_HoraFimPosteriorInicio` com a expressão `"HoraFim" > "HoraInicio"`, garantindo a integridade relacional diretamente na base de dados.
+- **Índice Composto:** Índice `IX_DisponibilidadesEstudo_Data_HoraInicio` nas colunas `("Data", "HoraInicio")`, otimizando a filtragem por data e a ordenação cronológica.
+- **Independência Relacional:** A entidade é totalmente desvinculada de demandas, tarefas ou concursos (sem chaves estrangeiras ou constraints de exclusão em cascata).
+
+### Exemplos
+
+#### Criar Disponibilidade de Estudo (`POST /api/disponibilidades-estudo`)
+
+**Requisição:**
+```json
+{
+  "data": "2026-11-10",
+  "horaInicio": "09:00:00",
+  "horaFim": "11:00:00"
+}
+```
+
+**Resposta (`201 Created`):**
+```json
+{
+  "id": 1,
+  "data": "2026-11-10",
+  "horaInicio": "09:00:00",
+  "horaFim": "11:00:00",
+  "criadoEm": "2026-10-17T11:59:00Z"
+}
+```
+
+#### Listar Disponibilidades por Período (`GET /api/disponibilidades-estudo?dataDe=2026-11-10&dataAte=2026-11-15`)
+
+**Resposta (`200 OK`):**
+```json
+[
+  {
+    "id": 1,
+    "data": "2026-11-10",
+    "horaInicio": "09:00:00",
+    "horaFim": "11:00:00",
+    "criadoEm": "2026-10-17T11:59:00Z"
+  },
+  {
+    "id": 2,
+    "data": "2026-11-12",
+    "horaInicio": "14:00:00",
+    "horaFim": "16:30:00",
+    "criadoEm": "2026-10-17T12:00:00Z"
+  },
+  {
+    "id": 3,
+    "data": "2026-11-15",
+    "horaInicio": "08:00:00",
+    "horaFim": "10:00:00",
+    "criadoEm": "2026-10-17T12:05:00Z"
+  }
+]
+```
+
+### Códigos de Retorno
+- `200 OK`: Listagem consultada com sucesso (retorna lista vazia `[]` se nenhum registro atender aos filtros).
+- `201 Created`: Disponibilidade cadastrada com sucesso.
+- `400 Bad Request`: Dados inválidos (campos obrigatórios ausentes, `horaFim` menor ou igual a `horaInicio`, ou `dataDe` posterior a `dataAte`).
+- `409 Conflict`: Sobreposição de horário detectada para a mesma data com uma disponibilidade já existente.
+
+---
+
+## 5. Concursos Públicos
 
 Gerenciamento de editais de concursos públicos para estruturação de estudos.
 
@@ -459,7 +579,7 @@ Gerenciamento de editais de concursos públicos para estruturação de estudos.
 
 ---
 
-## 5. Disciplinas do Edital
+## 6. Disciplinas do Edital
 
 Gerenciamento das matérias e disciplinas vinculadas a um concurso público.
 
@@ -487,7 +607,7 @@ Gerenciamento das matérias e disciplinas vinculadas a um concurso público.
 
 ---
 
-## 6. Tópicos e Subtópicos do Edital
+## 7. Tópicos e Subtópicos do Edital
 
 Permite estruturar a árvore de conteúdos programáticos de uma disciplina, suportando tópicos principais e subtópicos aninhados.
 
@@ -543,7 +663,7 @@ Permite estruturar a árvore de conteúdos programáticos de uma disciplina, sup
 
 ---
 
-## 7. Cadernos de Estudo
+## 8. Cadernos de Estudo
 
 Gerenciamento de cadernos temáticos para registro de anotações e consolidação de estudos.
 
@@ -591,7 +711,7 @@ Gerenciamento de cadernos temáticos para registro de anotações e consolidaç�
 
 ---
 
-## 8. Endpoints de Desenvolvimento e Suporte
+## 9. Endpoints de Desenvolvimento e Suporte
 
 Endpoints utilitários disponíveis no pipeline da aplicação:
 
