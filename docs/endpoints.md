@@ -9,11 +9,12 @@ Este documento descreve detalhadamente todos os endpoints HTTP implementados na 
 1. [Convenções Gerais](#convenções-gerais)
 2. [Demandas Acadêmicas](#1-demandas-acadêmicas)
 3. [Tarefas de Demandas Acadêmicas](#2-tarefas-de-demandas-acadêmicas)
-4. [Concursos Públicos](#3-concursos-públicos)
-5. [Disciplinas do Edital](#4-disciplinas-do-edital)
-6. [Tópicos e Subtópicos do Edital](#5-tópicos-e-subtópicos-do-edital)
-7. [Cadernos de Estudo](#6-cadernos-de-estudo)
-8. [Endpoints de Desenvolvimento e Suporte](#7-endpoints-de-desenvolvimento-e-suporte)
+4. [Sessões de Estudo](#3-sessões-de-estudo)
+5. [Concursos Públicos](#4-concursos-públicos)
+6. [Disciplinas do Edital](#5-disciplinas-do-edital)
+7. [Tópicos e Subtópicos do Edital](#6-tópicos-e-subtópicos-do-edital)
+8. [Cadernos de Estudo](#7-cadernos-de-estudo)
+9. [Endpoints de Desenvolvimento e Suporte](#8-endpoints-de-desenvolvimento-e-suporte)
 
 ---
 
@@ -198,7 +199,207 @@ Tarefas representam etapas menores e executáveis necessárias para o cumpriment
 
 ---
 
-## 3. Concursos Públicos
+## 3. Sessões de Estudo
+
+Representa blocos dedicados de estudo planejados e executados pelo estudante. Permite organizar horários previstos de dedicação, acompanhar a execução em tempo real, calcular o tempo efetivo de estudo e associar a atividade ao contexto de uma demanda acadêmica ou a uma tarefa específica.
+
+### Rotas
+
+| Método | Caminho | Finalidade |
+|---|---|---|
+| `GET` | `/api/sessoes-estudo` | Listar todas as sessões de estudo cadastradas, ordenadas cronologicamente por `DataPlanejada`, `HoraInicioPlanejada` e `Id`. |
+| `GET` | `/api/sessoes-estudo/{id}` | Obter detalhes de uma sessão de estudo específica pelo identificador. |
+| `POST` | `/api/sessoes-estudo` | Criar uma nova sessão de estudo com situação inicial `Planejada`. |
+| `PUT` | `/api/sessoes-estudo/{id}` | Atualizar dados de uma sessão de estudo existente (permitido apenas na situação `Planejada`). |
+| `POST` | `/api/sessoes-estudo/{id}/iniciar` | Iniciar a sessão de estudo, alterando a situação para `EmAndamento` e registrando o instante real de início. |
+| `POST` | `/api/sessoes-estudo/{id}/concluir` | Concluir uma sessão em andamento, registrando o instante de conclusão e calculando a duração real em minutos. |
+| `POST` | `/api/sessoes-estudo/{id}/cancelar` | Cancelar uma sessão planejada ou em andamento, registrando o encerramento e calculando o tempo decorrido caso tenha sido iniciada. |
+| `DELETE` | `/api/sessoes-estudo/{id}` | Excluir uma sessão de estudo (permitido apenas para sessões na situação `Planejada`). |
+
+### Estados e Ciclo de Vida (`SituacaoSessaoEstudo`)
+
+As sessões de estudo possuem um ciclo de vida estrito com quatro estados possíveis:
+
+1. **`Planejada`** (`0`): Estado inicial atribuído na criação. A sessão possui data, horário de início e duração prevista, mas ainda não foi iniciada. Pode ser editada, iniciada, cancelada ou excluída fisicamente.
+2. **`EmAndamento`** (`1`): Sessão ativada pelo endpoint `/iniciar`. O campo `inicioRealEm` é preenchido com o carimbo temporal UTC atual. Sessões em andamento não podem ser editadas nem excluídas; apenas concluídas ou canceladas.
+3. **`Concluida`** (`2`): Sessão finalizada com sucesso pelo endpoint `/concluir`. O campo `concluidaEm` é registrado e a `duracaoRealMinutos` é calculada automaticamente com base no tempo decorrido. Fica bloqueada para qualquer alteração, cancelamento ou exclusão, preservando o histórico de estudo.
+4. **`Cancelada`** (`3`): Sessão interrompida ou descontinuada pelo endpoint `/cancelar`. O campo `canceladaEm` é registrado. Se a sessão já estava `EmAndamento`, a `duracaoRealMinutos` transcorrida até o cancelamento é calculada e persistida. Fica bloqueada contra edições, reinício ou exclusão.
+
+### Campos do DTO
+
+#### Criação e Atualização (`CriarSessaoEstudoRequest` / `AtualizarSessaoEstudoRequest`)
+
+| Campo | Tipo | Obrigatório | Restrições e Validações |
+|---|---|---|---|
+| `titulo` | `string` | Sim | Mínimo de 2 e máximo de 150 caracteres. Espaços no início e fim são removidos automaticamente. |
+| `dataPlanejada` | `DateOnly` | Sim | Data planejada para a sessão no formato `yyyy-MM-dd`. |
+| `horaInicioPlanejada` | `TimeOnly` | Sim | Horário previsto para início no formato `HH:mm` ou `HH:mm:ss`. |
+| `duracaoPlanejadaMinutos` | `int` | Sim | Duração estimada em minutos. Faixa válida: entre `1` e `1440` minutos (1 dia). |
+| `demandaAcademicaId` | `int?` | Não | Identificador de demanda acadêmica existente (`>= 1`). Mutuamente exclusivo com `tarefaDemandaId`. |
+| `tarefaDemandaId` | `int?` | Não | Identificador de tarefa de demanda existente (`>= 1`). Mutuamente exclusivo com `demandaAcademicaId`. |
+| `observacoes` | `string?` | Não | Anotações complementares. Máximo de 1000 caracteres. Textos em branco são convertidos para `null`. |
+
+#### Resposta (`SessaoEstudoResponse`)
+
+| Campo | Tipo | Descrição |
+|---|---|---|
+| `id` | `int` | Identificador único da sessão de estudo. |
+| `titulo` | `string` | Título da sessão de estudo. |
+| `dataPlanejada` | `DateOnly` | Data planejada da sessão (`yyyy-MM-dd`). |
+| `horaInicioPlanejada` | `TimeOnly` | Horário planejado de início (`HH:mm:ss`). |
+| `duracaoPlanejadaMinutos` | `int` | Duração planejada em minutos. |
+| `duracaoRealMinutos` | `int?` | Duração real apurada em minutos (`null` enquanto planejada; calculada após conclusão ou cancelamento de sessão iniciada). |
+| `situacao` | `number` (`SituacaoSessaoEstudo`) | Situação atual no JSON (representação numérica do enum): `0` (`Planejada`), `1` (`EmAndamento`), `2` (`Concluida`) ou `3` (`Cancelada`). |
+| `demandaAcademicaId` | `int?` | Identificador da demanda acadêmica vinculada (`null` se avulsa ou vinculada a tarefa). |
+| `tarefaDemandaId` | `int?` | Identificador da tarefa vinculada (`null` se avulsa ou vinculada a demanda). |
+| `observacoes` | `string?` | Observações da sessão. |
+| `criadoEm` | `DateTime` | Carimbo temporal UTC de criação do registro. |
+| `inicioRealEm` | `DateTime?` | Carimbo temporal UTC do momento em que a sessão foi iniciada. |
+| `concluidaEm` | `DateTime?` | Carimbo temporal UTC do momento de conclusão da sessão. |
+| `canceladaEm` | `DateTime?` | Carimbo temporal UTC do momento em que a sessão foi cancelada. |
+
+### Regras de Negócio e Validações
+
+- **Exclusividade e Opcionalidade de Vínculos:**
+  - Uma sessão de estudo pode ser avulsa (sem vínculos), estar vinculada diretamente a uma **demanda acadêmica**, ou a uma **tarefa de demanda**.
+  - Não é permitido informar simultaneamente `demandaAcademicaId` e `tarefaDemandaId`. A violação é rejeitada com `400 Bad Request` tanto na validação do payload (`IValidatableObject`) quanto no banco de dados (`CHECK constraint`: `CK_SessoesEstudo_VinculoUnico`).
+- **Validação de Existência dos Vínculos:**
+  - Caso `demandaAcademicaId` seja informado, a API valida se a demanda existe no banco de dados. Caso não exista, retorna `400 Bad Request` (`"A demanda acadêmica informada não existe."`).
+  - Caso `tarefaDemandaId` seja informado, a API valida se a tarefa existe no banco de dados. Caso não exista, retorna `400 Bad Request` (`"A tarefa informada não existe."`).
+- **Integridade Referencial na Exclusão de Demandas ou Tarefas:**
+  - As chaves estrangeiras com `DemandasAcademicas` e `TarefasDemanda` utilizam `OnDelete(DeleteBehavior.SetNull)` (`ReferentialAction.SetNull`). Se uma demanda ou tarefa vinculada for excluída, o vínculo na sessão de estudo correspondente torna-se nulo sem descartar o registro da sessão de estudo.
+- **Edição Restrita a Sessões Planejadas:**
+  - O endpoint `PUT /api/sessoes-estudo/{id}` só permite alterar sessões na situação `Planejada`. Tentativas de editar sessões em andamento, concluídas ou canceladas retornam `409 Conflict`.
+- **Início de Sessão:**
+  - Somente sessões na situação `Planejada` podem ser iniciadas (`POST /api/sessoes-estudo/{id}/iniciar`). Tentar iniciar uma sessão que já esteja em andamento, concluída ou cancelada retorna `409 Conflict`.
+- **Conclusão de Sessão e Apuração de Duração:**
+  - Somente sessões com situação `EmAndamento` e com `inicioRealEm` registrado podem ser concluídas (`POST /api/sessoes-estudo/{id}/concluir`). O endpoint retorna `409 Conflict` se a sessão estiver planejada, já concluída ou cancelada.
+  - A duração real em minutos é calculada pela diferença inteira arredondada para baixo entre o término e o início: `Math.Max(0, (int)Math.Floor((fim - inicio).TotalMinutes))`.
+- **Cancelamento e Preservação de Tempo Parcial:**
+  - Sessões `Planejada` ou `EmAndamento` podem ser canceladas (`POST /api/sessoes-estudo/{id}/cancelar`). Tentar cancelar uma sessão já concluída ou cancelada retorna `409 Conflict`.
+  - Se a sessão cancelada estava `EmAndamento`, a API calcula e persiste o tempo decorrido até o instante do cancelamento em `duracaoRealMinutos`. Se estava `Planejada`, a duração real permanece `null`.
+- **Preservação de Histórico e Bloqueio de Exclusão:**
+  - O endpoint `DELETE /api/sessoes-estudo/{id}` só permite excluir sessões com situação `Planejada`.
+  - Sessões que já foram iniciadas (`EmAndamento`), concluídas ou canceladas não podem ser excluídas fisicamente, retornando `409 Conflict` (`"Somente sessões planejadas podem ser excluídas. Registros de sessões iniciadas devem ser preservados."`).
+- **Estrutura no Banco de Dados (Migration `20261016233244_AdicionarSessoesEstudo`):**
+  - Tabela `SessoesEstudo`.
+  - Check constraints: `CK_SessoesEstudo_DuracaoPlanejadaPositiva` (`"DuracaoPlanejadaMinutos" > 0`), `CK_SessoesEstudo_DuracaoRealNaoNegativa` (`"DuracaoRealMinutos" IS NULL OR "DuracaoRealMinutos" >= 0`) e `CK_SessoesEstudo_VinculoUnico` (`"DemandaAcademicaId" IS NULL OR "TarefaDemandaId" IS NULL`).
+  - Índices: `IX_SessoesEstudo_DataPlanejada_HoraInicioPlanejada` (composto), `IX_SessoesEstudo_DemandaAcademicaId` e `IX_SessoesEstudo_TarefaDemandaId`.
+
+### Exemplos
+
+#### Criar Sessão de Estudo Vinculada a uma Demanda (`POST /api/sessoes-estudo`)
+
+**Requisição:**
+```json
+{
+  "titulo": "Revisar normalização de bancos de dados",
+  "dataPlanejada": "2026-11-10",
+  "horaInicioPlanejada": "14:00",
+  "duracaoPlanejadaMinutos": 60,
+  "demandaAcademicaId": 1,
+  "tarefaDemandaId": null,
+  "observacoes": "Revisar as três primeiras formas normais (1FN, 2FN, 3FN)"
+}
+```
+
+**Resposta (`201 Created`):**
+```json
+{
+  "id": 1,
+  "titulo": "Revisar normalização de bancos de dados",
+  "dataPlanejada": "2026-11-10",
+  "horaInicioPlanejada": "14:00:00",
+  "duracaoPlanejadaMinutos": 60,
+  "duracaoRealMinutos": null,
+  "situacao": 0,
+  "demandaAcademicaId": 1,
+  "tarefaDemandaId": null,
+  "observacoes": "Revisar as três primeiras formas normais (1FN, 2FN, 3FN)",
+  "criadoEm": "2026-10-16T23:30:00Z",
+  "inicioRealEm": null,
+  "concluidaEm": null,
+  "canceladaEm": null
+}
+```
+
+#### Iniciar Sessão de Estudo (`POST /api/sessoes-estudo/1/iniciar`)
+
+**Resposta (`200 OK`):**
+```json
+{
+  "id": 1,
+  "titulo": "Revisar normalização de bancos de dados",
+  "dataPlanejada": "2026-11-10",
+  "horaInicioPlanejada": "14:00:00",
+  "duracaoPlanejadaMinutos": 60,
+  "duracaoRealMinutos": null,
+  "situacao": 1,
+  "demandaAcademicaId": 1,
+  "tarefaDemandaId": null,
+  "observacoes": "Revisar as três primeiras formas normais (1FN, 2FN, 3FN)",
+  "criadoEm": "2026-10-16T23:30:00Z",
+  "inicioRealEm": "2026-11-10T14:02:15Z",
+  "concluidaEm": null,
+  "canceladaEm": null
+}
+```
+
+#### Concluir Sessão de Estudo (`POST /api/sessoes-estudo/1/concluir`)
+
+**Resposta (`200 OK`):**
+```json
+{
+  "id": 1,
+  "titulo": "Revisar normalização de bancos de dados",
+  "dataPlanejada": "2026-11-10",
+  "horaInicioPlanejada": "14:00:00",
+  "duracaoPlanejadaMinutos": 60,
+  "duracaoRealMinutos": 58,
+  "situacao": 2,
+  "demandaAcademicaId": 1,
+  "tarefaDemandaId": null,
+  "observacoes": "Revisar as três primeiras formas normais (1FN, 2FN, 3FN)",
+  "criadoEm": "2026-10-16T23:30:00Z",
+  "inicioRealEm": "2026-11-10T14:02:15Z",
+  "concluidaEm": "2026-11-10T15:00:45Z",
+  "canceladaEm": null
+}
+```
+
+#### Cancelar Sessão de Estudo (`POST /api/sessoes-estudo/1/cancelar`)
+
+**Resposta (`200 OK`):**
+```json
+{
+  "id": 1,
+  "titulo": "Revisar normalização de bancos de dados",
+  "dataPlanejada": "2026-11-10",
+  "horaInicioPlanejada": "14:00:00",
+  "duracaoPlanejadaMinutos": 60,
+  "duracaoRealMinutos": 25,
+  "situacao": 3,
+  "demandaAcademicaId": 1,
+  "tarefaDemandaId": null,
+  "observacoes": "Revisar as três primeiras formas normais (1FN, 2FN, 3FN)",
+  "criadoEm": "2026-10-16T23:30:00Z",
+  "inicioRealEm": "2026-11-10T14:02:15Z",
+  "concluidaEm": null,
+  "canceladaEm": "2026-11-10T14:27:15Z"
+}
+```
+
+### Códigos de Retorno
+- `200 OK`: Consulta, atualização, início, conclusão ou cancelamento bem-sucedido.
+- `201 Created`: Sessão cadastrada com sucesso (inclui cabeçalho `Location`).
+- `204 NoContent`: Sessão planejada excluída com sucesso.
+- `400 Bad Request`: Dados inválidos (título com menos de 2 caracteres, duração fora da faixa 1-1440, preenchimento simultâneo de demanda e tarefa, ou vínculo referenciando registro inexistente).
+- `404 NotFound`: Sessão de estudo não encontrada pelo `id`.
+- `409 Conflict`: Violação de ciclo de vida (tentativa de editar ou excluir sessão que não está `Planejada`, tentativa de iniciar sessão não `Planejada`, tentativa de concluir sessão que não está `EmAndamento`, ou cancelamento de sessão já finalizada).
+
+---
+
+## 4. Concursos Públicos
 
 Gerenciamento de editais de concursos públicos para estruturação de estudos.
 
@@ -258,7 +459,7 @@ Gerenciamento de editais de concursos públicos para estruturação de estudos.
 
 ---
 
-## 4. Disciplinas do Edital
+## 5. Disciplinas do Edital
 
 Gerenciamento das matérias e disciplinas vinculadas a um concurso público.
 
@@ -286,7 +487,7 @@ Gerenciamento das matérias e disciplinas vinculadas a um concurso público.
 
 ---
 
-## 5. Tópicos e Subtópicos do Edital
+## 6. Tópicos e Subtópicos do Edital
 
 Permite estruturar a árvore de conteúdos programáticos de uma disciplina, suportando tópicos principais e subtópicos aninhados.
 
@@ -342,7 +543,7 @@ Permite estruturar a árvore de conteúdos programáticos de uma disciplina, sup
 
 ---
 
-## 6. Cadernos de Estudo
+## 7. Cadernos de Estudo
 
 Gerenciamento de cadernos temáticos para registro de anotações e consolidação de estudos.
 
@@ -390,7 +591,7 @@ Gerenciamento de cadernos temáticos para registro de anotações e consolidaç�
 
 ---
 
-## 7. Endpoints de Desenvolvimento e Suporte
+## 8. Endpoints de Desenvolvimento e Suporte
 
 Endpoints utilitários disponíveis no pipeline da aplicação:
 

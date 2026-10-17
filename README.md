@@ -29,6 +29,13 @@ Além da gestão de demandas acadêmicas, o sistema contempla a vertical de orga
 - **Sequenciamento automático:** novas tarefas recebem automaticamente a próxima ordem disponível dentro da demanda.
 - **Controle de integridade de ciclo de vida:** impede o cadastro de novas tarefas ou a reabertura de tarefas existentes caso a demanda principal já esteja concluída.
 
+### Sessões de Estudo
+- **Planejamento de blocos de estudo:** registro de sessões com título, data planejada (`DateOnly`), horário de início (`TimeOnly`), duração planejada em minutos (1 a 1440 min) e observações opcionais.
+- **Ciclo de vida e rastreamento temporal:** transições formais de estado entre `Planejada`, `EmAndamento`, `Concluida` e `Cancelada`, com registro de carimbos UTC de início real, conclusão e cancelamento.
+- **Cálculo automático de duração real:** ao concluir ou cancelar uma sessão iniciada (`EmAndamento`), o sistema calcula e persiste a duração real em minutos com base no tempo decorrido.
+- **Vínculos flexíveis e exclusivos:** suporte a vinculação opcional a uma demanda acadêmica ou a uma tarefa de demanda, com garantia de exclusividade mútua (não permite vincular ambos simultaneamente) ou execução avulsa sem vínculo.
+- **Preservação e integridade do histórico:** apenas sessões no estado `Planejada` podem ser editadas ou excluídas fisicamente; sessões iniciadas, concluídas ou canceladas têm seus dados preservados contra exclusão.
+
 ### Editais de Concursos e Cadernos de Estudo
 - **Concursos:** cadastro e gerenciamento completo (CRUD) de concursos, incluindo órgão, banca, número do edital, datas de publicação e de prova.
 - **Disciplinas do edital:** gerenciamento das disciplinas vinculadas a cada concurso, com suporte a ordenação.
@@ -62,6 +69,7 @@ CadernoAtlas/
 │       │   ├── Concursos/
 │       │   ├── DemandasAcademicas/
 │       │   ├── DisciplinasEdital/
+│       │   ├── SessoesEstudo/
 │       │   ├── TarefasDemanda/
 │       │   └── TopicosEdital/
 │       ├── Controllers/          # Endpoints HTTP e coordenação de entrada/saída
@@ -165,6 +173,7 @@ A API é estruturada em torno de controladores RESTful que atendem às duas vert
 - **Demandas Acadêmicas (`/api/demandas-academicas`):** cadastro, atualização e consulta filtrada de compromissos acadêmicos (provas, trabalhos, APG, TCC).
 - **Priorização Adaptativa (`/api/demandas-academicas/priorizadas`):** ordenação determinística de demandas ativas com base em urgência, prazo, importância e situação, acompanhada de justificativa explicável e cálculo temporal pelo fuso horário configurado.
 - **Tarefas de Demandas (`/api/demandas-academicas/{demandaId}/tarefas`):** subdivisão de demandas em ações menores com sequenciamento automático e regras estritas de ciclo de vida.
+- **Sessões de Estudo (`/api/sessoes-estudo`):** planejamento, execução e controle de ciclo de vida de blocos de estudo, com cálculo de tempo real, suporte a cancelamento e vinculação exclusiva a demandas ou tarefas.
 - **Concursos Públicos (`/api/concursos`):** gerenciamento de concursos, órgãos, bancas e datas de publicação/prova.
 - **Disciplinas do Edital (`/api/concursos/{concursoId}/disciplinas`):** matérias vinculadas a concursos públicos.
 - **Tópicos e Subtópicos (`/api/concursos/{concursoId}/disciplinas/{disciplinaId}/topicos`):** árvore hierárquica de conteúdos programáticos com acompanhamento de status de estudo e validação contra ciclos.
@@ -189,7 +198,7 @@ dotnet test .\CadernoAtlas.slnx
 ```
 
 **Resultado verificado da suíte:**
-- **68 testes aprovados**, 0 falhas, 0 ignorados.
+- **78 testes aprovados**, 0 falhas, 0 ignorados.
 
 ---
 
@@ -202,7 +211,8 @@ dotnet test .\CadernoAtlas.slnx
 - [x] Sub-recurso de Tarefas com controle estrito de ciclo de vida e integridade.
 - [x] Algoritmo determinístico de priorização com justificativas legíveis.
 - [x] Gestão de fuso horário configurável na inicialização (`America/Sao_Paulo`).
-- [x] Suíte automatizada de testes com 68 testes aprovados.
+- [x] Sessões de Estudo com ciclo de vida (`Planejada`, `EmAndamento`, `Concluida`, `Cancelada`), cálculo de duração real e vínculos exclusivos.
+- [x] Suíte automatizada de testes com 78 testes aprovados.
 
 ### Planejado para Evoluções Futuras
 - [ ] Módulo de planejamento semanal adaptativo baseado em disponibilidade real do estudante.

@@ -164,6 +164,76 @@ namespace CadernoAtlas.Api.Data.Migrations
                     b.ToTable("DisciplinasEdital");
                 });
 
+            modelBuilder.Entity("CadernoAtlas.Api.Models.SessaoEstudo", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime?>("CanceladaEm")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("ConcluidaEm")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("CriadoEm")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateOnly>("DataPlanejada")
+                        .HasColumnType("date");
+
+                    b.Property<int?>("DemandaAcademicaId")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("DuracaoPlanejadaMinutos")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("DuracaoRealMinutos")
+                        .HasColumnType("integer");
+
+                    b.Property<TimeOnly>("HoraInicioPlanejada")
+                        .HasColumnType("time without time zone");
+
+                    b.Property<DateTime?>("InicioRealEm")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Observacoes")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<string>("Situacao")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<int?>("TarefaDemandaId")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Titulo")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("DemandaAcademicaId");
+
+                    b.HasIndex("TarefaDemandaId");
+
+                    b.HasIndex("DataPlanejada", "HoraInicioPlanejada");
+
+                    b.ToTable("SessoesEstudo", t =>
+                        {
+                            t.HasCheckConstraint("CK_SessoesEstudo_DuracaoPlanejadaPositiva", "\"DuracaoPlanejadaMinutos\" > 0");
+
+                            t.HasCheckConstraint("CK_SessoesEstudo_DuracaoRealNaoNegativa", "\"DuracaoRealMinutos\" IS NULL OR \"DuracaoRealMinutos\" >= 0");
+
+                            t.HasCheckConstraint("CK_SessoesEstudo_VinculoUnico", "\"DemandaAcademicaId\" IS NULL OR \"TarefaDemandaId\" IS NULL");
+                        });
+                });
+
             modelBuilder.Entity("CadernoAtlas.Api.Models.TarefaDemanda", b =>
                 {
                     b.Property<int>("Id")
@@ -247,6 +317,23 @@ namespace CadernoAtlas.Api.Data.Migrations
                         .IsRequired();
 
                     b.Navigation("Concurso");
+                });
+
+            modelBuilder.Entity("CadernoAtlas.Api.Models.SessaoEstudo", b =>
+                {
+                    b.HasOne("CadernoAtlas.Api.Models.DemandaAcademica", "DemandaAcademica")
+                        .WithMany()
+                        .HasForeignKey("DemandaAcademicaId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("CadernoAtlas.Api.Models.TarefaDemanda", "TarefaDemanda")
+                        .WithMany()
+                        .HasForeignKey("TarefaDemandaId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("DemandaAcademica");
+
+                    b.Navigation("TarefaDemanda");
                 });
 
             modelBuilder.Entity("CadernoAtlas.Api.Models.TarefaDemanda", b =>
