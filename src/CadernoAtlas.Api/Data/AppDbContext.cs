@@ -10,6 +10,8 @@ public class AppDbContext : DbContext
     {
     }
 
+    public DbSet<SessaoEstudo> SessoesEstudo => Set<SessaoEstudo>();
+
     public DbSet<DemandaAcademica> DemandasAcademicas => Set<DemandaAcademica>();
 
     public DbSet<TarefaDemanda> TarefasDemanda => Set<TarefaDemanda>();
@@ -84,6 +86,52 @@ public class AppDbContext : DbContext
             {
                 x.DemandaAcademicaId,
                 x.Ordem
+            });
+        });
+
+        modelBuilder.Entity<SessaoEstudo>(entity =>
+        {
+            entity.ToTable(t =>
+            {
+                t.HasCheckConstraint(
+                    "CK_SessoesEstudo_DuracaoPlanejadaPositiva",
+                    "\"DuracaoPlanejadaMinutos\" > 0");
+
+                t.HasCheckConstraint(
+                    "CK_SessoesEstudo_DuracaoRealNaoNegativa",
+                    "\"DuracaoRealMinutos\" IS NULL OR \"DuracaoRealMinutos\" >= 0");
+
+                t.HasCheckConstraint(
+                    "CK_SessoesEstudo_VinculoUnico",
+                    "\"DemandaAcademicaId\" IS NULL OR \"TarefaDemandaId\" IS NULL");
+            });
+
+            entity.Property(x => x.Titulo)
+                .HasMaxLength(150)
+                .IsRequired();
+
+            entity.Property(x => x.Observacoes)
+                .HasMaxLength(1000);
+
+            entity.Property(x => x.Situacao)
+                .HasConversion<string>()
+                .HasMaxLength(20)
+                .IsRequired();
+
+            entity.HasOne(x => x.DemandaAcademica)
+                .WithMany()
+                .HasForeignKey(x => x.DemandaAcademicaId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            entity.HasOne(x => x.TarefaDemanda)
+                .WithMany()
+                .HasForeignKey(x => x.TarefaDemandaId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            entity.HasIndex(x => new
+            {
+                x.DataPlanejada,
+                x.HoraInicioPlanejada
             });
         });
 
