@@ -36,6 +36,12 @@ Além da gestão de demandas acadêmicas, o sistema contempla a vertical de orga
 - **Vínculos flexíveis e exclusivos:** suporte a vinculação opcional a uma demanda acadêmica ou a uma tarefa de demanda, com garantia de exclusividade mútua (não permite vincular ambos simultaneamente) ou execução avulsa sem vínculo.
 - **Preservação e integridade do histórico:** apenas sessões no estado `Planejada` podem ser editadas ou excluídas fisicamente; sessões iniciadas, concluídas ou canceladas têm seus dados preservados contra exclusão.
 
+### Disponibilidades de Estudo
+- **Registro de horários disponíveis:** cadastro de janelas de tempo dedicáveis ao estudo com data (`DateOnly`), horário inicial (`TimeOnly`) e horário final (`TimeOnly`).
+- **Validação temporal:** exigência de que o horário de término seja estritamente posterior ao de início, tanto na camada de aplicação quanto por restrição de integridade no banco de dados (`CHECK constraint`).
+- **Prevenção de sobreposição:** rejeição com código `409 Conflict` caso o novo intervalo colida com uma disponibilidade já cadastrada na mesma data (intervalos consecutivos são permitidos).
+- **Consulta filtrada e ordenação:** listagem com filtros opcionais por período (`dataDe` e `dataAte`) e ordenação cronológica por data, horário de início e identificador.
+
 ### Editais de Concursos e Cadernos de Estudo
 - **Concursos:** cadastro e gerenciamento completo (CRUD) de concursos, incluindo órgão, banca, número do edital, datas de publicação e de prova.
 - **Disciplinas do edital:** gerenciamento das disciplinas vinculadas a cada concurso, com suporte a ordenação.
@@ -69,6 +75,7 @@ CadernoAtlas/
 │       │   ├── Concursos/
 │       │   ├── DemandasAcademicas/
 │       │   ├── DisciplinasEdital/
+│       │   ├── DisponibilidadesEstudo/
 │       │   ├── SessoesEstudo/
 │       │   ├── TarefasDemanda/
 │       │   └── TopicosEdital/
@@ -174,6 +181,7 @@ A API é estruturada em torno de controladores RESTful que atendem às duas vert
 - **Priorização Adaptativa (`/api/demandas-academicas/priorizadas`):** ordenação determinística de demandas ativas com base em urgência, prazo, importância e situação, acompanhada de justificativa explicável e cálculo temporal pelo fuso horário configurado.
 - **Tarefas de Demandas (`/api/demandas-academicas/{demandaId}/tarefas`):** subdivisão de demandas em ações menores com sequenciamento automático e regras estritas de ciclo de vida.
 - **Sessões de Estudo (`/api/sessoes-estudo`):** planejamento, execução e controle de ciclo de vida de blocos de estudo, com cálculo de tempo real, suporte a cancelamento e vinculação exclusiva a demandas ou tarefas.
+- **Disponibilidades de Estudo (`/api/disponibilidades-estudo`):** cadastro e consulta filtrada de janelas livres de estudo por período, com validação de horários e prevenção de sobreposição.
 - **Concursos Públicos (`/api/concursos`):** gerenciamento de concursos, órgãos, bancas e datas de publicação/prova.
 - **Disciplinas do Edital (`/api/concursos/{concursoId}/disciplinas`):** matérias vinculadas a concursos públicos.
 - **Tópicos e Subtópicos (`/api/concursos/{concursoId}/disciplinas/{disciplinaId}/topicos`):** árvore hierárquica de conteúdos programáticos com acompanhamento de status de estudo e validação contra ciclos.
@@ -198,7 +206,7 @@ dotnet test .\CadernoAtlas.slnx
 ```
 
 **Resultado verificado da suíte:**
-- **78 testes aprovados**, 0 falhas, 0 ignorados.
+- **86 testes aprovados**, 0 falhas, 0 ignorados.
 
 ---
 
@@ -212,7 +220,8 @@ dotnet test .\CadernoAtlas.slnx
 - [x] Algoritmo determinístico de priorização com justificativas legíveis.
 - [x] Gestão de fuso horário configurável na inicialização (`America/Sao_Paulo`).
 - [x] Sessões de Estudo com ciclo de vida (`Planejada`, `EmAndamento`, `Concluida`, `Cancelada`), cálculo de duração real e vínculos exclusivos.
-- [x] Suíte automatizada de testes com 78 testes aprovados.
+- [x] Disponibilidades de Estudo com validação de período, ordenação cronológica e prevenção de sobreposição.
+- [x] Suíte automatizada de testes com 86 testes aprovados.
 
 ### Planejado para Evoluções Futuras
 - [ ] Módulo de planejamento semanal adaptativo baseado em disponibilidade real do estudante.

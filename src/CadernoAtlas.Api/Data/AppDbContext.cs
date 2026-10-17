@@ -10,6 +10,8 @@ public class AppDbContext : DbContext
     {
     }
 
+    public DbSet<DisponibilidadeEstudo> DisponibilidadesEstudo => Set<DisponibilidadeEstudo>();
+
     public DbSet<SessaoEstudo> SessoesEstudo => Set<SessaoEstudo>();
 
     public DbSet<DemandaAcademica> DemandasAcademicas => Set<DemandaAcademica>();
@@ -132,6 +134,19 @@ public class AppDbContext : DbContext
             {
                 x.DataPlanejada,
                 x.HoraInicioPlanejada
+            });
+        });
+
+        modelBuilder.Entity<DisponibilidadeEstudo>(entity =>
+        {
+            entity.ToTable(t => t.HasCheckConstraint(
+                "CK_DisponibilidadesEstudo_HoraFimPosteriorInicio",
+                "\"HoraFim\" > \"HoraInicio\""));
+
+            entity.HasIndex(x => new
+            {
+                x.Data,
+                x.HoraInicio
             });
         });
 
