@@ -140,14 +140,14 @@ A suíte deve cobrir explicitamente:
 - Rollback integral em caso de conflito no banco;
 - Constraint de exclusão do PostgreSQL: respeita as mesmas situações (impede sobreposição apenas entre sessões `Planejada` e `EmAndamento`, deixando `Concluida` e `Cancelada` fora) e permite intervalos consecutivos `[início, fim)`.
 
-Os testes existentes que usam SQLite continuam cobrindo regras gerais sem regressões. Os testes com SQLite não devem ser apresentados como substitutos do teste da constraint. A constraint de exclusão tem testes de integração na categoria PostgreSQL; uma execução anterior observou 8 testes aprovados, mas esse resultado não constitui uma nova execução desta revisão nem comprova a reprodução de uma falha real de serialização `40001` no endpoint de confirmação. A estratégia de infraestrutura de CI para garantir esse banco de teste permanece pendente, sem manter duas estratégias de ciclo de vida do banco redundantes.
+Os testes existentes que usam SQLite continuam cobrindo regras gerais sem regressões. Os testes com SQLite não devem ser apresentados como substitutos do teste da constraint. A constraint de exclusão tem testes de integração na categoria PostgreSQL; a execução local informada em 18/10/2026 observou 11 testes aprovados, sem falhas ou testes ignorados. O workflow atual provisiona PostgreSQL 16 e banco dedicado para os testes; conforme resultado de CI informado para 18/10/2026, a execução terminou com sucesso ([workflow run 39132920598](https://github.com/Joaoptoaldo/CadernoAtlas/actions/runs/39132920598)). Continua pendente a reprodução de uma falha real de serialização `40001` no endpoint de confirmação.
 
 ## Estado de implementação e verificação
 
 - A prévia `GET /api/planejamento-semanal/previa` está implementada com leitura de demandas, tarefas, disponibilidades e sessões ativas, cálculo first-fit e resposta sem persistência.
 - A confirmação `POST /api/planejamento-semanal/confirmar` está implementada com revalidação do fingerprint, assinatura HMAC, transação serializável, persistência atômica e tratamento controlado dos códigos `23P01` e `40001`.
 - Conforme confirmação recebida, a migration `20261017182658_ImpedirSobreposicaoSessoesAtivas` foi aplicada ao banco local `cadernoatlas` via script SQL. O tratamento de `40001` está implementado, mas não há evidência de reprodução de uma falha real de serialização concorrente no endpoint de confirmação.
-- A fixture PostgreSQL chama `MigrateAsync()` no banco informado pela variável exclusiva e rejeita nomes que não terminem em `_test`; a execução necessária deve usar o banco dedicado `cadernoatlas_test`. A cobertura em CI também permanece pendente.
+- A fixture PostgreSQL chama `MigrateAsync()` no banco informado pela variável exclusiva e rejeita nomes que não terminem em `_test`; use o banco dedicado `cadernoatlas_test`. O workflow provisiona PostgreSQL para essa suíte, e, conforme resultado informado para 18/10/2026, a execução terminou com sucesso ([workflow run 39132920598](https://github.com/Joaoptoaldo/CadernoAtlas/actions/runs/39132920598)). Ainda não há reprodução específica de `40001` durante a confirmação do planejamento.
 
 ## Critérios de aceitação
 
@@ -161,7 +161,7 @@ Os testes existentes que usam SQLite continuam cobrindo regras gerais sem regres
 - **CA-8 — Prévia:** gerar uma prévia não grava sessões nem outras alterações no banco.
 - **CA-9 — Confirmação:** uma proposta válida grava todas as sessões em uma única transação; proposta stale, divergente ou conflitante é rejeitada integralmente, sem gravação parcial.
 - **CA-10 — Compatibilidade:** demandas, tarefas, disponibilidades e sessões existentes continuam funcionando; a alteração reutiliza `SessaoEstudo` em vez de criar uma tabela paralela de sessões planejadas.
-- **CA-11 — PostgreSQL real:** os testes de integração da constraint de exclusão existem; uma execução anterior observou 8 testes aprovados, mas esse resultado não constitui uma nova execução desta revisão. A execução deve usar o banco dedicado `cadernoatlas_test`, e não há evidência de reprodução de uma falha real de serialização `40001` no endpoint de confirmação.
+- **CA-11 — PostgreSQL real:** os testes de integração da constraint de exclusão existem; a execução local informada em 18/10/2026 observou 11 aprovados, 0 falhas e 0 ignorados. O workflow provisiona PostgreSQL 16 e, conforme resultado de CI informado para a mesma data, a execução terminou com sucesso ([workflow run 39132920598](https://github.com/Joaoptoaldo/CadernoAtlas/actions/runs/39132920598)). Use o banco dedicado `cadernoatlas_test`. Ainda não há reprodução específica de uma falha real de serialização `40001` no endpoint de confirmação.
 
 ## Consequências
 
