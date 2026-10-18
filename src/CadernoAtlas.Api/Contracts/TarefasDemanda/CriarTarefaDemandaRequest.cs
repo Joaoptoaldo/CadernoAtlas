@@ -11,6 +11,9 @@ public sealed class CriarTarefaDemandaRequest : IValidatableObject
     [StringLength(1000)]
     public string? Descricao { get; init; }
 
+    [Range(1, int.MaxValue)]
+    public int? EsforcoEstimadoMinutos { get; init; }
+
     public IEnumerable<ValidationResult> Validate(
         ValidationContext validationContext)
     {

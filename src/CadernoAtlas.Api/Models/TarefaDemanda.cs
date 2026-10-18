@@ -15,6 +15,8 @@ public class TarefaDemanda
 
     public int Ordem { get; set; }
 
+    public int? EsforcoEstimadoMinutos { get; set; }
+
     public SituacaoTarefaDemanda Situacao { get; set; }
         = SituacaoTarefaDemanda.Pendente;
 }

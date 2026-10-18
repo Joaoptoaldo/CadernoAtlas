@@ -42,6 +42,14 @@ Além da gestão de demandas acadêmicas, o sistema contempla a vertical de orga
 - **Prevenção de sobreposição:** rejeição com código `409 Conflict` caso o novo intervalo colida com uma disponibilidade já cadastrada na mesma data (intervalos consecutivos são permitidos).
 - **Consulta filtrada e ordenação:** listagem com filtros opcionais por período (`dataDe` e `dataAte`) e ordenação cronológica por data, horário de início e identificador.
 
+### Planejamento Semanal
+- **Prévia stateless:** `GET /api/planejamento-semanal/previa` recebe uma segunda-feira e devolve alocações calculadas sem persistir sessões.
+- **Confirmação transacional:** `POST /api/planejamento-semanal/confirmar` revalida a proposta e persiste as alocações válidas como sessões planejadas.
+- **Alocação determinística:** atividades elegíveis são ordenadas por prioridade e alocadas em estratégia first-fit, usando disponibilidades da semana, sem dividir uma atividade entre intervalos.
+- **Motivos explícitos:** toda atividade elegível é retornada como alocada ou não alocada, com motivo e descrição quando não houver espaço, estimativa válida ou disponibilidade compatível.
+- **Integridade temporal:** sessões `Planejada` e `EmAndamento` reservam horário no cálculo e possuem constraint global de não sobreposição no PostgreSQL; sessões concluídas ou canceladas não bloqueiam novos horários.
+- **Estado de verificação:** a migration `20261017182658_ImpedirSobreposicaoSessoesAtivas` foi aplicada ao banco local `cadernoatlas` via script SQL, conforme confirmação recebida. O tratamento do erro PostgreSQL `40001` está implementado na confirmação, mas não há evidência de reprodução de uma falha real de serialização concorrente nesse endpoint. Para validar a constraint e os cenários PostgreSQL, use o banco dedicado `cadernoatlas_test` (consulte `docs/testes-postgresql.md`).
+
 ### Editais de Concursos e Cadernos de Estudo
 - **Concursos:** cadastro e gerenciamento completo (CRUD) de concursos, incluindo órgão, banca, número do edital, datas de publicação e de prova.
 - **Disciplinas do edital:** gerenciamento das disciplinas vinculadas a cada concurso, com suporte a ordenação.
@@ -57,7 +65,7 @@ Além da gestão de demandas acadêmicas, o sistema contempla a vertical de orga
 - **Acesso a Dados:** Entity Framework Core 10
 - **Banco de Dados Principal:** PostgreSQL (via provedor `Npgsql.EntityFrameworkCore.PostgreSQL`)
 - **Documentação de API:** OpenAPI nativo do ASP.NET Core (`Microsoft.AspNetCore.OpenApi`)
-- **Testes Automatizados:** xUnit, `Microsoft.AspNetCore.Mvc.Testing` e SQLite em memória (`Microsoft.EntityFrameworkCore.Sqlite`)
+- **Testes Automatizados:** xUnit, `Microsoft.AspNetCore.Mvc.Testing`, SQLite em memória (`Microsoft.EntityFrameworkCore.Sqlite`) e testes específicos para PostgreSQL
 
 ---
 
@@ -112,36 +120,11 @@ Para compilar e executar o projeto localmente, são necessários:
 
 ## Configuração do Banco de Dados e Segredos
 
-As configurações não secretas de conexão estão definidas em `src/CadernoAtlas.Api/appsettings.json`:
+Em ambiente `Development`, [Program.cs](src/CadernoAtlas.Api/Program.cs) carrega um arquivo `.env` local sem sobrescrever variáveis já existentes. O arquivo é ignorado pelo Git, conforme `.gitignore`, e não deve ser versionado. A API obtém a conexão pela chave `ConnectionStrings:DefaultConnection`; em variáveis de ambiente, essa chave é escrita como `ConnectionStrings__DefaultConnection`.
 
-```json
-{
-  "FusoHorario": "America/Sao_Paulo",
-  "Database": {
-    "Host": "127.0.0.1",
-    "Port": 5432,
-    "Name": "cadernoatlas",
-    "Username": "cadernoatlas_app"
-  }
-}
-```
+Não registre senhas, URLs privadas ou strings de conexão em arquivos versionados, logs, exemplos ou documentação. O arquivo `.env` deve conter apenas valores locais e permanecer fora do controle de versão.
 
-A senha do banco de dados **não** deve ser inserida em arquivos versionados. O projeto utiliza o gerenciador de segredos do .NET (`User Secrets`) em desenvolvimento:
-
-1. Defina a senha do banco no cofre do projeto:
-   ```bash
-   dotnet user-secrets set "Database:Password" "sua_senha_aqui" --project src/CadernoAtlas.Api
-   ```
-
-2. Crie o banco de dados no PostgreSQL (caso ainda não exista) com usuário correspondente:
-   ```sql
-   CREATE DATABASE cadernoatlas;
-   ```
-
-3. Aplique as migrações existentes para criar a estrutura de tabelas:
-   ```bash
-   dotnet ef database update --project src/CadernoAtlas.Api
-   ```
+O fluxo completo de configuração do ambiente, geração e aplicação revisada de migrations está documentado em [docs/ambiente-postgresql.md](docs/ambiente-postgresql.md). Ele também diferencia a conexão da API, a conexão direta usada por `psql` para scripts e a conexão exclusiva dos testes PostgreSQL.
 
 ---
 
@@ -186,6 +169,7 @@ A API é estruturada em torno de controladores RESTful que atendem às duas vert
 - **Disciplinas do Edital (`/api/concursos/{concursoId}/disciplinas`):** matérias vinculadas a concursos públicos.
 - **Tópicos e Subtópicos (`/api/concursos/{concursoId}/disciplinas/{disciplinaId}/topicos`):** árvore hierárquica de conteúdos programáticos com acompanhamento de status de estudo e validação contra ciclos.
 - **Cadernos de Estudo (`/api/cadernos`):** cadernos temáticos para consolidação de resumos e anotações.
+- **Diagnóstico local (`/_dev/database-check`):** em ambiente `Development`, verifica se a API consegue conectar ao banco configurado e retorna `200` ou `503`.
 
 Para consultar a documentação completa com todas as rotas, parâmetros, exemplos de requisição/resposta, códigos de status e regras de integridade:
 
@@ -197,7 +181,7 @@ Para consultar a documentação completa com todas as rotas, parâmetros, exempl
 
 A solução possui uma suíte de testes de integração e testes unitários cobrindo fluxos felizes, casos de borda, validações de entrada e regras de integridade.
 
-Os testes de integração utilizam `CustomWebApplicationFactory`, substituindo a conexão PostgreSQL por um banco SQLite em memória (`Data Source=:memory:`). Com isso, a suíte de testes é totalmente determinística e **não requer** uma instância ativa do PostgreSQL para ser executada.
+Os testes de integração HTTP utilizam `CustomWebApplicationFactory`, substituindo a conexão PostgreSQL por um banco SQLite em memória (`Data Source=:memory:`). A categoria PostgreSQL é separada porque SQLite não implementa a constraint de exclusão GiST usada para impedir sobreposição de sessões ativas.
 
 ### Executando os testes
 
@@ -205,8 +189,7 @@ Os testes de integração utilizam `CustomWebApplicationFactory`, substituindo a
 dotnet test .\CadernoAtlas.slnx
 ```
 
-**Resultado verificado da suíte:**
-- **86 testes aprovados**, 0 falhas, 0 ignorados.
+Os testes PostgreSQL exigem a variável `CADERNOATLAS_POSTGRES_TEST_CONNECTION_STRING` apontando para o banco descartável dedicado `cadernoatlas_test`. A fixture mantém a proteção que rejeita bancos cujo nome não termina em `_test`. Consulte [docs/testes-postgresql.md](docs/testes-postgresql.md) antes de executar essa categoria. A execução dessa categoria e a reprodução de uma falha real de serialização `40001` devem ser verificadas separadamente; os testes SQLite não substituem essa validação.
 
 ---
 
@@ -221,13 +204,16 @@ dotnet test .\CadernoAtlas.slnx
 - [x] Gestão de fuso horário configurável na inicialização (`America/Sao_Paulo`).
 - [x] Sessões de Estudo com ciclo de vida (`Planejada`, `EmAndamento`, `Concluida`, `Cancelada`), cálculo de duração real e vínculos exclusivos.
 - [x] Disponibilidades de Estudo com validação de período, ordenação cronológica e prevenção de sobreposição.
-- [x] Suíte automatizada de testes com 86 testes aprovados.
+- [x] Prévia de planejamento semanal com alocação determinística, motivos de não alocação e sem persistência.
+- [x] Confirmação semanal com revalidação da proposta, fingerprint, assinatura HMAC, transação serializável e criação atômica de sessões planejadas.
+- [x] Constraint PostgreSQL para impedir sobreposição entre sessões `Planejada` e `EmAndamento`; a migration foi aplicada ao banco local `cadernoatlas` via script SQL, conforme confirmação recebida. Uma execução anterior observou 8 testes PostgreSQL aprovados, mas esse resultado não é uma nova execução desta tarefa nem comprova a reprodução de uma falha real de serialização `40001`.
 
 ### Planejado para Evoluções Futuras
-- [ ] Módulo de planejamento semanal adaptativo baseado em disponibilidade real do estudante.
 - [ ] Suporte a atividades recorrentes e replanejamento com redistribuição de carga horária.
 - [ ] Autenticação e autorização multiusuário (contas e isolamento de dados).
 - [ ] Interface visual / front-end web integrado à API.
+
+O número de testes aprovados deve ser registrado somente após uma execução verificável; esta documentação não afirma uma contagem de testes executados.
 
 ---
 

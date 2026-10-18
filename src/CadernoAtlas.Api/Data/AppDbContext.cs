@@ -33,8 +33,8 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<DemandaAcademica>(entity =>
         {
             entity.ToTable(t => t.HasCheckConstraint(
-                "CK_DemandasAcademicas_EsforcoNaoNegativo",
-                "\"EsforcoEstimadoMinutos\" IS NULL OR \"EsforcoEstimadoMinutos\" >= 0"));
+                "CK_DemandasAcademicas_EsforcoPositivo",
+                "\"EsforcoEstimadoMinutos\" IS NULL OR \"EsforcoEstimadoMinutos\" > 0"));
 
             entity.Property(x => x.Titulo)
                 .HasMaxLength(150)
@@ -63,9 +63,16 @@ public class AppDbContext : DbContext
 
         modelBuilder.Entity<TarefaDemanda>(entity =>
         {
-            entity.ToTable(t => t.HasCheckConstraint(
-                "CK_TarefasDemanda_OrdemNaoNegativa",
-                "\"Ordem\" >= 0"));
+            entity.ToTable(t =>
+            {
+                t.HasCheckConstraint(
+                    "CK_TarefasDemanda_OrdemNaoNegativa",
+                    "\"Ordem\" >= 0");
+
+                t.HasCheckConstraint(
+                    "CK_TarefasDemanda_EsforcoNaoNegativo",
+                    "\"EsforcoEstimadoMinutos\" IS NULL OR \"EsforcoEstimadoMinutos\" > 0");
+            });
 
             entity.Property(x => x.Titulo)
                 .HasMaxLength(150)

@@ -15,6 +15,9 @@ public sealed class AtualizarTarefaDemandaRequest : IValidatableObject
     [Range(0, int.MaxValue)]
     public int Ordem { get; init; }
 
+    [Range(1, int.MaxValue)]
+    public int? EsforcoEstimadoMinutos { get; init; }
+
     public SituacaoTarefaDemanda Situacao { get; init; }
         = SituacaoTarefaDemanda.Pendente;
 

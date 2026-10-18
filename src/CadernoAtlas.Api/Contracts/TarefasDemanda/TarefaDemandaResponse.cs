@@ -8,5 +8,6 @@ public sealed record TarefaDemandaResponse(
     string Titulo,
     string? Descricao,
     int Ordem,
+    int? EsforcoEstimadoMinutos,
     SituacaoTarefaDemanda Situacao
   );

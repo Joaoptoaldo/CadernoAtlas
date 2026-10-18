@@ -46,6 +46,7 @@ public sealed class TarefasDemandaController : ControllerBase
                 tarefa.Titulo,
                 tarefa.Descricao,
                 tarefa.Ordem,
+                tarefa.EsforcoEstimadoMinutos,
                 tarefa.Situacao))
             .ToListAsync(cancellationToken);
 
@@ -69,6 +70,7 @@ public sealed class TarefasDemandaController : ControllerBase
                 tarefa.Titulo,
                 tarefa.Descricao,
                 tarefa.Ordem,
+                tarefa.EsforcoEstimadoMinutos,
                 tarefa.Situacao))
             .FirstOrDefaultAsync(cancellationToken);
 
@@ -116,7 +118,8 @@ public sealed class TarefasDemandaController : ControllerBase
             DemandaAcademicaId = demandaId,
             Titulo = request.Titulo.Trim(),
             Descricao = NormalizarOpcional(request.Descricao),
-            Ordem = (ultimaOrdem ?? -1) + 1
+            Ordem = (ultimaOrdem ?? -1) + 1,
+            EsforcoEstimadoMinutos = request.EsforcoEstimadoMinutos
         };
 
         _dbContext.TarefasDemanda.Add(tarefa);
@@ -171,6 +174,7 @@ public sealed class TarefasDemandaController : ControllerBase
         tarefa.Titulo = request.Titulo.Trim();
         tarefa.Descricao = NormalizarOpcional(request.Descricao);
         tarefa.Ordem = request.Ordem;
+        tarefa.EsforcoEstimadoMinutos = request.EsforcoEstimadoMinutos;
         tarefa.Situacao = request.Situacao;
 
         await _dbContext.SaveChangesAsync(cancellationToken);
@@ -212,6 +216,7 @@ public sealed class TarefasDemandaController : ControllerBase
             tarefa.Titulo,
             tarefa.Descricao,
             tarefa.Ordem,
+            tarefa.EsforcoEstimadoMinutos,
             tarefa.Situacao);
     }
 

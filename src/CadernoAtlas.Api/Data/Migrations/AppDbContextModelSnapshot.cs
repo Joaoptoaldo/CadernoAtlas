@@ -134,7 +134,7 @@ namespace CadernoAtlas.Api.Data.Migrations
 
                     b.ToTable("DemandasAcademicas", t =>
                         {
-                            t.HasCheckConstraint("CK_DemandasAcademicas_EsforcoNaoNegativo", "\"EsforcoEstimadoMinutos\" IS NULL OR \"EsforcoEstimadoMinutos\" >= 0");
+                            t.HasCheckConstraint("CK_DemandasAcademicas_EsforcoPositivo", "\"EsforcoEstimadoMinutos\" IS NULL OR \"EsforcoEstimadoMinutos\" > 0");
                         });
                 });
 
@@ -279,6 +279,9 @@ namespace CadernoAtlas.Api.Data.Migrations
                         .HasMaxLength(1000)
                         .HasColumnType("character varying(1000)");
 
+                    b.Property<int?>("EsforcoEstimadoMinutos")
+                        .HasColumnType("integer");
+
                     b.Property<int>("Ordem")
                         .HasColumnType("integer");
 
@@ -298,6 +301,8 @@ namespace CadernoAtlas.Api.Data.Migrations
 
                     b.ToTable("TarefasDemanda", t =>
                         {
+                            t.HasCheckConstraint("CK_TarefasDemanda_EsforcoNaoNegativo", "\"EsforcoEstimadoMinutos\" IS NULL OR \"EsforcoEstimadoMinutos\" > 0");
+
                             t.HasCheckConstraint("CK_TarefasDemanda_OrdemNaoNegativa", "\"Ordem\" >= 0");
                         });
                 });
