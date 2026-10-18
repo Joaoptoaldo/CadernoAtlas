@@ -121,6 +121,79 @@ public sealed class PostgreSqlSessoesEstudoEndpointTests(
     }
 
     [Fact]
+    public async Task CriarSessoesSobrepostasConcorrentemente_ApenasUmaEhCriada()
+    {
+        using var factory = new PostgreSqlWebApplicationFactory(
+            fixture.ConnectionString);
+        using var client = factory.CreateClient();
+
+        var data = NovaData();
+        var identificador = Guid.NewGuid().ToString("N");
+        var tituloA = $"Sessão concorrente A {identificador}";
+        var tituloB = $"Sessão concorrente B {identificador}";
+
+        try
+        {
+            // Inicia as duas requisições sem aguardar a primeira terminar.
+            var requisicaoA = client.PostAsJsonAsync(
+                "/api/sessoes-estudo",
+                CriarRequest(
+                    tituloA,
+                    data,
+                    new TimeOnly(9, 0),
+                    60));
+
+            var requisicaoB = client.PostAsJsonAsync(
+                "/api/sessoes-estudo",
+                CriarRequest(
+                    tituloB,
+                    data,
+                    new TimeOnly(9, 30),
+                    60));
+
+            var respostas = await Task.WhenAll(
+                requisicaoA,
+                requisicaoB);
+
+            Assert.Equal(
+                1,
+                respostas.Count(
+                    resposta => resposta.StatusCode == HttpStatusCode.Created));
+
+            Assert.Equal(
+                1,
+                respostas.Count(
+                    resposta => resposta.StatusCode == HttpStatusCode.Conflict));
+
+            var conflito = Assert.Single(
+                respostas,
+                resposta => resposta.StatusCode == HttpStatusCode.Conflict);
+
+            var problema = await conflito.Content
+                .ReadFromJsonAsync<ProblemDetails>();
+
+            Assert.Equal("Sessão sobreposta.", problema?.Title);
+
+            // Confirma que apenas uma das sessões foi persistida.
+            await using var dbContext = fixture.CreateDbContext();
+
+            var sessoesPersistidas = await dbContext.SessoesEstudo
+                .CountAsync(sessao =>
+                    sessao.Titulo == tituloA ||
+                    sessao.Titulo == tituloB);
+
+            Assert.Equal(1, sessoesPersistidas);
+        }
+        finally
+        {
+            await RemoverSessoesAsync(
+                fixture,
+                tituloA,
+                tituloB);
+        }
+    }
+
+    [Fact]
     public async Task AtualizarSessaoSobreposta_RetornaConflict()
     {
         using var factory = new PostgreSqlWebApplicationFactory(
