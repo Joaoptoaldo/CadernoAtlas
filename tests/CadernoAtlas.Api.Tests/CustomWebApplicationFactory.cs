@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Hosting;
 using System.Data.Common;
 using CadernoAtlas.Api.Data;
 using Microsoft.AspNetCore.Hosting;
@@ -14,6 +15,30 @@ namespace CadernoAtlas.Api.Tests;
 public sealed class CustomWebApplicationFactory
     : WebApplicationFactory<Program>
 {
+    private readonly TimeProvider? _timeProvider;
+
+    public CustomWebApplicationFactory(TimeProvider? timeProvider = null)
+    {
+        _timeProvider = timeProvider;
+    }
+
+    protected override IHost CreateHost(IHostBuilder builder)
+    {
+        builder.ConfigureHostConfiguration(configuration =>
+        {
+            configuration.AddInMemoryCollection(
+                new Dictionary<string, string?>
+                {
+                    ["ConnectionStrings:DefaultConnection"] =
+                        "Host=127.0.0.1;Port=5432;Database=cadernoatlas_test;Username=test;Password=test",
+
+                    ["PlanejamentoSemanal:ChaveHmac"] =
+                        "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8="
+                });
+        });
+
+        return base.CreateHost(builder);
+    }
 
     public async Task InicializarBancoAsync()
     {
@@ -40,6 +65,12 @@ public sealed class CustomWebApplicationFactory
 
         builder.ConfigureServices(services =>
         {
+            if (_timeProvider is not null)
+            {
+                services.RemoveAll<TimeProvider>();
+                services.AddSingleton(_timeProvider);
+            }
+
             services.RemoveAll<
                 IDbContextOptionsConfiguration<AppDbContext>>();
 

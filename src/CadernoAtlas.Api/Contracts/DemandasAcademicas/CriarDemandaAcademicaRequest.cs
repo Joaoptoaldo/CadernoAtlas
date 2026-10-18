@@ -20,7 +20,7 @@ public sealed class CriarDemandaAcademicaRequest : IValidatableObject
     public ImportanciaDemandaAcademica Importancia { get; init; }
         = ImportanciaDemandaAcademica.Media;
 
-    [Range(0, int.MaxValue)]
+    [Range(1, int.MaxValue)]
     public int? EsforcoEstimadoMinutos { get; init; }
 
     public IEnumerable<ValidationResult> Validate(

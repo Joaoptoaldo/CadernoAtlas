@@ -1,12 +1,25 @@
 using CadernoAtlas.Api.Data;
+using CadernoAtlas.Api.Services;
 using Microsoft.EntityFrameworkCore;
-using Npgsql;
+
+var environmentName =
+    Environment.GetEnvironmentVariable("DOTNET_ENVIRONMENT")
+    ?? Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT");
+
+if (string.Equals(
+    environmentName,
+    "Development",
+    StringComparison.OrdinalIgnoreCase))
+{
+    DotNetEnv.Env.NoClobber().TraversePath().Load();
+}
 
 var builder = WebApplication.CreateBuilder(args);
 
 // Serviços da API.
 builder.Services.AddControllers();
 builder.Services.AddOpenApi();
+builder.Services.AddSingleton<TimeProvider>(TimeProvider.System);
 
 // Fuso horário usado para determinar a data atual na priorização.
 var fusoHorarioId = builder.Configuration["FusoHorario"]
@@ -27,41 +40,28 @@ catch (TimeZoneNotFoundException)
 }
 
 builder.Services.AddSingleton(fusoHorario);
+builder.Services.AddSingleton<PlanejadorSemanal>();
 
+var chaveHmac = builder.Configuration[
+    "PlanejamentoSemanal:ChaveHmac"];
 
-// Lê as configurações não secretas.
-var databaseHost = builder.Configuration["Database:Host"]
-    ?? throw new InvalidOperationException(
-        "Configuração ausente: Database:Host");
-
-var databasePort = builder.Configuration.GetValue<int?>("Database:Port")
-    ?? throw new InvalidOperationException(
-        "Configuração ausente: Database:Port");
-
-var databaseName = builder.Configuration["Database:Name"]
-    ?? throw new InvalidOperationException(
-        "Configuração ausente: Database:Name");
-
-var databaseUsername = builder.Configuration["Database:Username"]
-    ?? throw new InvalidOperationException(
-        "Configuração ausente: Database:Username");
-
-// A senha vem do User Secrets durante o desenvolvimento.
-var databasePassword = builder.Configuration["Database:Password"]
-    ?? throw new InvalidOperationException(
-        "Configuração ausente: Database:Password");
-
-// Monta a connection string sem concatenar manualmente os valores.
-var connectionStringBuilder = new NpgsqlConnectionStringBuilder
+if (string.IsNullOrWhiteSpace(chaveHmac))
 {
-    Host = databaseHost,
-    Port = databasePort,
-    Database = databaseName,
-    Username = databaseUsername,
-    Password = databasePassword
-};
+    throw new InvalidOperationException(
+        "A chave HMAC do planejamento semanal não foi configurada.");
+}
 
-var connectionString = connectionStringBuilder.ConnectionString;
+builder.Services.AddSingleton(
+    new PlanejamentoSemanalPropostaIdService(chaveHmac));
+
+var connectionString =
+    builder.Configuration.GetConnectionString("DefaultConnection");
+
+if (string.IsNullOrWhiteSpace(connectionString))
+{
+    throw new InvalidOperationException(
+        "A connection string 'DefaultConnection' não foi configurada.");
+}
 
 // Registra o contexto com o provedor PostgreSQL.
 builder.Services.AddDbContext<AppDbContext>(options =>

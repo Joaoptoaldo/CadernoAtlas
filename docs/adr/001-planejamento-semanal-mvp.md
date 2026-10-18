@@ -14,7 +14,7 @@ O planejador será uma lógica de aplicação determinística. Dadas as mesmas d
 
 As atividades serão ordenadas conforme a regra de prioridade descrita na seção **Ordenação de atividades**. Para cada atividade, o algoritmo percorre os intervalos livres em ordem cronológica e usa o primeiro intervalo contínuo que comporte toda a duração estimada. Não divide uma atividade entre intervalos e não arredonda sua duração para blocos fixos.
 
-A duração é expressa em minutos inteiros e deve ser maior que zero. Não haverá duração mínima artificial no MVP. Uma atividade que não caiba em nenhum intervalo fica não alocada; as demais continuam sendo processadas.
+A duração é expressa em minutos inteiros e deve ser maior que zero. Não haverá duração mínima artificial no MVP. Uma atividade que não caiba em nenhum intervalo fica não alocada; as demais continuam sendo processadas. A implementação atual valida estimativas informadas como maiores que zero nos contratos HTTP de demandas e tarefas, além de manter a distinção para dados legados no planejador.
 
 Intervalos de disponibilidade sobrepostos ou consecutivos no mesmo dia serão normalizados como uma união de intervalos antes da alocação, para que a mesma capacidade horária não seja contada duas vezes e para que uma tarefa possa ocupar um período contínuo formado por disponibilidades consecutivas.
 
@@ -22,7 +22,7 @@ Intervalos de disponibilidade sobrepostos ou consecutivos no mesmo dia serão no
 
 O planejador não chamará `DateTime.Now`, `DateTime.UtcNow` ou equivalentes internamente.
 
-A API HTTP receberá apenas `InicioSemana`. O controller obterá o instante atual por `TimeProvider` e construirá o comando interno `PlanejarSemanaRequest`, que conterá `InicioSemana` e `Agora` (`DateTimeOffset`). Assim, `Agora` é preenchido pelo servidor, não aceito como campo de entrada controlado pelo cliente na criação da prévia.
+A API HTTP recebe apenas `InicioSemana` na prévia implementada. O controller obtém o instante atual por `TimeProvider` e constrói o comando interno `PlanejarSemanaRequest`, que contém `InicioSemana` e `Agora` (`DateTimeOffset`). Assim, `Agora` é preenchido pelo servidor, não aceito como campo de entrada controlado pelo cliente na criação da prévia.
 
 Em execução real, o relógio será `TimeProvider.System`. Testes passarão um instante fixo. O planejador converterá esse instante para o fuso horário configurado da aplicação, cujo valor padrão é `America/Sao_Paulo`, para determinar a data local e o limite a partir do qual ainda é possível alocar sessões.
 
@@ -43,7 +43,7 @@ A unidade de planejamento será determinada assim:
 
 Uma demanda com tarefas não será contabilizada também como atividade, mesmo que tenha esforço estimado, para impedir dupla contagem. As sessões confirmadas serão vinculadas ao `TarefaId` para atividades que representam tarefas e ao `DemandaId` para atividades que representam demandas sem tarefas, respeitando a regra de vínculo exclusivo já existente na entidade `SessaoEstudo`.
 
-A implementação deverá adicionar `EsforcoEstimadoMinutos` opcional à tarefa, com validação coerente com o requisito de planejamento (valor informado maior que zero). A validação do esforço da demanda deverá ser alinhada para não aceitar zero como estimativa planejável. Esforço ausente e esforço inválido serão distinguidos no resultado.
+`EsforcoEstimadoMinutos` foi adicionado como campo opcional à tarefa, com validação coerente com o requisito de planejamento (valor informado maior que zero). A validação do esforço da demanda também não aceita zero. Esforço ausente e esforço inválido continuam distintos no resultado para proteger o planejador contra dados legados.
 
 ### D4. Ordenação de atividades
 
@@ -62,9 +62,18 @@ Quando uma demanda é representada por tarefas, suas tarefas herdam a posição 
 
 ### D5. Alocação e intervalos livres
 
-O planejador descontará das disponibilidades todas as sessões existentes cuja situação seja diferente de `Cancelada`, bem como as sessões que já propôs durante a execução do próprio algoritmo. As sessões não podem exceder o intervalo de disponibilidade usado para alocá-las.
+Para o cálculo de intervalos livres, o planejador considerará o estado das sessões existentes:
 
-Todos os intervalos serão tratados como períodos locais de calendário, expressos por data e hora local. Os intervalos serão semiabertos `[início, fim)`: duas sessões em que a primeira termina exatamente quando a segunda começa são consecutivas, não sobrepostas.
+- Sessões com situação `Planejada` e `EmAndamento`: reservam horário e têm seus intervalos descontados das disponibilidades de estudo.
+- Sessões com situação `Concluida` e `Cancelada`: não reservam horário e não bloqueiam a agenda.
+- Sessões propostas pelo próprio algoritmo também consomem os intervalos livres durante a execução da prévia, impedindo que múltiplas atividades recebam o mesmo horário.
+
+As sessões não podem exceder o intervalo de disponibilidade usado para alocá-las. Todos os intervalos serão tratados como períodos locais de calendário, expressos por data e hora local. Os intervalos serão semiabertos `[início, fim)`: duas sessões em que a primeira termina exatamente quando a segunda começa são consecutivas, não sobrepostas.
+
+Além da ocupação de horário, aplica-se a regra de prevenção de duplicidade de atividade: uma demanda ou tarefa que já possua sessão em situação `Planejada` ou `EmAndamento`, vinculada à mesma atividade, não deve ser proposta novamente como uma nova alocação. Essa regra trata da duplicidade da atividade e estabelece que:
+- A sessão ativa (`Planejada` ou `EmAndamento`) já representa o agendamento daquela atividade no calendário.
+- A atividade não deve receber uma segunda alocação na prévia.
+- Concluir uma sessão não conclui automaticamente a tarefa ou a demanda vinculada; a elegibilidade de novas alocações continua dependendo da situação da própria tarefa ou demanda, segundo as regras de D3.
 
 Uma tarefa de 45 minutos pode ocupar uma janela de 60 minutos, usando os primeiros 45 minutos. Uma tarefa de 70 minutos não cabe em uma janela de 60 minutos, mas poderá ocupar uma janela posterior de 90 minutos. O intervalo anterior de 60 minutos continuará disponível para atividades menores. Não haverá divisão automática de tarefas longas.
 
@@ -85,43 +94,74 @@ A classificação do motivo será feita de modo determinístico, avaliando dispo
 
 ### D7. Integridade global de não sobreposição no PostgreSQL
 
-Como o modelo atual não possui `estudante_id` nem outro identificador de proprietário de calendário, a constraint será **global para toda a aplicação**: duas sessões não canceladas não podem ter períodos planejados sobrepostos, independentemente da demanda ou tarefa a que estejam vinculadas. Esta é uma decisão consciente para o modelo atual e deve ser reavaliada quando houver calendário por usuário.
+Como o modelo atual não possui `estudante_id` nem outro identificador de proprietário de calendário, a constraint será **global para toda a aplicação**: a constraint deve impedir a sobreposição entre períodos de sessões com situação `Planejada` e `EmAndamento`, independentemente da demanda ou tarefa a que estejam vinculadas. Sessões `Concluida` e `Cancelada` devem ficar fora da constraint. Esta é uma decisão consciente para o modelo atual e deve ser reavaliada quando houver calendário por usuário.
 
-A garantia definitiva será aplicada no PostgreSQL por uma constraint de exclusão GiST que detecta sobreposição (`&&`) sobre um intervalo calculado a partir de `DataPlanejada`, `HoraInicioPlanejada` e `DuracaoPlanejadaMinutos`, usando limites `[início, fim)`. A constraint excluirá sessões com situação `Cancelada`. A forma exata da expressão e a migration deverão ser verificadas no modelo real antes de aplicar; não será presumida uma coluna `Periodo` inexistente.
+A garantia definitiva foi implementada no PostgreSQL por uma constraint de exclusão GiST que detecta sobreposição (`&&`) sobre um intervalo calculado a partir de `DataPlanejada`, `HoraInicioPlanejada` e `DuracaoPlanejadaMinutos`, usando limites `[início, fim)`. A constraint incide apenas sobre sessões ativas (`Planejada` e `EmAndamento`), deixando sessões com situação `Concluida` e `Cancelada` fora da constraint (por meio de predicado suportado pelo PostgreSQL em exclusion constraints). A expressão real está registrada na migration `20261017182658_ImpedirSobreposicaoSessoesAtivas`; não é presumida uma coluna `Periodo` inexistente.
 
-A validação da API continuará sendo usada para retornar uma mensagem de conflito compreensível, mas não substituirá a constraint do banco. A confirmação do planejamento deverá gravar todas as sessões em uma única transação. Se a constraint ou outra validação detectar conflito, a transação inteira será revertida, sem gravação parcial. Um teste de integração deve verificar a constraint contra PostgreSQL real; SQLite não é substituto suficiente para validar esse comportamento específico.
+A validação da API é usada para retornar uma mensagem de conflito compreensível, mas não substitui a constraint do banco. Conforme confirmação recebida, a migration foi aplicada ao banco local `cadernoatlas` via script SQL. A confirmação do planejamento grava todas as sessões em uma única transação serializável. Se a constraint ou outra validação detectar conflito, a transação inteira é revertida, sem gravação parcial. SQLite não é substituto suficiente para validar esse comportamento específico.
 
 ### D8. Prévia stateless e confirmação integral
 
 A prévia não será persistida no banco e não exigirá uma tabela `PreviaPlanejamento`. A API devolverá a proposta completa, incluindo semana, instante de referência, alocações e itens não alocados. O cliente enviará essa proposta de volta para confirmação.
 
+A consulta da prévia será `GET /api/planejamento-semanal/previa?inicioSemana=yyyy-MM-dd`. Como a operação somente lê os dados atuais e calcula uma resposta sem persistir a proposta, `GET` mantém a semântica de consulta. A entrada HTTP contém somente `InicioSemana`; `Agora` é obtido pelo servidor por meio de `TimeProvider`.
+
 A confirmação não confiará cegamente no payload recebido. O servidor carregará novamente as demandas, tarefas, disponibilidades e sessões, recalculará a proposta a partir dos dados enviados e do `Agora` original da prévia, e verificará que as alocações recebidas correspondem à proposta determinística recalculada. Também verificará, usando o instante atual real, que nenhuma sessão proposta começou ou passou a estar no passado.
 
 Se a disponibilidade ou os registros relevantes tiverem mudado, a proposta enviada divergir do resultado recalculado ou algum horário deixar de ser válido, a API recusará a confirmação inteira com `409 Conflict`, sem persistir sessões, e solicitará uma nova prévia. Se estiver válida, gravará todas as sessões propostas na mesma transação. A constraint global de não sobreposição do PostgreSQL permanece como última linha de defesa contra concorrência.
 
-O estudante poderá confirmar ou descartar a proposta. Edição das alocações ainda na prévia fica fora do MVP; depois da confirmação, as sessões seguem os endpoints existentes de gerenciamento de `SessaoEstudo`. O desenho final das rotas e DTOs HTTP deverá preservar esse contrato sem expor `Agora` como campo de entrada livre na criação da prévia.
+O estudante poderá confirmar ou descartar a proposta. Edição das alocações ainda na prévia fica fora do MVP; depois da confirmação, as sessões seguem os endpoints existentes de gerenciamento de `SessaoEstudo`. O contrato implementado preserva essa separação sem expor `Agora` como campo de entrada livre na criação da prévia.
 
 ### D9. Testes e validação
 
-O contrato deverá ser coberto por testes automatizados antes da implementação do algoritmo. Os testes do algoritmo deverão usar dados e relógio fixos, sem depender da data real do computador.
+O contrato é coberto por testes automatizados. Os testes do algoritmo usam dados e relógio fixos, sem depender da data real do computador.
 
-A suíte deve cobrir: limites da semana e fuso horário; elegibilidade sem dupla contagem; todos os critérios de prioridade e desempate; intervalos menores, iguais e maiores que a duração; normalização de disponibilidades consecutivas/sobrepostas; limite de horários passados; todos os códigos de não alocação; sobrecarga; sessões existentes; intervalos consecutivos; rejeição de sobreposição; prévia sem persistência; confirmação integral; conflito entre prévia e confirmação; e rollback integral em caso de conflito no banco.
+A suíte deve cobrir explicitamente:
+- Limites da semana e fuso horário;
+- Elegibilidade sem dupla contagem entre demanda e tarefas;
+- Não duplicidade: atividade que já possui sessão ativa vinculada (`Planejada` ou `EmAndamento`) não é proposta novamente;
+- Independência de conclusão: concluir uma sessão, por si só, não conclui a demanda ou tarefa; a elegibilidade continua dependendo da situação da própria tarefa ou demanda;
+- Todos os critérios de prioridade e desempate;
+- Intervalos menores, iguais e maiores que a duração estimada;
+- Normalização de disponibilidades consecutivas e sobrepostas;
+- Limite de horários passados e corte a partir de `Agora`;
+- Alocação e bloqueio de horários por sessões existentes:
+  - Sessão `Planejada` bloqueia o horário ocupado;
+  - Sessão `EmAndamento` bloqueia o horário ocupado;
+  - Sessão `Concluida` não bloqueia o horário;
+  - Sessão `Cancelada` não bloqueia o horário;
+- Intervalos consecutivos permitidos sem conflito;
+- Todos os códigos de não alocação da lista fechada;
+- Sobrecarga e capacidade consumida por atividades prioritárias;
+- Rejeição de sobreposição pela API e pelo banco;
+- Prévia sem persistência;
+- Confirmação integral e verificação de que sessões propostas permanecem no futuro;
+- Conflito entre prévia e confirmação gerando recusa total;
+- Rollback integral em caso de conflito no banco;
+- Constraint de exclusão do PostgreSQL: respeita as mesmas situações (impede sobreposição apenas entre sessões `Planejada` e `EmAndamento`, deixando `Concluida` e `Cancelada` fora) e permite intervalos consecutivos `[início, fim)`.
 
-Os testes existentes que usam SQLite devem continuar cobrindo regras gerais sem regressões. A constraint de exclusão deve ter teste de integração que execute contra PostgreSQL real. A estratégia de infraestrutura de CI para garantir um PostgreSQL de teste será definida antes de implementar esse teste, sem manter duas estratégias de ciclo de vida do banco redundantes.
+Os testes existentes que usam SQLite continuam cobrindo regras gerais sem regressões. Os testes com SQLite não devem ser apresentados como substitutos do teste da constraint. A constraint de exclusão tem testes de integração na categoria PostgreSQL; uma execução anterior observou 8 testes aprovados, mas esse resultado não constitui uma nova execução desta revisão nem comprova a reprodução de uma falha real de serialização `40001` no endpoint de confirmação. A estratégia de infraestrutura de CI para garantir esse banco de teste permanece pendente, sem manter duas estratégias de ciclo de vida do banco redundantes.
+
+## Estado de implementação e verificação
+
+- A prévia `GET /api/planejamento-semanal/previa` está implementada com leitura de demandas, tarefas, disponibilidades e sessões ativas, cálculo first-fit e resposta sem persistência.
+- A confirmação `POST /api/planejamento-semanal/confirmar` está implementada com revalidação do fingerprint, assinatura HMAC, transação serializável, persistência atômica e tratamento controlado dos códigos `23P01` e `40001`.
+- Conforme confirmação recebida, a migration `20261017182658_ImpedirSobreposicaoSessoesAtivas` foi aplicada ao banco local `cadernoatlas` via script SQL. O tratamento de `40001` está implementado, mas não há evidência de reprodução de uma falha real de serialização concorrente no endpoint de confirmação.
+- A fixture PostgreSQL chama `MigrateAsync()` no banco informado pela variável exclusiva e rejeita nomes que não terminem em `_test`; a execução necessária deve usar o banco dedicado `cadernoatlas_test`. A cobertura em CI também permanece pendente.
 
 ## Critérios de aceitação
 
 - **CA-1 — Semana:** o planejador aceita somente um `InicioSemana` que seja segunda-feira local. A semana considera `[segunda 00:00, segunda seguinte 00:00)` e nenhuma disponibilidade fora desse intervalo entra no resultado.
 - **CA-2 — Hora atual:** dado um `Agora` fixo, o corte para novas alocações é o próximo minuto completo que não seja anterior ao instante local de referência. Em testes, o resultado independe do relógio real.
-- **CA-3 — Elegibilidade:** uma demanda sem tarefas gera no máximo uma atividade; uma demanda com tarefas gera somente atividades para suas tarefas ativas; demandas concluídas/canceladas e tarefas concluídas não são alocadas.
+- **CA-3 — Elegibilidade e não duplicidade:** uma demanda sem tarefas gera no máximo uma atividade; uma demanda com tarefas gera somente atividades para suas tarefas ativas; demandas concluídas ou canceladas e tarefas concluídas não são alocadas. Uma demanda ou tarefa que já possua sessão ativa (`Planejada` ou `EmAndamento`) vinculada não é proposta novamente na prévia. Concluir uma sessão, por si só, não conclui a demanda ou tarefa vinculada.
 - **CA-4 — Prioridade:** para entradas idênticas, o planejador produz a mesma ordem conforme todos os critérios e desempates descritos em D4.
 - **CA-5 — First-fit:** cada atividade é alocada inteira no primeiro intervalo contínuo livre cronologicamente que a comporta, sem arredondamento, divisão ou consumo de intervalos insuficientes.
 - **CA-6 — Não alocadas:** toda atividade elegível que não for alocada aparece uma vez, com um código de motivo da lista fechada em D6.
-- **CA-7 — Não sobreposição:** sessões consecutivas são permitidas; períodos sobrepostos são recusados pela API e pelo PostgreSQL. Sessões canceladas não bloqueiam horários.
+- **CA-7 — Não sobreposição:** sessões `Planejada` e `EmAndamento` com períodos sobrepostos devem ser recusadas pela API e pelo PostgreSQL; sessões consecutivas devem ser permitidas; sessões `Concluida` e `Cancelada` não reservam horário nem participam da constraint.
 - **CA-8 — Prévia:** gerar uma prévia não grava sessões nem outras alterações no banco.
 - **CA-9 — Confirmação:** uma proposta válida grava todas as sessões em uma única transação; proposta stale, divergente ou conflitante é rejeitada integralmente, sem gravação parcial.
 - **CA-10 — Compatibilidade:** demandas, tarefas, disponibilidades e sessões existentes continuam funcionando; a alteração reutiliza `SessaoEstudo` em vez de criar uma tabela paralela de sessões planejadas.
-- **CA-11 — PostgreSQL real:** existe teste de integração executado contra PostgreSQL real para comprovar a constraint de exclusão.
+- **CA-11 — PostgreSQL real:** os testes de integração da constraint de exclusão existem; uma execução anterior observou 8 testes aprovados, mas esse resultado não constitui uma nova execução desta revisão. A execução deve usar o banco dedicado `cadernoatlas_test`, e não há evidência de reprodução de uma falha real de serialização `40001` no endpoint de confirmação.
 
 ## Consequências
 

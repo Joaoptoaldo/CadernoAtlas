@@ -15,7 +15,8 @@ Este documento descreve detalhadamente todos os endpoints HTTP implementados na 
 7. [Disciplinas do Edital](#6-disciplinas-do-edital)
 8. [Tópicos e Subtópicos do Edital](#7-tópicos-e-subtópicos-do-edital)
 9. [Cadernos de Estudo](#8-cadernos-de-estudo)
-10. [Endpoints de Desenvolvimento e Suporte](#9-endpoints-de-desenvolvimento-e-suporte)
+10. [Planejamento Semanal](#9-planejamento-semanal)
+11. [Endpoints de Desenvolvimento e Suporte](#10-endpoints-de-desenvolvimento-e-suporte)
 
 ---
 
@@ -57,7 +58,7 @@ Representa compromissos e entregas acadêmicas (provas, trabalhos, atividades de
 
 ### Regras de Negócio
 - **Conclusão de Demanda:** Uma demanda não pode ser atualizada para `Concluida` se ainda possuir tarefas vinculadas com situação `Pendente` ou `EmAndamento`. Caso tente, a API retorna `400 Bad Request`.
-- **Esforço Estimado:** Quando informado, deve ser um número inteiro maior ou igual a zero (minutos).
+- **Esforço Estimado:** Quando informado, deve ser um número inteiro maior que zero (minutos). O campo pode ser omitido quando a estimativa ainda não estiver disponível.
 - **Priorização Determinística (`/priorizadas`):**
   - Considera apenas demandas em situação `Pendente` ou `EmAndamento`.
   - A data de referência ("hoje") é calculada convertendo o instante atual UTC para o fuso horário configurado na aplicação (`America/Sao_Paulo` por padrão).
@@ -151,6 +152,7 @@ Tarefas representam etapas menores e executáveis necessárias para o cumpriment
 - **Bloqueio de Reabertura:** Não é permitido alterar a situação de uma tarefa para `Pendente` ou `EmAndamento` caso a demanda pai esteja `Concluida` (`409 Conflict`). A demanda deve ser reaberta primeiro.
 - **Sequenciamento Automático:** Ao criar uma tarefa, o sistema calcula automaticamente o campo `Ordem` como o próximo valor incremental disponível (`ultimaOrdem + 1`).
 - **Valores de Situação:** `Pendente`, `EmAndamento`, `Concluida`.
+- **Esforço estimado:** `esforcoEstimadoMinutos` é opcional, mas quando informado deve ser um inteiro maior que zero. A resposta inclui o mesmo campo; ele pode ser `null` para tarefas sem estimativa.
 
 ### Exemplos
 
@@ -160,7 +162,8 @@ Tarefas representam etapas menores e executáveis necessárias para o cumpriment
 ```json
 {
   "titulo": "Revisar introdução e objetivos",
-  "descricao": "Adequar às normas ABNT"
+  "descricao": "Adequar às normas ABNT",
+  "esforcoEstimadoMinutos": 45
 }
 ```
 
@@ -172,6 +175,7 @@ Tarefas representam etapas menores e executáveis necessárias para o cumpriment
   "titulo": "Revisar introdução e objetivos",
   "descricao": "Adequar às normas ABNT",
   "ordem": 0,
+  "esforcoEstimadoMinutos": 45,
   "situacao": "Pendente"
 }
 ```
@@ -184,6 +188,7 @@ Tarefas representam etapas menores e executáveis necessárias para o cumpriment
   "titulo": "Revisar introdução e objetivos",
   "descricao": "Adequar às normas ABNT",
   "ordem": 0,
+  "esforcoEstimadoMinutos": 45,
   "situacao": "Concluida"
 }
 ```
@@ -711,7 +716,137 @@ Gerenciamento de cadernos temáticos para registro de anotações e consolidaç�
 
 ---
 
-## 9. Endpoints de Desenvolvimento e Suporte
+## 9. Planejamento Semanal
+
+A prévia semanal calcula uma proposta com as demandas e tarefas ativas, as disponibilidades cadastradas e as sessões que já reservam horário. A operação é somente de leitura: nenhuma sessão ou outra entidade é criada, atualizada ou excluída.
+
+### Rota
+
+| Método | Caminho | Finalidade |
+|---|---|---|
+| `GET` | `/api/planejamento-semanal/previa?inicioSemana=yyyy-MM-dd` | Calcular uma prévia determinística para a semana informada. |
+
+### Parâmetro de Consulta
+
+| Parâmetro | Tipo | Obrigatório | Descrição |
+|---|---|---|---|
+| `inicioSemana` | `DateOnly` | Sim | Data no formato estrito `yyyy-MM-dd`; deve ser uma segunda-feira. |
+
+O instante de referência não é aceito pelo cliente. O controller obtém `TimeProvider.GetUtcNow()` no servidor e o resultado devolve esse valor em `agora`. O planejador converte o instante para o fuso configurado (`America/Sao_Paulo` por padrão) para determinar a data local e não propor horários já passados. Portanto, duas chamadas em instantes diferentes podem produzir resultados diferentes.
+
+### Regras de cálculo
+
+- Demandas `Pendente` ou `EmAndamento` são elegíveis. Demandas com tarefas são representadas apenas por tarefas ativas; uma demanda sem tarefas é representada por ela própria.
+- Tarefas e demandas sem esforço estimado aparecem como não alocadas com `EstimativaAusente`. Valores zero ou negativos em dados legados aparecem com `EstimativaInvalida`; novos payloads aceitam somente valores maiores que zero.
+- Disponibilidades são limitadas aos sete dias da semana informada, de segunda-feira inclusiva até a segunda-feira seguinte exclusiva. Intervalos consecutivos ou sobrepostos são unidos.
+- Sessões `Planejada` e `EmAndamento` descontam seus horários. Sessões `Concluida` e `Cancelada` não bloqueiam a prévia.
+- Uma atividade que já possui sessão ativa vinculada não é proposta novamente.
+- Cada atividade é colocada inteira no primeiro intervalo contínuo cronológico que comporte sua duração. O resultado não divide atividades entre intervalos.
+
+### Resposta (`200 OK`)
+
+```json
+{
+  "inicioSemana": "2026-10-19",
+  "agora": "2026-10-19T11:00:00+00:00",
+  "propostaId": "hmac-sha256:<assinatura-hexadecimal-de-64-caracteres>",
+  "alocacoes": [
+    {
+      "demandaAcademicaId": 1,
+      "tarefaDemandaId": null,
+      "titulo": "Preparar prova",
+      "dataPlanejada": "2026-10-19",
+      "horaInicio": "09:00:00",
+      "duracaoPlanejadaMinutos": 60
+    }
+  ],
+  "naoAlocadas": [
+    {
+      "demandaAcademicaId": null,
+      "tarefaDemandaId": 2,
+      "titulo": "Revisar bibliografia",
+      "motivo": 0,
+      "descricao": "A atividade não possui estimativa de duração."
+    }
+  ]
+}
+```
+
+`demandaAcademicaId` é preenchido para atividades que representam demandas sem tarefas; `tarefaDemandaId` é preenchido para atividades que representam tarefas. O enum `motivo` é serializado numericamente pelo contrato atual: `0` `EstimativaAusente`, `1` `EstimativaInvalida`, `2` `SemDisponibilidadeNaSemana`, `3` `DuracaoMaiorQueQualquerDisponibilidade`, `4` `HorarioOcupadoPorSessaoExistente` e `5` `CapacidadeConsumidaPorAtividadesPrioritarias`.
+
+### Motivos de não alocação
+
+O motivo diferencia ausência de estimativa, estimativa inválida, ausência de disponibilidade, intervalos menores que a atividade, horários ocupados por sessões existentes e capacidade consumida por atividades priorizadas anteriormente. Toda atividade elegível aparece exatamente uma vez em `alocacoes` ou `naoAlocadas`; nenhuma confirmação de sessão é feita por este endpoint.
+
+### Códigos de Retorno
+
+- `200 OK`: prévia calculada com alocações e itens não alocados.
+- `400 Bad Request`: `inicioSemana` ausente, malformado, diferente de segunda-feira ou uma semana que ultrapasse o último dia representável.
+
+### Confirmação da proposta
+
+| Método | Caminho | Finalidade |
+|---|---|---|
+| `POST` | `/api/planejamento-semanal/confirmar` | Revalidar e persistir uma proposta de planejamento semanal. |
+
+O corpo da requisição usa os campos de `ConfirmarPlanejamentoSemanalRequest`:
+
+```json
+{
+  "inicioSemana": "2026-10-19",
+  "agora": "2026-10-19T11:00:00+00:00",
+  "propostaId": "hmac-sha256:<assinatura-hexadecimal-de-64-caracteres>",
+  "alocacoes": [
+    {
+      "demandaAcademicaId": 1,
+      "tarefaDemandaId": null,
+      "titulo": "Preparar prova",
+      "dataPlanejada": "2026-10-19",
+      "horaInicio": "12:00:00",
+      "duracaoPlanejadaMinutos": 60
+    }
+  ]
+}
+```
+
+O servidor recarrega os dados de origem, recalcula o fingerprint e valida a assinatura HMAC-SHA256 da proposta. Também compara todos os campos das alocações recebidas com as alocações recalculadas. Alocações nulas, adulteradas ou cujo início já não esteja no futuro são rejeitadas. A confirmação persiste exclusivamente as alocações recalculadas e validadas, criando uma `SessaoEstudo` em situação `Planejada` para cada item.
+
+Uma prévia não persiste sessões. A confirmação válida persiste todas as sessões em uma transação serializável. A resposta retorna as sessões efetivamente criadas:
+
+```json
+{
+  "inicioSemana": "2026-10-19",
+  "agora": "2026-10-19T11:00:00+00:00",
+  "sessoesCriadas": [
+    {
+      "id": 1,
+      "titulo": "Preparar prova",
+      "dataPlanejada": "2026-10-19",
+      "horaInicioPlanejada": "12:00:00",
+      "duracaoPlanejadaMinutos": 60,
+      "duracaoRealMinutos": null,
+      "situacao": 0,
+      "demandaAcademicaId": 1,
+      "tarefaDemandaId": null,
+      "observacoes": null,
+      "criadoEm": "2026-10-19T14:00:00Z",
+      "inicioRealEm": null,
+      "concluidaEm": null,
+      "canceladaEm": null
+    }
+  ]
+}
+```
+
+### Códigos de Retorno
+
+- `200 OK`: proposta validada e sessões criadas.
+- `400 Bad Request`: campos obrigatórios ausentes ou inválidos, incluindo alocações nulas.
+- `409 Conflict`: identificador ou fingerprint inválido, proposta adulterada ou desatualizada, alocação que deixou de estar no futuro, violação da constraint de sobreposição `23P01` ou conflito de serialização `40001`.
+
+---
+
+## 10. Endpoints de Desenvolvimento e Suporte
 
 Endpoints utilitários disponíveis no pipeline da aplicação:
 

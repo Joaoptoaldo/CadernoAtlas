@@ -3,6 +3,7 @@ using CadernoAtlas.Api.Data;
 using CadernoAtlas.Api.Models;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
 
 namespace CadernoAtlas.Api.Controllers;
 
@@ -99,7 +100,15 @@ public sealed class SessoesEstudoController : ControllerBase
 
         _context.SessoesEstudo.Add(sessao);
 
-        await _context.SaveChangesAsync(cancellationToken);
+        try
+        {
+            await _context.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateException excecao)
+            when (EhViolacaoDeSobreposicao(excecao))
+        {
+            return Conflict(ObterProblemaDeSobreposicao());
+        }
 
         return CreatedAtAction(
             nameof(ObterPorId),
@@ -144,9 +153,45 @@ public sealed class SessoesEstudoController : ControllerBase
         sessao.TarefaDemandaId = request.TarefaDemandaId;
         sessao.Observacoes = NormalizarOpcional(request.Observacoes);
 
-        await _context.SaveChangesAsync(cancellationToken);
+        try
+        {
+            await _context.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateException excecao)
+            when (EhViolacaoDeSobreposicao(excecao))
+        {
+            return Conflict(ObterProblemaDeSobreposicao());
+        }
 
         return Ok(ParaResposta(sessao));
+    }
+
+    private static bool EhViolacaoDeSobreposicao(Exception excecao)
+    {
+        for (Exception? atual = excecao;
+            atual is not null;
+            atual = atual.InnerException)
+        {
+            if (atual is PostgresException postgresException
+                && postgresException.SqlState == "23P01"
+                && postgresException.ConstraintName
+                    == "EX_SessoesEstudo_SemSobreposicaoAtiva")
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static ProblemDetails ObterProblemaDeSobreposicao()
+    {
+        return new ProblemDetails
+        {
+            Title = "Sessão sobreposta.",
+            Detail = "Já existe uma sessão de estudo ativa que se sobrepõe ao intervalo informado.",
+            Status = StatusCodes.Status409Conflict
+        };
     }
 
     [HttpPost("{id:int}/iniciar")]

@@ -5,6 +5,7 @@ using CadernoAtlas.Api.Models;
 using CadernoAtlas.Api.Data;
 using CadernoAtlas.Api.Services;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace CadernoAtlas.Api.Tests;
@@ -435,6 +436,148 @@ public class DemandasAcademicasTests
             request);
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task PostDemanda_ComEsforcoZero_RetornaBadRequest()
+    {
+        using var factory = new CustomWebApplicationFactory();
+        await factory.InicializarBancoAsync();
+        using var client = factory.CreateClient();
+
+        var request = new CriarDemandaAcademicaRequest
+        {
+            Titulo = "Preparar apresentação",
+            EsforcoEstimadoMinutos = 0
+        };
+
+        var response = await client.PostAsJsonAsync(
+            "/api/demandas-academicas",
+            request);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task PutDemanda_ComEsforcoZero_RetornaBadRequest()
+    {
+        using var factory = new CustomWebApplicationFactory();
+        await factory.InicializarBancoAsync();
+        using var client = factory.CreateClient();
+
+        var criacao = await client.PostAsJsonAsync(
+            "/api/demandas-academicas",
+            new CriarDemandaAcademicaRequest
+            {
+                Titulo = "Demanda teste",
+                EsforcoEstimadoMinutos = 60
+            });
+
+        var criada = await criacao.Content.ReadFromJsonAsync<DemandaAcademicaResponse>();
+        Assert.NotNull(criada);
+
+        var response = await client.PutAsJsonAsync(
+            $"/api/demandas-academicas/{criada.Id}",
+            new AtualizarDemandaAcademicaRequest
+            {
+                Titulo = criada.Titulo,
+                EsforcoEstimadoMinutos = 0,
+                Situacao = SituacaoDemandaAcademica.Pendente
+            });
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task PutDemanda_ComEsforcoNegativo_RetornaBadRequest()
+    {
+        using var factory = new CustomWebApplicationFactory();
+        await factory.InicializarBancoAsync();
+        using var client = factory.CreateClient();
+
+        var criacao = await client.PostAsJsonAsync(
+            "/api/demandas-academicas",
+            new CriarDemandaAcademicaRequest
+            {
+                Titulo = "Demanda teste",
+                EsforcoEstimadoMinutos = 60
+            });
+
+        var criada = await criacao.Content.ReadFromJsonAsync<DemandaAcademicaResponse>();
+        Assert.NotNull(criada);
+
+        var response = await client.PutAsJsonAsync(
+            $"/api/demandas-academicas/{criada.Id}",
+            new AtualizarDemandaAcademicaRequest
+            {
+                Titulo = criada.Titulo,
+                EsforcoEstimadoMinutos = -10,
+                Situacao = SituacaoDemandaAcademica.Pendente
+            });
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task PutDemanda_ComEsforcoNulo_AtualizaEPersisteNull()
+    {
+        using var factory = new CustomWebApplicationFactory();
+        await factory.InicializarBancoAsync();
+        using var client = factory.CreateClient();
+
+        var criacao = await client.PostAsJsonAsync(
+            "/api/demandas-academicas",
+            new CriarDemandaAcademicaRequest
+            {
+                Titulo = "Demanda teste",
+                EsforcoEstimadoMinutos = 60
+            });
+
+        var criada = await criacao.Content.ReadFromJsonAsync<DemandaAcademicaResponse>();
+        Assert.NotNull(criada);
+        Assert.Equal(60, criada.EsforcoEstimadoMinutos);
+
+        var atualizacao = await client.PutAsJsonAsync(
+            $"/api/demandas-academicas/{criada.Id}",
+            new AtualizarDemandaAcademicaRequest
+            {
+                Titulo = criada.Titulo,
+                EsforcoEstimadoMinutos = null,
+                Situacao = SituacaoDemandaAcademica.Pendente
+            });
+
+        Assert.Equal(HttpStatusCode.OK, atualizacao.StatusCode);
+
+        var consulta = await client.GetAsync($"/api/demandas-academicas/{criada.Id}");
+        Assert.Equal(HttpStatusCode.OK, consulta.StatusCode);
+        var recuperada = await consulta.Content.ReadFromJsonAsync<DemandaAcademicaResponse>();
+        Assert.NotNull(recuperada);
+        Assert.Null(recuperada.EsforcoEstimadoMinutos);
+    }
+
+    // Valida a check constraint de persistência usando o provedor SQLite da suíte de testes.
+    // Não substitui o teste de integração contra PostgreSQL real.
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-1)]
+    public async Task DemandaAcademica_ConstraintSQLite_RejeitaEsforcoMenorOuIgualAZero(
+        int esforcoEstimadoMinutos)
+    {
+        using var factory = new CustomWebApplicationFactory();
+        await factory.InicializarBancoAsync();
+
+        using var scope = factory.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+        var demandaInvalida = new DemandaAcademica
+        {
+            Titulo = "Demanda com esforço inválido",
+            EsforcoEstimadoMinutos = esforcoEstimadoMinutos
+        };
+
+        dbContext.DemandasAcademicas.Add(demandaInvalida);
+
+        await Assert.ThrowsAsync<DbUpdateException>(() => dbContext.SaveChangesAsync());
     }
 
     [Fact]
