@@ -1,0 +1,54 @@
+# This workflow will build a .NET project
+# For more information see: https://docs.github.com/en/actions/automating-builds-and-tests/building-and-testing-net
+
+name: .NET CI
+
+on:
+  push:
+  pull_request:
+    branches: ["main"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: cadernoatlas_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d cadernoatlas_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      CADERNOATLAS_POSTGRES_TEST_CONNECTION_STRING: "Host=localhost;Port=5432;Database=cadernoatlas_test;Username=postgres;Password=postgres"
+      PlanejamentoSemanal__ChaveHmac: "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8="
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Restore dependencies
+        run: dotnet restore CadernoAtlas.slnx
+
+      - name: Build
+        run: dotnet build CadernoAtlas.slnx --configuration Release --no-restore
+
+      - name: Test
+        run: dotnet test CadernoAtlas.slnx --configuration Release --no-build --no-restore --verbosity normal
