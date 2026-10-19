@@ -47,7 +47,7 @@ export type PreviewState =
 
 export type ConfirmState =
   | { status: 'idle' | 'loading'; data: null; error: null }
-  | { status: 'error'; data: null; error: string }
+  | { status: 'error'; data: null; error: string; canRetry: boolean }
   | { status: 'success'; data: ConfirmationData; error: null }
 
 export interface PlanningPreviewProps {
@@ -128,9 +128,14 @@ export default function PlanningPreview({
           <span className="status-icon"><Icon name="alert" size={18} /></span>
           <div className="status-copy">
             <strong>
-              {previewState.error.includes('desatualizada') || previewState.error.includes('conflito')
-                ? 'Prévia desatualizada'
-                : 'Não foi possível obter uma prévia'}
+              {previewState.error.includes(
+                'não foi possível verificar se o planejamento foi salvo',
+              )
+                ? 'Resultado da confirmação desconhecido'
+                : previewState.error.includes('desatualizada') ||
+                    previewState.error.includes('conflito')
+                  ? 'Prévia desatualizada'
+                  : 'Não foi possível obter uma prévia'}
             </strong>
             <p>
               {confirmState.status === 'error' && confirmState.error
@@ -179,7 +184,9 @@ export default function PlanningPreview({
               <div className="status-copy">
                 <strong>O planejamento não foi confirmado</strong>
                 <p>{confirmState.error}</p>
-                <button className="text-button" onClick={confirmPreview}>Tentar novamente</button>
+                {confirmState.canRetry && (
+                  <button className="text-button" onClick={confirmPreview}>Tentar novamente</button>
+                )}
               </div>
             </div>
           )}
@@ -194,7 +201,7 @@ export default function PlanningPreview({
           {previewState.status === 'success' && (
             <div className="planning-actions">
               <button className="button button-secondary" onClick={clearPreview} disabled={isConfirming}>Descartar prévia</button>
-              <button className="button button-primary confirm-button" onClick={confirmPreview} disabled={isConfirming || previewState.data.alocacoes.length === 0}>
+              <button className="button button-primary confirm-button" onClick={confirmPreview} disabled={isConfirming || (confirmState.status === 'error' && !confirmState.canRetry) || previewState.data.alocacoes.length === 0}>
                 {isConfirming ? 'Confirmando…' : 'Confirmar planejamento'}
               </button>
             </div>

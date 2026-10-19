@@ -7,6 +7,9 @@ import StatusMessage from './components/ui/StatusMessage'
 import CreateDemandForm, {
   type CreateDemandRequest,
 } from './features/demands/CreateDemandForm'
+import CreateAvailabilityForm, {
+  type CreateAvailabilityRequest,
+} from './features/availability/CreateAvailabilityForm'
 
 import type {
   ConfirmationData,
@@ -95,6 +98,8 @@ interface AvailabilityPanelProps {
   monday: Date
   onRetry: () => void
   todayIso: string
+  onCreate: (request: CreateAvailabilityRequest) => Promise<void>
+  isCreating: boolean
 }
 
 const DAY_LABELS = ['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom']
@@ -283,7 +288,10 @@ function DemandCard({ item }: DemandCardProps) {
   )
 }
 
-function AvailabilityPanel({ state, monday, onRetry, todayIso }: AvailabilityPanelProps) {
+function AvailabilityPanel({ state, monday, onRetry, todayIso, onCreate, isCreating }: AvailabilityPanelProps) {
+  const [isFormOpen, setIsFormOpen] = useState(false)
+  const weekStart = toIsoDate(monday)
+  const weekEnd = toIsoDate(shiftDays(monday, 6))
   const days = useMemo(() => getWeekDays(monday), [monday])
   const grouped = useMemo(() => {
     const result = new Map<string, Availability[]>(days.map((day) => [toIsoDate(day), []]))
@@ -312,6 +320,27 @@ function AvailabilityPanel({ state, monday, onRetry, todayIso }: AvailabilityPan
         </div>
         <span className="panel-heading-icon"><Icon name="calendarDays" size={19} /></span>
       </div>
+
+      <button
+        className="button button-secondary"
+        type="button"
+        aria-expanded={isFormOpen}
+        disabled={isCreating}
+        onClick={() => setIsFormOpen((open) => !open)}
+      >
+        {isFormOpen ? 'Fechar formulário' : 'Novo horário'}
+      </button>
+
+      {isFormOpen && (
+        <CreateAvailabilityForm
+          key={weekStart}
+          weekStart={weekStart}
+          weekEnd={weekEnd}
+          todayIso={todayIso}
+          onCreate={onCreate}
+          onCancel={() => setIsFormOpen(false)}
+        />
+      )}
 
       {state.status === 'loading' ? (
         <LoadingLines count={3} />
@@ -390,9 +419,11 @@ function App() {
   const [demandReloadToken, setDemandReloadToken] = useState(0)
   const [availabilityReloadToken, setAvailabilityReloadToken] = useState(0)
   const [isDemandFormOpen, setIsDemandFormOpen] = useState(false)
+  const [isCreatingAvailability, setIsCreatingAvailability] = useState(false)
   const [previewState, setPreviewState] = useState<PreviewState>({ status: 'idle', data: null, error: null })
   const [confirmState, setConfirmState] = useState<ConfirmState>({ status: 'idle', data: null, error: null })
   const previewRequestRef = useRef<number>(0)
+  const availabilityCreationInProgressRef = useRef(false)
 
   useEffect(() => {
     const controller = new AbortController()
@@ -469,11 +500,53 @@ function App() {
     setAvailabilityReloadToken((value) => value + 1)
   }
 
+  function refreshDemands(): void {
+    clearPreview()
+    setDemandState((previous) => ({
+      ...previous,
+      status: 'loading',
+      error: null,
+    }))
+    setDemandReloadToken((value) => value + 1)
+  }
+
+  function refreshAvailability(): void {
+    clearPreview()
+    setAvailabilityState((previous) => ({
+      ...previous,
+      status: 'loading',
+      error: null,
+    }))
+    setAvailabilityReloadToken((value) => value + 1)
+  }
+
   async function createDemand(request: CreateDemandRequest): Promise<void> {
     await apiPost<CreatedDemandResponse, CreateDemandRequest>('/api/demandas-academicas', request)
     clearPreview()
     setDemandState((previous) => ({ ...previous, status: 'loading', error: null }))
     setDemandReloadToken((value) => value + 1)
+  }
+
+  async function createAvailability(request: CreateAvailabilityRequest): Promise<void> {
+    if (availabilityCreationInProgressRef.current) {
+      throw new Error('Já existe um cadastro de disponibilidade em andamento.')
+    }
+
+    availabilityCreationInProgressRef.current = true
+    setIsCreatingAvailability(true)
+
+    try {
+      await apiPost<Availability, CreateAvailabilityRequest>(
+        '/api/disponibilidades-estudo',
+        request,
+      )
+      clearPreview()
+      setAvailabilityState((previous) => ({ ...previous, status: 'loading', error: null }))
+      setAvailabilityReloadToken((value) => value + 1)
+    } finally {
+      availabilityCreationInProgressRef.current = false
+      setIsCreatingAvailability(false)
+    }
   }
 
   async function generatePreview(): Promise<void> {
@@ -498,7 +571,11 @@ function App() {
 
   async function confirmPreview(): Promise<void> {
     const proposta = previewState.data
-    if (!proposta || confirmState.status === 'loading') return
+    if (
+      !proposta ||
+      confirmState.status === 'loading' ||
+      (confirmState.status === 'error' && !confirmState.canRetry)
+    ) return
 
     setConfirmState({ status: 'loading', data: null, error: null })
     try {
@@ -514,19 +591,43 @@ function App() {
       refreshAllDataOnly()
     } catch (error: unknown) {
       const isConflict = isHttpError(error) && error.status === 409
+      const outcomeUnknown =
+        !isHttpError(error) || error.status >= 500
+
       if (isConflict) {
         setPreviewState({
           status: 'error',
           data: null,
           error: 'Esta prévia ficou desatualizada ou os horários entraram em conflito. Gere uma nova prévia antes de confirmar.',
         })
+
+        setConfirmState({
+          status: 'error',
+          data: null,
+          error: 'O planejamento não foi salvo. Nenhuma sessão desta proposta foi criada.',
+          canRetry: false,
+        })
+
+        return
       }
+
+      if (outcomeUnknown) {
+        setPreviewState({
+          status: 'error',
+          data: null,
+          error: 'Não foi possível verificar se o planejamento foi salvo. Gere uma nova prévia antes de confirmar novamente.',
+        })
+
+        setConfirmState({ status: 'idle', data: null, error: null })
+
+        return
+      }
+
       setConfirmState({
         status: 'error',
         data: null,
-        error: isConflict
-          ? 'O planejamento não foi salvo. Nenhuma sessão desta proposta foi criada.'
-          : getErrorMessage(error, 'Não foi possível confirmar o planejamento.'),
+        error: getErrorMessage(error, 'Não foi possível confirmar o planejamento.'),
+        canRetry: !(isHttpError(error) && error.status === 400),
       })
     }
   }
@@ -598,11 +699,11 @@ function App() {
               </div>
             </div>
             <div className="week-controls">
-              <button className="icon-button" disabled={isConfirming} onClick={() => changeWeek(-7)} aria-label="Semana anterior" title="Semana anterior">
+              <button className="icon-button" disabled={isConfirming || isCreatingAvailability} onClick={() => changeWeek(-7)} aria-label="Semana anterior" title="Semana anterior">
                 <Icon name="chevronLeft" size={18} />
               </button>
-              <button className="button button-week" disabled={isConfirming} onClick={selectCurrentWeek}>Semana atual</button>
-              <button className="icon-button" disabled={isConfirming} onClick={() => changeWeek(7)} aria-label="Próxima semana" title="Próxima semana">
+              <button className="button button-week" disabled={isConfirming || isCreatingAvailability} onClick={selectCurrentWeek}>Semana atual</button>
+              <button className="icon-button" disabled={isConfirming || isCreatingAvailability} onClick={() => changeWeek(7)} aria-label="Próxima semana" title="Próxima semana">
                 <Icon name="chevronRight" size={18} />
               </button>
             </div>
@@ -658,11 +759,11 @@ function App() {
               {demandState.status === 'loading' && !demandState.data ? (
                 <LoadingLines count={4} />
               ) : demandState.status === 'error' && !demandState.data ? (
-                <StatusMessage title="Não foi possível carregar as demandas" description={demandState.error} onRetry={refreshAll} />
+                <StatusMessage title="Não foi possível carregar as demandas" description={demandState.error} onRetry={refreshDemands} />
               ) : (
                 <>
                   {demandState.status === 'error' && demandState.data && (
-                    <StatusMessage title="Os dados podem estar desatualizados" description={demandState.error} onRetry={refreshAll} compact />
+                    <StatusMessage title="Os dados podem estar desatualizados" description={demandState.error} onRetry={refreshDemands} compact />
                   )}
                   {activeDemandCount === 0 ? (
                     <div className="empty-state">
@@ -684,7 +785,7 @@ function App() {
             </section>
 
             <div className="right-column">
-              <AvailabilityPanel state={availabilityState} monday={monday} onRetry={refreshAll} todayIso={todayIso} />
+              <AvailabilityPanel state={availabilityState} monday={monday} onRetry={refreshAvailability} todayIso={todayIso} onCreate={createAvailability} isCreating={isCreatingAvailability} />
 
               <PlanningPreview
                 previewState={previewState}
