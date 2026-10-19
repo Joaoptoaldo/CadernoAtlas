@@ -124,6 +124,7 @@ function setupFetch({
   let currentDemands = demands
   let createdDemand = false
   let demandListRequests = 0
+  let demandPostRequests = 0
   let availabilityRequests = 0
   let availabilityPostRequests = 0
   let confirmationPostRequests = 0
@@ -172,6 +173,7 @@ function setupFetch({
     }
 
     if (path === '/api/demandas-academicas' && init.method === 'POST') {
+      demandPostRequests += 1
       if (createGate) await createGate
       if (createResponse.status >= 200 && createResponse.status < 300) {
         createdDemand = true
@@ -202,6 +204,7 @@ function setupFetch({
 
   vi.stubGlobal('fetch', fetchMock)
   fetchMock.getDemandListRequests = () => demandListRequests
+  fetchMock.getDemandPostRequests = () => demandPostRequests
   fetchMock.getAvailabilityRequests = () => availabilityRequests
   fetchMock.getAvailabilityPostRequests = () => availabilityPostRequests
   fetchMock.getConfirmationPostRequests = () => confirmationPostRequests
@@ -951,6 +954,52 @@ describe('Planejamento semanal', () => {
     })
     expect(fetchMock.getDemandListRequests()).toBe(2)
     expect(fetchMock.getAvailabilityRequests()).toBe(1)
+  })
+
+  it('impede confirmar ou gerar prévia durante o cadastro de demanda e libera o novo fluxo após concluir', async () => {
+    let releaseCreate
+    const createGate = new Promise((resolve) => { releaseCreate = resolve })
+    const fetchMock = setupFetch({ createGate })
+    render(<App />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Gerar prévia' }))
+    expect(await screen.findByText('Revisar anatomia')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Nova demanda' }))
+    fireEvent.change(screen.getByLabelText('Título'), { target: { value: 'Trabalho de Fisiologia' } })
+    fireEvent.change(screen.getByLabelText('Tipo'), { target: { value: '1' } })
+    fireEvent.change(screen.getByLabelText('Importância'), { target: { value: '2' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Salvar demanda' }))
+    expect(await screen.findByRole('button', { name: 'Salvando...' })).toBeDisabled()
+
+    const confirmButton = screen.getByRole('button', { name: 'Confirmar planejamento' })
+    const previewButton = screen.getByRole('button', { name: 'Gerar prévia' })
+    expect(confirmButton).toBeDisabled()
+    expect(previewButton).toBeDisabled()
+
+    confirmButton.disabled = false
+    previewButton.disabled = false
+    fireEvent.click(confirmButton)
+    fireEvent.click(previewButton)
+
+    expect(fetchMock.getConfirmationPostRequests()).toBe(0)
+    expect(fetchMock.getDemandPostRequests()).toBe(1)
+    expect(fetchMock.mock.calls.filter(([url]) => String(url).startsWith('/api/planejamento-semanal/previa?'))).toHaveLength(1)
+
+    releaseCreate()
+
+    expect(await screen.findByRole('heading', { name: 'Trabalho de Fisiologia' })).toBeInTheDocument()
+    expect(screen.queryByText('Revisar anatomia')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Confirmar planejamento' })).not.toBeInTheDocument()
+    expect(fetchMock.getDemandPostRequests()).toBe(1)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Gerar prévia' }))
+    expect(await screen.findByText('Revisar anatomia')).toBeInTheDocument()
+    expect(fetchMock.mock.calls.filter(([url]) => String(url).startsWith('/api/planejamento-semanal/previa?'))).toHaveLength(2)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Confirmar planejamento' }))
+    expect(await screen.findByText('Planejamento confirmado')).toBeInTheDocument()
+    expect(fetchMock.getConfirmationPostRequests()).toBe(1)
   })
 
   it('exibe erro da API e preserva os valores preenchidos', async () => {

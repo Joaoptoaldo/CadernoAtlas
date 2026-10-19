@@ -424,10 +424,12 @@ function App() {
   const [demandReloadToken, setDemandReloadToken] = useState(0)
   const [availabilityReloadToken, setAvailabilityReloadToken] = useState(0)
   const [isDemandFormOpen, setIsDemandFormOpen] = useState(false)
+  const [isCreatingDemand, setIsCreatingDemand] = useState(false)
   const [isCreatingAvailability, setIsCreatingAvailability] = useState(false)
   const [previewState, setPreviewState] = useState<PreviewState>({ status: 'idle', data: null, error: null })
   const [confirmState, setConfirmState] = useState<ConfirmState>({ status: 'idle', data: null, error: null })
   const previewRequestRef = useRef<number>(0)
+  const demandCreationInProgressRef = useRef(false)
   const availabilityCreationInProgressRef = useRef(false)
   const confirmationInProgressRef = useRef(false)
 
@@ -539,14 +541,25 @@ function App() {
   }
 
   async function createDemand(request: CreateDemandRequest): Promise<void> {
+    if (demandCreationInProgressRef.current) {
+      throw new Error('Já existe um cadastro de demanda em andamento.')
+    }
     if (confirmationInProgressRef.current) {
       throw new Error('Aguarde a confirmação do planejamento antes de cadastrar uma demanda.')
     }
 
-    await apiPost<CreatedDemandResponse, CreateDemandRequest>('/api/demandas-academicas', request)
-    clearPreview()
-    setDemandState((previous) => ({ ...previous, status: 'loading', error: null }))
-    setDemandReloadToken((value) => value + 1)
+    demandCreationInProgressRef.current = true
+    setIsCreatingDemand(true)
+
+    try {
+      await apiPost<CreatedDemandResponse, CreateDemandRequest>('/api/demandas-academicas', request)
+      clearPreview()
+      setDemandState((previous) => ({ ...previous, status: 'loading', error: null }))
+      setDemandReloadToken((value) => value + 1)
+    } finally {
+      demandCreationInProgressRef.current = false
+      setIsCreatingDemand(false)
+    }
   }
 
   async function createAvailability(request: CreateAvailabilityRequest): Promise<void> {
@@ -575,7 +588,11 @@ function App() {
   }
 
   async function generatePreview(): Promise<void> {
-    if (availabilityCreationInProgressRef.current || confirmationInProgressRef.current) return
+    if (
+      demandCreationInProgressRef.current ||
+      availabilityCreationInProgressRef.current ||
+      confirmationInProgressRef.current
+    ) return
 
     const requestId = ++previewRequestRef.current
     const requestedMonday = mondayIso
@@ -601,6 +618,7 @@ function App() {
     if (
       !proposta ||
       confirmationInProgressRef.current ||
+      demandCreationInProgressRef.current ||
       availabilityCreationInProgressRef.current ||
       (confirmState.status === 'error' && !confirmState.canRetry)
     ) return
@@ -714,7 +732,7 @@ function App() {
                 <Icon name="refresh" size={16} />
                 <span>Atualizar dados</span>
               </button>
-              <button className="button button-primary generate-preview-button" onClick={generatePreview} disabled={previewState.status === 'loading' || isConfirming || isCreatingAvailability}>
+              <button className="button button-primary generate-preview-button" onClick={generatePreview} disabled={previewState.status === 'loading' || isConfirming || isCreatingDemand || isCreatingAvailability}>
                 <Icon name={previewState.status === 'loading' ? 'clock' : 'calendar'} size={16} />
                 <span>{previewState.status === 'loading' ? 'Gerando prévia…' : 'Gerar prévia'}</span>
               </button>
@@ -822,6 +840,7 @@ function App() {
                 previewState={previewState}
                 confirmState={confirmState}
                 isConfirming={isConfirming}
+                isCreatingDemand={isCreatingDemand}
                 isCreatingAvailability={isCreatingAvailability}
                 clearPreview={clearPreview}
                 confirmPreview={confirmPreview}
