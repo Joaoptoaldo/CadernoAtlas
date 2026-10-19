@@ -12,6 +12,7 @@ interface CreateAvailabilityFormProps {
   todayIso: string
   onCreate: (request: CreateAvailabilityRequest) => Promise<void>
   onCancel: () => void
+  disabled: boolean
 }
 
 export default function CreateAvailabilityForm({
@@ -20,6 +21,7 @@ export default function CreateAvailabilityForm({
   todayIso,
   onCreate,
   onCancel,
+  disabled,
 }: CreateAvailabilityFormProps) {
   const initialDate =
     todayIso >= weekStart && todayIso <= weekEnd
@@ -36,6 +38,7 @@ export default function CreateAvailabilityForm({
     event: FormEvent<HTMLFormElement>,
   ): Promise<void> {
     event.preventDefault()
+    if (isSubmitting) return
 
     if (!date || !startTime || !endTime) {
       setError('Preencha a data e os dois horários.')
@@ -96,6 +99,7 @@ export default function CreateAvailabilityForm({
           <input
             type="date"
             required
+            disabled={disabled}
             min={weekStart}
             max={weekEnd}
             value={date}
@@ -108,6 +112,7 @@ export default function CreateAvailabilityForm({
           <input
             type="time"
             required
+            disabled={disabled}
             value={startTime}
             onChange={(event) => setStartTime(event.target.value)}
           />
@@ -118,6 +123,7 @@ export default function CreateAvailabilityForm({
           <input
             type="time"
             required
+            disabled={disabled}
             value={endTime}
             onChange={(event) => setEndTime(event.target.value)}
           />
@@ -135,7 +141,7 @@ export default function CreateAvailabilityForm({
           className="button button-secondary"
           type="button"
           onClick={onCancel}
-          disabled={isSubmitting}
+          disabled={disabled || isSubmitting}
         >
           Cancelar
         </button>
@@ -143,7 +149,7 @@ export default function CreateAvailabilityForm({
         <button
           className="button button-primary"
           type="submit"
-          disabled={isSubmitting}
+          disabled={disabled || isSubmitting}
         >
           {isSubmitting ? 'Salvando...' : 'Salvar horário'}
         </button>

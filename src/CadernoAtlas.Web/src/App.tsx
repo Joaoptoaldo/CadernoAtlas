@@ -100,6 +100,7 @@ interface AvailabilityPanelProps {
   todayIso: string
   onCreate: (request: CreateAvailabilityRequest) => Promise<void>
   isCreating: boolean
+  isConfirming: boolean
 }
 
 const DAY_LABELS = ['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom']
@@ -288,7 +289,7 @@ function DemandCard({ item }: DemandCardProps) {
   )
 }
 
-function AvailabilityPanel({ state, monday, onRetry, todayIso, onCreate, isCreating }: AvailabilityPanelProps) {
+function AvailabilityPanel({ state, monday, onRetry, todayIso, onCreate, isCreating, isConfirming }: AvailabilityPanelProps) {
   const [isFormOpen, setIsFormOpen] = useState(false)
   const weekStart = toIsoDate(monday)
   const weekEnd = toIsoDate(shiftDays(monday, 6))
@@ -325,8 +326,11 @@ function AvailabilityPanel({ state, monday, onRetry, todayIso, onCreate, isCreat
         className="button button-secondary"
         type="button"
         aria-expanded={isFormOpen}
-        disabled={isCreating}
-        onClick={() => setIsFormOpen((open) => !open)}
+        disabled={isCreating || isConfirming}
+        onClick={() => {
+          if (isCreating || isConfirming) return
+          setIsFormOpen((open) => !open)
+        }}
       >
         {isFormOpen ? 'Fechar formulário' : 'Novo horário'}
       </button>
@@ -339,6 +343,7 @@ function AvailabilityPanel({ state, monday, onRetry, todayIso, onCreate, isCreat
           todayIso={todayIso}
           onCreate={onCreate}
           onCancel={() => setIsFormOpen(false)}
+          disabled={isConfirming}
         />
       )}
 
@@ -424,6 +429,7 @@ function App() {
   const [confirmState, setConfirmState] = useState<ConfirmState>({ status: 'idle', data: null, error: null })
   const previewRequestRef = useRef<number>(0)
   const availabilityCreationInProgressRef = useRef(false)
+  const confirmationInProgressRef = useRef(false)
 
   useEffect(() => {
     const controller = new AbortController()
@@ -473,18 +479,24 @@ function App() {
   }, 0)
 
   function clearPreview(): void {
+    if (confirmationInProgressRef.current) return
+
     previewRequestRef.current += 1
     setPreviewState({ status: 'idle', data: null, error: null })
     setConfirmState({ status: 'idle', data: null, error: null })
   }
 
   function changeWeek(days: number): void {
+    if (confirmationInProgressRef.current) return
+
     clearPreview()
     setAvailabilityState((previous) => ({ ...previous, status: 'loading', error: null }))
     setMonday((current) => shiftDays(current, days))
   }
 
   function selectCurrentWeek(): void {
+    if (confirmationInProgressRef.current) return
+
     clearPreview()
     const currentWeek = getInitialWeek()
     if (toIsoDate(currentWeek) === mondayIso) return
@@ -493,6 +505,8 @@ function App() {
   }
 
   function refreshAll(): void {
+    if (availabilityCreationInProgressRef.current || confirmationInProgressRef.current) return
+
     clearPreview()
     setDemandState((previous) => ({ ...previous, status: 'loading', error: null }))
     setAvailabilityState((previous) => ({ ...previous, status: 'loading', error: null }))
@@ -501,6 +515,8 @@ function App() {
   }
 
   function refreshDemands(): void {
+    if (confirmationInProgressRef.current) return
+
     clearPreview()
     setDemandState((previous) => ({
       ...previous,
@@ -511,6 +527,8 @@ function App() {
   }
 
   function refreshAvailability(): void {
+    if (confirmationInProgressRef.current) return
+
     clearPreview()
     setAvailabilityState((previous) => ({
       ...previous,
@@ -521,6 +539,10 @@ function App() {
   }
 
   async function createDemand(request: CreateDemandRequest): Promise<void> {
+    if (confirmationInProgressRef.current) {
+      throw new Error('Aguarde a confirmação do planejamento antes de cadastrar uma demanda.')
+    }
+
     await apiPost<CreatedDemandResponse, CreateDemandRequest>('/api/demandas-academicas', request)
     clearPreview()
     setDemandState((previous) => ({ ...previous, status: 'loading', error: null }))
@@ -530,6 +552,9 @@ function App() {
   async function createAvailability(request: CreateAvailabilityRequest): Promise<void> {
     if (availabilityCreationInProgressRef.current) {
       throw new Error('Já existe um cadastro de disponibilidade em andamento.')
+    }
+    if (confirmationInProgressRef.current) {
+      throw new Error('Aguarde a confirmação do planejamento antes de cadastrar uma disponibilidade.')
     }
 
     availabilityCreationInProgressRef.current = true
@@ -550,6 +575,8 @@ function App() {
   }
 
   async function generatePreview(): Promise<void> {
+    if (availabilityCreationInProgressRef.current || confirmationInProgressRef.current) return
+
     const requestId = ++previewRequestRef.current
     const requestedMonday = mondayIso
     setPreviewState({ status: 'loading', data: null, error: null })
@@ -573,10 +600,12 @@ function App() {
     const proposta = previewState.data
     if (
       !proposta ||
-      confirmState.status === 'loading' ||
+      confirmationInProgressRef.current ||
+      availabilityCreationInProgressRef.current ||
       (confirmState.status === 'error' && !confirmState.canRetry)
     ) return
 
+    confirmationInProgressRef.current = true
     setConfirmState({ status: 'loading', data: null, error: null })
     try {
       const request: PlanningConfirmationRequest = {
@@ -629,6 +658,8 @@ function App() {
         error: getErrorMessage(error, 'Não foi possível confirmar o planejamento.'),
         canRetry: !(isHttpError(error) && error.status === 400),
       })
+    } finally {
+      confirmationInProgressRef.current = false
     }
   }
 
@@ -679,11 +710,11 @@ function App() {
               <p className="page-subtitle">Organize suas demandas em uma semana possível.</p>
             </div>
             <div className="page-heading-actions">
-              <button className="button button-secondary refresh-button" onClick={refreshAll} disabled={isConfirming}>
+              <button className="button button-secondary refresh-button" onClick={refreshAll} disabled={isConfirming || isCreatingAvailability}>
                 <Icon name="refresh" size={16} />
                 <span>Atualizar dados</span>
               </button>
-              <button className="button button-primary generate-preview-button" onClick={generatePreview} disabled={previewState.status === 'loading' || isConfirming}>
+              <button className="button button-primary generate-preview-button" onClick={generatePreview} disabled={previewState.status === 'loading' || isConfirming || isCreatingAvailability}>
                 <Icon name={previewState.status === 'loading' ? 'clock' : 'calendar'} size={16} />
                 <span>{previewState.status === 'loading' ? 'Gerando prévia…' : 'Gerar prévia'}</span>
               </button>
@@ -785,12 +816,13 @@ function App() {
             </section>
 
             <div className="right-column">
-              <AvailabilityPanel state={availabilityState} monday={monday} onRetry={refreshAvailability} todayIso={todayIso} onCreate={createAvailability} isCreating={isCreatingAvailability} />
+              <AvailabilityPanel state={availabilityState} monday={monday} onRetry={refreshAvailability} todayIso={todayIso} onCreate={createAvailability} isCreating={isCreatingAvailability} isConfirming={isConfirming} />
 
               <PlanningPreview
                 previewState={previewState}
                 confirmState={confirmState}
                 isConfirming={isConfirming}
+                isCreatingAvailability={isCreatingAvailability}
                 clearPreview={clearPreview}
                 confirmPreview={confirmPreview}
                 generatePreview={generatePreview}

@@ -54,6 +54,7 @@ export interface PlanningPreviewProps {
   previewState: PreviewState
   confirmState: ConfirmState
   isConfirming: boolean
+  isCreatingAvailability: boolean
   clearPreview: () => void
   confirmPreview: () => void
   generatePreview: () => void
@@ -93,6 +94,7 @@ export default function PlanningPreview({
   previewState,
   confirmState,
   isConfirming,
+  isCreatingAvailability,
   clearPreview,
   confirmPreview,
   generatePreview,
@@ -201,7 +203,7 @@ export default function PlanningPreview({
           {previewState.status === 'success' && (
             <div className="planning-actions">
               <button className="button button-secondary" onClick={clearPreview} disabled={isConfirming}>Descartar prévia</button>
-              <button className="button button-primary confirm-button" onClick={confirmPreview} disabled={isConfirming || (confirmState.status === 'error' && !confirmState.canRetry) || previewState.data.alocacoes.length === 0}>
+              <button className="button button-primary confirm-button" onClick={confirmPreview} disabled={isConfirming || isCreatingAvailability || (confirmState.status === 'error' && !confirmState.canRetry) || previewState.data.alocacoes.length === 0}>
                 {isConfirming ? 'Confirmando…' : 'Confirmar planejamento'}
               </button>
             </div>
