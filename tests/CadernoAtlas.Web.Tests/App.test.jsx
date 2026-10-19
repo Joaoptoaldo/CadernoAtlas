@@ -86,6 +86,17 @@ function setupFetch({
     },
   ],
   demandFailures = 0,
+  availabilityFailures = 0,
+  availabilityPostResponse = {
+    status: 201,
+    data: {
+      id: 11,
+      data: getCurrentMondayIso(),
+      horaInicio: '10:00:00',
+      horaFim: '12:00:00',
+    },
+  },
+  availabilityCreateGate,
   createResponse = {
     status: 201,
     data: {
@@ -108,10 +119,13 @@ function setupFetch({
   previewOverrides = {},
 } = {}) {
   let remainingDemandFailures = demandFailures
+  let remainingAvailabilityFailures = availabilityFailures
   let currentDemands = demands
   let createdDemand = false
   let demandListRequests = 0
   let availabilityRequests = 0
+  let availabilityPostRequests = 0
+  let currentAvailability = availability
 
   const fetchMock = vi.fn(async (input, init = {}) => {
     const path = String(input)
@@ -136,7 +150,23 @@ function setupFetch({
 
     if (path.startsWith('/api/disponibilidades-estudo?')) {
       availabilityRequests += 1
-      return jsonResponse(availability)
+      if (remainingAvailabilityFailures > 0) {
+        remainingAvailabilityFailures -= 1
+        return jsonResponse(
+          { detail: 'Falha temporária ao carregar horários' },
+          503,
+        )
+      }
+      return jsonResponse(currentAvailability)
+    }
+
+    if (path === '/api/disponibilidades-estudo' && init.method === 'POST') {
+      availabilityPostRequests += 1
+      if (availabilityCreateGate) await availabilityCreateGate
+      if (availabilityPostResponse.status >= 200 && availabilityPostResponse.status < 300) {
+        currentAvailability = [...currentAvailability, availabilityPostResponse.data]
+      }
+      return jsonResponse(availabilityPostResponse.data, availabilityPostResponse.status)
     }
 
     if (path === '/api/demandas-academicas' && init.method === 'POST') {
@@ -169,10 +199,206 @@ function setupFetch({
   vi.stubGlobal('fetch', fetchMock)
   fetchMock.getDemandListRequests = () => demandListRequests
   fetchMock.getAvailabilityRequests = () => availabilityRequests
+  fetchMock.getAvailabilityPostRequests = () => availabilityPostRequests
   return fetchMock
 }
 
 describe('Planejamento semanal', () => {
+    it('mostra o estado vazio quando não há demandas ativas', async () => {
+    setupFetch({ demands: [] })
+    render(<App />)
+
+    expect(
+      await screen.findByText('Nenhuma demanda ativa por enquanto'),
+    ).toBeInTheDocument()
+
+    expect(
+      screen.getByText(
+        'Quando você cadastrar provas, trabalhos ou outras demandas, elas aparecerão aqui.',
+      ),
+    ).toBeInTheDocument()
+
+    expect(
+      screen.getByRole('button', { name: 'Nova demanda' }),
+    ).toBeInTheDocument()
+
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+
+  it('mostra o estado vazio quando não há horários cadastrados', async () => {
+    setupFetch({ availability: [] })
+    render(<App />)
+
+    expect(
+      await screen.findByText('Nenhum horário cadastrado'),
+    ).toBeInTheDocument()
+
+    expect(
+      screen.getByText(
+        'Esta semana ainda não tem janelas de estudo registradas.',
+      ),
+    ).toBeInTheDocument()
+
+    expect(
+      await screen.findByRole('heading', { name: 'Prova de Anatomia' }),
+    ).toBeInTheDocument()
+
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+
+  it('abre o cadastro de disponibilidade com os limites da semana exibida', async () => {
+    setupFetch()
+    render(<App />)
+
+    const openButton = screen.getByRole('button', { name: 'Novo horário' })
+    expect(openButton).toHaveAttribute('aria-expanded', 'false')
+    fireEvent.click(openButton)
+
+    expect(screen.getByRole('button', { name: 'Fechar formulário' })).toHaveAttribute('aria-expanded', 'true')
+    expect(screen.getByRole('heading', { name: 'Novo horário de estudo' })).toBeInTheDocument()
+    expect(screen.getByLabelText('Data')).toHaveAttribute('min', getCurrentMondayIso())
+    const sunday = new Date(`${getCurrentMondayIso()}T00:00:00`)
+    sunday.setDate(sunday.getDate() + 6)
+    expect(screen.getByLabelText('Data')).toHaveAttribute('max', toIsoDate(sunday))
+  })
+
+  it('reinicia a data do formulário ao trocar a semana', () => {
+    setupFetch()
+    render(<App />)
+    fireEvent.click(screen.getByRole('button', { name: 'Novo horário' }))
+    fireEvent.change(screen.getByLabelText('Data'), { target: { value: getCurrentMondayIso() } })
+    fireEvent.click(screen.getByRole('button', { name: 'Próxima semana' }))
+
+    const nextMonday = new Date(`${getCurrentMondayIso()}T00:00:00`)
+    nextMonday.setDate(nextMonday.getDate() + 7)
+    const nextMondayIso = toIsoDate(nextMonday)
+    expect(screen.getByLabelText('Data')).toHaveValue(nextMondayIso)
+    expect(screen.getByLabelText('Data')).toHaveAttribute('min', nextMondayIso)
+  })
+
+  it('cria disponibilidade, atualiza somente a lista semanal e invalida a prévia', async () => {
+    const fetchMock = setupFetch()
+    render(<App />)
+
+    fireEvent.click(screen.getByRole('button', { name: /Gerar pr/ }))
+    expect(await screen.findByText('Revisar anatomia')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Novo horário' }))
+    fireEvent.change(screen.getByLabelText('Data'), { target: { value: getCurrentMondayIso() } })
+    fireEvent.change(screen.getByLabelText('Horário inicial'), { target: { value: '10:00' } })
+    fireEvent.change(screen.getByLabelText('Horário final'), { target: { value: '12:00' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Salvar horário' }))
+
+    expect(await screen.findByText('10:00–12:00')).toBeInTheDocument()
+    expect(screen.queryByText('Revisar anatomia')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Gerar pr/ })).toBeInTheDocument()
+    const post = fetchMock.mock.calls.find(([url, options]) => String(url) === '/api/disponibilidades-estudo' && options?.method === 'POST')
+    expect(JSON.parse(post[1].body)).toEqual({ data: getCurrentMondayIso(), horaInicio: '10:00', horaFim: '12:00' })
+    expect(fetchMock.getAvailabilityRequests()).toBe(2)
+    expect(fetchMock.getDemandListRequests()).toBe(1)
+  })
+
+  it('mantém o cadastro aberto e impede duplicidade enquanto a criação está pendente', async () => {
+    let releaseCreate
+    const availabilityCreateGate = new Promise((resolve) => { releaseCreate = resolve })
+    const fetchMock = setupFetch({ availabilityCreateGate })
+    render(<App />)
+
+    fireEvent.click(screen.getByRole('button', { name: /Gerar pr/ }))
+    expect(await screen.findByText('Revisar anatomia')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Novo horário' }))
+    fireEvent.change(screen.getByLabelText('Data'), { target: { value: getCurrentMondayIso() } })
+    fireEvent.change(screen.getByLabelText('Horário inicial'), { target: { value: '10:00' } })
+    fireEvent.change(screen.getByLabelText('Horário final'), { target: { value: '12:00' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Salvar horário' }))
+
+    const closeButton = screen.getByRole('button', { name: 'Fechar formulário' })
+    const submitButton = screen.getByRole('button', { name: 'Salvando...' })
+    const nextWeekButton = screen.getByRole('button', { name: 'Próxima semana' })
+    expect(closeButton).toBeDisabled()
+    expect(submitButton).toBeDisabled()
+    expect(nextWeekButton).toBeDisabled()
+    expect(screen.getByText('Revisar anatomia')).toBeInTheDocument()
+    expect(screen.queryByText('10:00–12:00')).not.toBeInTheDocument()
+
+    fireEvent.click(closeButton)
+    fireEvent.click(submitButton)
+    fireEvent.click(nextWeekButton)
+    expect(screen.getByRole('heading', { name: 'Novo horário de estudo' })).toBeInTheDocument()
+    expect(fetchMock.getAvailabilityPostRequests()).toBe(1)
+    expect(fetchMock.getAvailabilityRequests()).toBe(1)
+    expect(fetchMock.getDemandListRequests()).toBe(1)
+
+    releaseCreate()
+
+    expect(await screen.findByText('10:00–12:00')).toBeInTheDocument()
+    expect(screen.queryByText('Revisar anatomia')).not.toBeInTheDocument()
+    expect(fetchMock.getAvailabilityPostRequests()).toBe(1)
+    expect(fetchMock.getAvailabilityRequests()).toBe(2)
+    expect(fetchMock.getDemandListRequests()).toBe(1)
+  })
+
+  it.each([
+    [409, 'Já existe uma disponibilidade sobreposta.'],
+    [400, 'A data informada é inválida.'],
+    [500, 'Falha temporária ao salvar o horário.'],
+  ])('preserva os campos e informa erro HTTP %i ao cadastrar disponibilidade', async (status, detail) => {
+    setupFetch({ availabilityPostResponse: { status, data: { detail } } })
+    render(<App />)
+    fireEvent.click(screen.getByRole('button', { name: 'Novo horário' }))
+    fireEvent.change(screen.getByLabelText('Data'), { target: { value: getCurrentMondayIso() } })
+    fireEvent.change(screen.getByLabelText('Horário inicial'), { target: { value: '13:00' } })
+    fireEvent.change(screen.getByLabelText('Horário final'), { target: { value: '14:00' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Salvar horário' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(detail)
+    expect(screen.getByLabelText('Data')).toHaveValue(getCurrentMondayIso())
+    expect(screen.getByLabelText('Horário inicial')).toHaveValue('13:00')
+    expect(screen.getByLabelText('Horário final')).toHaveValue('14:00')
+    expect(screen.getByRole('heading', { name: 'Novo horário de estudo' })).toBeInTheDocument()
+  })
+
+  it('impede cadastro duplicado enquanto a requisição está em andamento', async () => {
+    let releaseCreate
+    const availabilityCreateGate = new Promise((resolve) => { releaseCreate = resolve })
+    const fetchMock = setupFetch({
+      availabilityCreateGate, availabilityPostResponse: {
+      status: 201,
+      data: {
+        id: 12,
+        data: getCurrentMondayIso(),
+        horaInicio: '15:00:00',
+        horaFim: '16:00:00',
+      }
+    }
+   } )
+    render(<App />)
+    fireEvent.click(screen.getByRole('button', { name: 'Novo horário' }))
+    fireEvent.change(screen.getByLabelText('Data'), { target: { value: getCurrentMondayIso() } })
+    fireEvent.change(screen.getByLabelText('Horário inicial'), { target: { value: '15:00' } })
+    fireEvent.change(screen.getByLabelText('Horário final'), { target: { value: '16:00' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Salvar horário' }))
+    expect(screen.getByRole('button', { name: 'Salvando...' })).toBeDisabled()
+    fireEvent.click(screen.getByRole('button', { name: 'Salvando...' }))
+    expect(fetchMock.getAvailabilityPostRequests()).toBe(1)
+    releaseCreate()
+    expect(
+      await screen.findByText('15:00–16:00'),
+    ).toBeInTheDocument()
+  })
+
+  it('rejeita horário final anterior ao inicial sem chamar a API', async () => {
+    const fetchMock = setupFetch()
+    render(<App />)
+    fireEvent.click(screen.getByRole('button', { name: 'Novo horário' }))
+    fireEvent.change(screen.getByLabelText('Data'), { target: { value: getCurrentMondayIso() } })
+    fireEvent.change(screen.getByLabelText('Horário inicial'), { target: { value: '16:00' } })
+    fireEvent.change(screen.getByLabelText('Horário final'), { target: { value: '15:00' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Salvar horário' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('O horário final deve ser posterior ao horário inicial.')
+    expect(fetchMock.getAvailabilityPostRequests()).toBe(0)
+  })
+
   it('exibe as demandas e a disponibilidade retornadas pela API', async () => {
     setupFetch()
     render(<App />)
@@ -191,10 +417,12 @@ describe('Planejamento semanal', () => {
   })
 
   it('permite tentar novamente depois de uma falha ao carregar demandas', async () => {
-    setupFetch({ demandFailures: 1 })
+    const fetchMock = setupFetch({ demandFailures: 1 })
     render(<App />)
 
     expect(await screen.findByText('Falha temporária')).toBeInTheDocument()
+    expect(fetchMock.getDemandListRequests()).toBe(1)
+    expect(fetchMock.getAvailabilityRequests()).toBe(1)
 
     fireEvent.click(
       screen.getByRole('button', { name: 'Tentar novamente' }),
@@ -203,6 +431,28 @@ describe('Planejamento semanal', () => {
     expect(
       await screen.findByRole('heading', { name: 'Prova de Anatomia' }),
     ).toBeInTheDocument()
+    expect(fetchMock.getDemandListRequests()).toBe(2)
+    expect(fetchMock.getAvailabilityRequests()).toBe(1)
+  })
+
+  it('tenta novamente apenas disponibilidades sem recarregar as demandas', async () => {
+    const fetchMock = setupFetch({ availabilityFailures: 1 })
+    render(<App />)
+
+    expect(
+      await screen.findByRole('heading', { name: 'Prova de Anatomia' }),
+    ).toBeInTheDocument()
+    expect(await screen.findByText('Falha temporária ao carregar horários')).toBeInTheDocument()
+    expect(fetchMock.getDemandListRequests()).toBe(1)
+    expect(fetchMock.getAvailabilityRequests()).toBe(1)
+
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Tentar novamente' }),
+    )
+
+    expect(await screen.findByText('09:00–11:00')).toBeInTheDocument()
+    expect(fetchMock.getDemandListRequests()).toBe(1)
+    expect(fetchMock.getAvailabilityRequests()).toBe(2)
   })
 
   it('exibe as atividades sugeridas e as não alocadas sem salvá-las', async () => {
@@ -304,6 +554,69 @@ describe('Planejamento semanal', () => {
     })
   })
 
+  it('exige uma nova prévia quando a conexão falha durante a confirmação', async () => {
+    const fetchMock = setupFetch()
+    const originalFetch = fetchMock.getMockImplementation()
+
+    fetchMock.mockImplementation(async (input, init = {}) => {
+      if (
+        String(input) === '/api/planejamento-semanal/confirmar' &&
+        init.method === 'POST'
+      ) {
+        throw new TypeError('Failed to fetch')
+      }
+
+      return originalFetch(input, init)
+    })
+
+    render(<App />)
+
+    fireEvent.click(
+      screen.getByRole('button', { name: /Gerar pr/ }),
+    )
+
+    expect(
+      await screen.findByText('Revisar anatomia'),
+    ).toBeInTheDocument()
+
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Confirmar planejamento' }),
+    )
+
+    const alert = await screen.findByRole('alert')
+
+    expect(alert).toHaveTextContent(
+      'Não foi possível verificar se o planejamento foi salvo',
+    )
+
+    expect(
+      screen.queryByRole('button', { name: 'Confirmar planejamento' }),
+    ).not.toBeInTheDocument()
+
+    const confirmationRequests = () =>
+      fetchMock.mock.calls.filter(
+        ([url, options]) =>
+          String(url) === '/api/planejamento-semanal/confirmar' &&
+          options?.method === 'POST',
+      )
+
+    expect(confirmationRequests()).toHaveLength(1)
+
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Tentar novamente' }),
+    )
+
+    expect(
+      await screen.findByText('Revisar anatomia'),
+    ).toBeInTheDocument()
+
+    const previewRequests = fetchMock.mock.calls.filter(([url]) =>
+      String(url).startsWith('/api/planejamento-semanal/previa?'),
+    )
+
+    expect(previewRequests).toHaveLength(2)
+    expect(confirmationRequests()).toHaveLength(1)
+  })
   it('informa quando a confirmação encontra um conflito HTTP 409', async () => {
     setupFetch({
       postResponse: {
@@ -350,7 +663,52 @@ describe('Planejamento semanal', () => {
     ).toBeInTheDocument()
   })
 
-  it('mantém a prévia e permite tentar novamente quando a confirmação falha', async () => {
+  it('não permite reenviar a mesma prévia após erro HTTP 400 na confirmação', async () => {
+    const fetchMock = setupFetch({
+      postResponse: {
+        status: 400,
+        data: {
+          detail: 'A proposta enviada é inválida.',
+        },
+      },
+    })
+
+    render(<App />)
+
+    fireEvent.click(
+      screen.getByRole('button', { name: /Gerar pr/ }),
+    )
+
+    expect(
+      await screen.findByText('Revisar anatomia'),
+    ).toBeInTheDocument()
+
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Confirmar planejamento' }),
+    )
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'A proposta enviada é inválida.',
+    )
+
+    expect(
+      screen.queryByRole('button', { name: 'Tentar novamente' }),
+    ).not.toBeInTheDocument()
+
+    expect(
+      screen.getByRole('button', { name: 'Confirmar planejamento' }),
+    ).toBeDisabled()
+
+    const confirmationRequests = fetchMock.mock.calls.filter(
+      ([url, options]) =>
+        String(url) === '/api/planejamento-semanal/confirmar' &&
+        options?.method === 'POST',
+    )
+
+    expect(confirmationRequests).toHaveLength(1)
+  })
+
+  it('exige uma nova prévia quando a confirmação retorna HTTP 500', async () => {
     const fetchMock = setupFetch({
       postResponse: {
         status: 500,
@@ -376,14 +734,13 @@ describe('Planejamento semanal', () => {
 
     const alert = await screen.findByRole('alert')
 
-    expect(alert).toHaveTextContent('O planejamento não foi confirmado')
     expect(alert).toHaveTextContent(
-      'Falha temporária ao salvar o planejamento.',
+      'Não foi possível verificar se o planejamento foi salvo',
     )
 
     expect(
-      screen.getByRole('button', { name: 'Confirmar planejamento' }),
-    ).toBeEnabled()
+      screen.queryByRole('button', { name: 'Confirmar planejamento' }),
+    ).not.toBeInTheDocument()
 
     expect(
       screen.getByRole('button', { name: 'Tentar novamente' }),
@@ -393,10 +750,29 @@ describe('Planejamento semanal', () => {
       screen.queryByText('Planejamento confirmado'),
     ).not.toBeInTheDocument()
 
-    expect(fetchMock).toHaveBeenCalledWith(
-      '/api/planejamento-semanal/confirmar',
-      expect.objectContaining({ method: 'POST' }),
+    const confirmationRequests = () =>
+      fetchMock.mock.calls.filter(
+        ([url, options]) =>
+          String(url) === '/api/planejamento-semanal/confirmar' &&
+          options?.method === 'POST',
+      )
+
+    expect(confirmationRequests()).toHaveLength(1)
+
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Tentar novamente' }),
     )
+
+    expect(
+      await screen.findByText('Revisar anatomia'),
+    ).toBeInTheDocument()
+
+    const previewRequests = fetchMock.mock.calls.filter(([url]) =>
+      String(url).startsWith('/api/planejamento-semanal/previa?'),
+    )
+
+    expect(previewRequests).toHaveLength(2)
+    expect(confirmationRequests()).toHaveLength(1)
   })
 
   it('abre e preenche o formulário de nova demanda', async () => {
