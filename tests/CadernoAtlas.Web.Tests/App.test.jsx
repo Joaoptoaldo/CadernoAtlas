@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
+﻿import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import App from '../../src/CadernoAtlas.Web/src/App'
 
@@ -212,6 +212,65 @@ function setupFetch({
 }
 
 describe('Planejamento semanal', () => {
+    it('impede atualizar os dados durante o cadastro de demanda', async () => {
+    let releaseCreate
+    const createGate = new Promise((resolve) => {
+      releaseCreate = resolve
+    })
+
+    const fetchMock = setupFetch({ createGate })
+    render(<App />)
+
+    expect(
+      await screen.findByText('Prova de Anatomia'),
+    ).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Gerar prévia' }))
+    expect(await screen.findByText('Revisar anatomia')).toBeInTheDocument()
+
+    const demandRequestsBefore = fetchMock.getDemandListRequests()
+    const availabilityRequestsBefore = fetchMock.getAvailabilityRequests()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Nova demanda' }))
+    fireEvent.change(screen.getByLabelText('Título'), {
+      target: { value: 'Trabalho de Fisiologia' },
+    })
+    fireEvent.change(screen.getByLabelText('Tipo'), {
+      target: { value: '1' },
+    })
+    fireEvent.change(screen.getByLabelText('Importância'), {
+      target: { value: '2' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Salvar demanda' }))
+
+    expect(
+      await screen.findByRole('button', { name: 'Salvando...' }),
+    ).toBeDisabled()
+
+    const refreshButton = screen.getByRole('button', {
+      name: 'Atualizar dados',
+    })
+
+    expect(refreshButton).toBeDisabled()
+
+    // Simula a tentativa de contornar o bloqueio visual.
+    refreshButton.disabled = false
+    fireEvent.click(refreshButton)
+
+    expect(fetchMock.getDemandListRequests()).toBe(demandRequestsBefore)
+    expect(fetchMock.getAvailabilityRequests()).toBe(availabilityRequestsBefore)
+    expect(screen.getByText('Revisar anatomia')).toBeInTheDocument()
+
+    releaseCreate()
+
+    expect(
+      await screen.findByRole('heading', { name: 'Trabalho de Fisiologia' }),
+    ).toBeInTheDocument()
+
+    expect(fetchMock.getDemandListRequests()).toBe(demandRequestsBefore + 1)
+    expect(fetchMock.getAvailabilityRequests()).toBe(availabilityRequestsBefore)
+    expect(screen.queryByText('Revisar anatomia')).not.toBeInTheDocument()
+  })
     it('mostra o estado vazio quando não há demandas ativas', async () => {
     setupFetch({ demands: [] })
     render(<App />)

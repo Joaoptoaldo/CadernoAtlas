@@ -507,7 +507,13 @@ function App() {
   }
 
   function refreshAll(): void {
-    if (availabilityCreationInProgressRef.current || confirmationInProgressRef.current) return
+    if (
+      demandCreationInProgressRef.current ||
+      availabilityCreationInProgressRef.current ||
+      confirmationInProgressRef.current
+    ) {
+      return
+    }
 
     clearPreview()
     setDemandState((previous) => ({ ...previous, status: 'loading', error: null }))
@@ -728,7 +734,7 @@ function App() {
               <p className="page-subtitle">Organize suas demandas em uma semana possível.</p>
             </div>
             <div className="page-heading-actions">
-              <button className="button button-secondary refresh-button" onClick={refreshAll} disabled={isConfirming || isCreatingAvailability}>
+              <button className="button button-secondary refresh-button" onClick={refreshAll} disabled={isCreatingDemand || isConfirming || isCreatingAvailability}>
                 <Icon name="refresh" size={16} />
                 <span>Atualizar dados</span>
               </button>
