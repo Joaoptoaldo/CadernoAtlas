@@ -56,6 +56,7 @@ export interface PlanningPreviewProps {
   isConfirming: boolean
   isCreatingDemand: boolean
   isCreatingAvailability: boolean
+  isUpdatingDemand: boolean
   clearPreview: () => void
   confirmPreview: () => void
   generatePreview: () => void
@@ -97,6 +98,7 @@ export default function PlanningPreview({
   isConfirming,
   isCreatingDemand,
   isCreatingAvailability,
+  isUpdatingDemand,
   clearPreview,
   confirmPreview,
   generatePreview,
@@ -146,7 +148,7 @@ export default function PlanningPreview({
                 ? `${previewState.error} ${confirmState.error}`
                 : previewState.error}
             </p>
-            <button className="text-button" onClick={generatePreview}>Tentar novamente</button>
+            <button className="text-button" onClick={generatePreview} disabled={isUpdatingDemand}>Tentar novamente</button>
           </div>
         </div>
       )}
@@ -204,14 +206,14 @@ export default function PlanningPreview({
 
           {previewState.status === 'success' && (
             <div className="planning-actions">
-              <button className="button button-secondary" onClick={clearPreview} disabled={isConfirming}>Descartar prévia</button>
-              <button className="button button-primary confirm-button" onClick={confirmPreview} disabled={isConfirming || isCreatingDemand || isCreatingAvailability || (confirmState.status === 'error' && !confirmState.canRetry) || previewState.data.alocacoes.length === 0}>
+              <button className="button button-secondary" onClick={clearPreview} disabled={isConfirming || isUpdatingDemand}>Descartar prévia</button>
+              <button className="button button-primary confirm-button" onClick={confirmPreview} disabled={isConfirming || isCreatingDemand || isCreatingAvailability || isUpdatingDemand || (confirmState.status === 'error' && !confirmState.canRetry) || previewState.data.alocacoes.length === 0}>
                 {isConfirming ? 'Confirmando…' : 'Confirmar planejamento'}
               </button>
             </div>
           )}
           {previewState.status === 'confirmed' && (
-            <button className="button button-secondary planning-regenerate" onClick={clearPreview}>Gerar outra prévia</button>
+            <button className="button button-secondary planning-regenerate" onClick={clearPreview} disabled={isUpdatingDemand}>Gerar outra prévia</button>
           )}
         </>
       )}

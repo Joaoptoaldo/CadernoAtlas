@@ -1,5 +1,5 @@
 ﻿import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import App from '../../src/CadernoAtlas.Web/src/App'
 
 afterEach(() => {
@@ -77,6 +77,11 @@ function jsonResponse(data, status = 200) {
 
 function setupFetch({
   demands = [demandFixture],
+  allDemands = [
+    { id: 1, titulo: 'Demanda gerenciada ativa', descricao: 'Resumo para ficha de estudo', tipo: 0, prazo: '2026-11-01', importancia: 2, esforcoEstimadoMinutos: 120, situacao: 0, criadoEm: '2026-10-01T10:00:00Z' },
+    { id: 3, titulo: 'Trabalho concluído', descricao: null, tipo: 1, prazo: null, importancia: 1, esforcoEstimadoMinutos: null, situacao: 2, criadoEm: '2026-09-01T10:00:00Z' },
+    { id: 4, titulo: 'Tarefa cancelada', descricao: null, tipo: 4, prazo: '2026-12-01', importancia: 0, esforcoEstimadoMinutos: 30, situacao: 3, criadoEm: '2026-09-02T10:00:00Z' },
+  ],
   availability = [
     {
       id: 10,
@@ -86,6 +91,7 @@ function setupFetch({
     },
   ],
   demandFailures = 0,
+  allDemandFailures = 0,
   availabilityFailures = 0,
   availabilityPostResponse = {
     status: 201,
@@ -112,6 +118,10 @@ function setupFetch({
     },
   },
   createGate,
+  updateResponse = null,
+  updateGate,
+  updateFailures = 0,
+  updateFailureResponse = { status: 503, data: { detail: 'Falha temporária ao salvar a demanda.' } },
   postResponse = {
     status: 200,
     data: { sessoesCriadas: [{ id: 101 }] },
@@ -120,11 +130,17 @@ function setupFetch({
   previewOverrides = {},
 } = {}) {
   let remainingDemandFailures = demandFailures
+  let remainingAllDemandFailures = allDemandFailures
+  let remainingUpdateFailures = updateFailures
   let remainingAvailabilityFailures = availabilityFailures
   let currentDemands = demands
+  let currentAllDemands = allDemands
   let createdDemand = false
   let demandListRequests = 0
   let demandPostRequests = 0
+  let allDemandRequests = 0
+  let demandPutRequests = 0
+  let previewRequests = 0
   let availabilityRequests = 0
   let availabilityPostRequests = 0
   let confirmationPostRequests = 0
@@ -132,6 +148,15 @@ function setupFetch({
 
   const fetchMock = vi.fn(async (input, init = {}) => {
     const path = String(input)
+
+    if (path === '/api/demandas-academicas' && (init.method === 'GET' || !init.method)) {
+      allDemandRequests += 1
+      if (remainingAllDemandFailures > 0) {
+        remainingAllDemandFailures -= 1
+        return jsonResponse({ detail: 'Falha temporária na lista completa.' }, 503)
+      }
+      return jsonResponse(currentAllDemands)
+    }
 
     if (path === '/api/demandas-academicas/priorizadas') {
       demandListRequests += 1
@@ -181,7 +206,27 @@ function setupFetch({
       return jsonResponse(createResponse.data, createResponse.status)
     }
 
+    if (path.startsWith('/api/demandas-academicas/') && init.method === 'PUT') {
+      demandPutRequests += 1
+      if (updateGate) await updateGate
+      if (remainingUpdateFailures > 0) {
+        remainingUpdateFailures -= 1
+        return jsonResponse(updateFailureResponse.data, updateFailureResponse.status)
+      }
+      const response = updateResponse ?? { status: 200, data: { ...JSON.parse(init.body), id: Number(path.split('/').at(-1)), criadoEm: '2026-10-01T10:00:00Z' } }
+      if (response.status >= 200 && response.status < 300) {
+        const id = Number(path.split('/').at(-1))
+        currentAllDemands = currentAllDemands.map((demand) => demand.id === id ? response.data : demand)
+        currentDemands = currentDemands.map((item) => {
+          const demand = item.demanda ?? item
+          return demand.id === id ? { ...item, demanda: response.data } : item
+        })
+      }
+      return jsonResponse(response.data, response.status)
+    }
+
     if (path.startsWith('/api/planejamento-semanal/previa?')) {
+      previewRequests += 1
       const url = new URL(path, 'http://localhost')
       const inicioSemana = url.searchParams.get('inicioSemana')
       return jsonResponse({
@@ -205,6 +250,9 @@ function setupFetch({
   vi.stubGlobal('fetch', fetchMock)
   fetchMock.getDemandListRequests = () => demandListRequests
   fetchMock.getDemandPostRequests = () => demandPostRequests
+  fetchMock.getAllDemandRequests = () => allDemandRequests
+  fetchMock.getDemandPutRequests = () => demandPutRequests
+  fetchMock.getPreviewRequests = () => previewRequests
   fetchMock.getAvailabilityRequests = () => availabilityRequests
   fetchMock.getAvailabilityPostRequests = () => availabilityPostRequests
   fetchMock.getConfirmationPostRequests = () => confirmationPostRequests
@@ -212,6 +260,301 @@ function setupFetch({
 }
 
 describe('Planejamento semanal', () => {
+  it('oferece um link para pular ao conteúdo principal', () => {
+    setupFetch()
+    render(<App />)
+
+    expect(screen.getByRole('link', { name: 'Pular para o conteúdo' })).toHaveAttribute(
+      'href',
+      '#planejamento',
+    )
+  })
+
+  it('permite focar programaticamente o conteúdo principal', () => {
+    setupFetch()
+    render(<App />)
+
+    expect(screen.getByRole('main')).toHaveAttribute('id', 'planejamento')
+    expect(screen.getByRole('main')).toHaveAttribute('tabindex', '-1')
+  })
+
+  it('direciona a marca para o planejamento semanal', () => {
+    setupFetch()
+    render(<App />)
+
+    expect(
+      screen.getByRole('link', { name: 'CadernoAtlas, planejamento semanal' }),
+    ).toHaveAttribute('href', '#planejamento')
+  })
+
+  it('retorna ao planejamento ao clicar na marca desde a gestão de demandas', () => {
+    setupFetch()
+    render(<App />)
+    fireEvent.click(screen.getByRole('button', { name: 'Demandas acadêmicas' }))
+    expect(screen.getByRole('button', { name: 'Demandas acadêmicas' })).toHaveAttribute('aria-current', 'page')
+
+    fireEvent.click(screen.getByRole('link', { name: 'CadernoAtlas, planejamento semanal' }))
+
+    expect(screen.getByRole('button', { name: 'Planejamento semanal' })).toHaveAttribute('aria-current', 'page')
+    expect(screen.getByRole('button', { name: 'Demandas acadêmicas' })).not.toHaveAttribute('aria-current', 'page')
+  })
+
+  it('associa aria-controls aos formulários somente enquanto estão renderizados', () => {
+    setupFetch()
+    render(<App />)
+
+    const demandFormToggle = screen.getByRole('button', { name: 'Nova demanda' })
+    const availabilityFormToggle = screen.getByRole('button', { name: 'Novo horário' })
+
+    expect(demandFormToggle).toHaveAttribute('aria-expanded', 'false')
+    expect(demandFormToggle).not.toHaveAttribute('aria-controls')
+    expect(availabilityFormToggle).toHaveAttribute('aria-expanded', 'false')
+    expect(availabilityFormToggle).not.toHaveAttribute('aria-controls')
+
+    fireEvent.click(demandFormToggle)
+    fireEvent.click(availabilityFormToggle)
+
+    expect(demandFormToggle).toHaveAttribute('aria-expanded', 'true')
+    expect(demandFormToggle).toHaveAttribute('aria-controls', 'create-demand-form')
+    expect(availabilityFormToggle).toHaveAttribute('aria-expanded', 'true')
+    expect(availabilityFormToggle).toHaveAttribute(
+      'aria-controls',
+      'create-availability-form',
+    )
+
+    fireEvent.click(
+      within(document.getElementById('create-demand-form')).getByRole('button', {
+        name: 'Cancelar',
+      }),
+    )
+    fireEvent.click(availabilityFormToggle)
+
+    expect(demandFormToggle).toHaveAttribute('aria-expanded', 'false')
+    expect(demandFormToggle).not.toHaveAttribute('aria-controls')
+    expect(availabilityFormToggle).toHaveAttribute('aria-expanded', 'false')
+    expect(availabilityFormToggle).not.toHaveAttribute('aria-controls')
+  })
+
+  it('lista demandas ativas, concluídas e canceladas na gestão completa', async () => {
+    setupFetch()
+    render(<App />)
+    fireEvent.click(screen.getByRole('button', { name: 'Demandas acadêmicas' }))
+
+    expect(await screen.findByRole('heading', { name: 'Demandas acadêmicas', level: 2 })).toBeInTheDocument()
+    expect(await screen.findByText('Demanda gerenciada ativa')).toBeInTheDocument()
+    expect(screen.getByText('Trabalho concluído')).toBeInTheDocument()
+    expect(screen.getByText('Tarefa cancelada')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Excluir/ })).not.toBeInTheDocument()
+  })
+
+  it('filtra a lista completa por situação, tipo, importância e prazo máximo', async () => {
+    setupFetch()
+    render(<App />)
+    fireEvent.click(screen.getByRole('button', { name: 'Demandas acadêmicas' }))
+    await screen.findByText('Demanda gerenciada ativa')
+
+    fireEvent.change(screen.getByLabelText('Filtrar por situação'), { target: { value: '3' } })
+    expect(screen.getByText('Tarefa cancelada')).toBeInTheDocument()
+    expect(screen.queryByText('Demanda gerenciada ativa')).not.toBeInTheDocument()
+    fireEvent.change(screen.getByLabelText('Filtrar por tipo'), { target: { value: '4' } })
+    fireEvent.change(screen.getByLabelText('Filtrar por importância'), { target: { value: '0' } })
+    fireEvent.change(screen.getByLabelText('Filtrar por prazo máximo'), { target: { value: '2026-12-01' } })
+    expect(screen.getByText('Tarefa cancelada')).toBeInTheDocument()
+    fireEvent.change(screen.getByLabelText('Filtrar por prazo máximo'), { target: { value: '2026-11-30' } })
+    expect(screen.queryByText('Tarefa cancelada')).not.toBeInTheDocument()
+    expect(screen.getByText('Nenhuma demanda encontrada')).toBeInTheDocument()
+  })
+
+  it('filtra demandas por tipo independentemente dos outros filtros', async () => {
+    setupFetch()
+    render(<App />)
+    fireEvent.click(screen.getByRole('button', { name: 'Demandas acadêmicas' }))
+    await screen.findByText('Demanda gerenciada ativa')
+
+    fireEvent.change(screen.getByLabelText('Filtrar por tipo'), { target: { value: '1' } })
+
+    expect(screen.getByText('Trabalho concluído')).toBeInTheDocument()
+    expect(screen.queryByText('Demanda gerenciada ativa')).not.toBeInTheDocument()
+    expect(screen.queryByText('Tarefa cancelada')).not.toBeInTheDocument()
+  })
+
+  it('filtra demandas por importância independentemente dos outros filtros', async () => {
+    setupFetch()
+    render(<App />)
+    fireEvent.click(screen.getByRole('button', { name: 'Demandas acadêmicas' }))
+    await screen.findByText('Demanda gerenciada ativa')
+
+    fireEvent.change(screen.getByLabelText('Filtrar por importância'), { target: { value: '0' } })
+
+    expect(screen.getByText('Tarefa cancelada')).toBeInTheDocument()
+    expect(screen.queryByText('Demanda gerenciada ativa')).not.toBeInTheDocument()
+    expect(screen.queryByText('Trabalho concluído')).not.toBeInTheDocument()
+  })
+
+  it('atualiza a demanda com PUT completo, recarrega dados e invalida a prévia', async () => {
+    const fetchMock = setupFetch()
+    render(<App />)
+    fireEvent.click(screen.getByRole('button', { name: /Gerar pr/ }))
+    expect(await screen.findByText('Revisar anatomia')).toBeInTheDocument()
+    const priorListCount = fetchMock.getDemandListRequests()
+    fireEvent.click(screen.getByRole('button', { name: 'Demandas acadêmicas' }))
+    const managementPanel = within(screen.getByRole('region', { name: 'Demandas acadêmicas' }))
+    await managementPanel.findByText('Demanda gerenciada ativa')
+    fireEvent.click(managementPanel.getAllByRole('button', { name: 'Editar demanda' })[0])
+
+    fireEvent.change(screen.getByLabelText('Título'), { target: { value: 'Anatomia revisada' } })
+    fireEvent.change(screen.getByLabelText('Descrição'), { target: { value: 'Conteúdo atualizado' } })
+    fireEvent.change(screen.getByLabelText('Tipo da demanda'), { target: { value: '1' } })
+    fireEvent.change(screen.getByLabelText('Importância da demanda'), { target: { value: '1' } })
+    fireEvent.change(screen.getByLabelText('Prazo da demanda'), { target: { value: '2026-11-15' } })
+    fireEvent.change(screen.getByLabelText('Esforço da demanda'), { target: { value: '75' } })
+    fireEvent.change(screen.getByLabelText('Situação da demanda'), { target: { value: '1' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Salvar alterações' }))
+
+    expect(await managementPanel.findByText('Anatomia revisada')).toBeInTheDocument()
+    expect(fetchMock.getDemandPutRequests()).toBe(1)
+    expect(fetchMock).toHaveBeenCalledWith('/api/demandas-academicas/1', expect.objectContaining({
+      method: 'PUT',
+      headers: expect.objectContaining({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify({ titulo: 'Anatomia revisada', descricao: 'Conteúdo atualizado', tipo: 1, prazo: '2026-11-15', importancia: 1, esforcoEstimadoMinutos: 75, situacao: 1 }),
+    }))
+    expect(fetchMock.getAllDemandRequests()).toBeGreaterThan(1)
+    expect(fetchMock.getDemandListRequests()).toBeGreaterThan(priorListCount)
+    fireEvent.click(screen.getByRole('button', { name: 'Planejamento semanal' }))
+    expect(screen.queryByRole('button', { name: 'Confirmar planejamento' })).not.toBeInTheDocument()
+  })
+
+  it('bloqueia o planejamento durante PUT pendente e libera o fluxo ao concluir', async () => {
+    let releaseUpdate
+    const updateGate = new Promise((resolve) => {
+      releaseUpdate = resolve
+    })
+    const fetchMock = setupFetch({ updateGate })
+    render(<App />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Gerar prévia' }))
+    expect(await screen.findByText('Revisar anatomia')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Nova demanda' }))
+    fireEvent.change(within(document.getElementById('create-demand-form')).getByLabelText('Título'), { target: { value: 'Cadastro durante PUT' } })
+    fireEvent.change(screen.getByLabelText('Tipo'), { target: { value: '1' } })
+    fireEvent.change(screen.getByLabelText('Importância'), { target: { value: '1' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Novo horário' }))
+    fireEvent.change(screen.getByLabelText('Data'), { target: { value: getCurrentMondayIso() } })
+    fireEvent.change(screen.getByLabelText('Horário inicial'), { target: { value: '10:00' } })
+    fireEvent.change(screen.getByLabelText('Horário final'), { target: { value: '12:00' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Demandas acadêmicas' }))
+    const managementPanel = within(screen.getByRole('region', { name: 'Demandas acadêmicas' }))
+    await managementPanel.findByText('Demanda gerenciada ativa')
+    fireEvent.click(managementPanel.getAllByRole('button', { name: 'Editar demanda' })[0])
+    fireEvent.change(managementPanel.getByLabelText('Título'), { target: { value: 'Anatomia atualizada' } })
+    fireEvent.click(managementPanel.getByRole('button', { name: 'Salvar alterações' }))
+
+    expect(await screen.findByRole('button', { name: 'Salvando…' })).toBeDisabled()
+    expect(fetchMock.getDemandPutRequests()).toBe(1)
+    const demandRequestsBefore = fetchMock.getDemandListRequests()
+    const allDemandRequestsBefore = fetchMock.getAllDemandRequests()
+    const availabilityRequestsBefore = fetchMock.getAvailabilityRequests()
+    const demandPostsBefore = fetchMock.getDemandPostRequests()
+    const availabilityPostsBefore = fetchMock.getAvailabilityPostRequests()
+    fireEvent.click(screen.getByRole('button', { name: 'Planejamento semanal' }))
+    const previewButton = screen.getByRole('button', { name: 'Gerar prévia' })
+    const confirmButton = screen.getByRole('button', { name: 'Confirmar planejamento' })
+    const refreshButton = screen.getByRole('button', { name: 'Atualizar dados' })
+    expect(previewButton).toBeDisabled()
+    expect(confirmButton).toBeDisabled()
+    expect(refreshButton).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Salvar demanda' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Salvar horário' })).toBeDisabled()
+
+    // Contorna o estado visual para confirmar que os handlers também bloqueiam chamadas.
+    refreshButton.disabled = false
+    fireEvent.click(refreshButton)
+    previewButton.disabled = false
+    fireEvent.click(previewButton)
+    confirmButton.disabled = false
+    fireEvent.click(confirmButton)
+    fireEvent.submit(document.getElementById('create-demand-form'))
+    fireEvent.submit(document.getElementById('create-availability-form'))
+    expect(fetchMock.getPreviewRequests()).toBe(1)
+    expect(fetchMock.getConfirmationPostRequests()).toBe(0)
+    expect(fetchMock.getDemandPutRequests()).toBe(1)
+    expect(fetchMock.getDemandListRequests()).toBe(demandRequestsBefore)
+    expect(fetchMock.getAllDemandRequests()).toBe(allDemandRequestsBefore)
+    expect(fetchMock.getAvailabilityRequests()).toBe(availabilityRequestsBefore)
+    expect(fetchMock.getDemandPostRequests()).toBe(demandPostsBefore)
+    expect(fetchMock.getAvailabilityPostRequests()).toBe(availabilityPostsBefore)
+
+    releaseUpdate()
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Gerar prévia' })).toBeEnabled())
+    expect(screen.getByRole('button', { name: 'Salvar demanda' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: 'Salvar horário' })).toBeEnabled()
+    expect(screen.queryByRole('button', { name: 'Confirmar planejamento' })).not.toBeInTheDocument()
+    expect(fetchMock.getDemandPutRequests()).toBe(1)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Gerar prévia' }))
+    expect(await screen.findByText('Revisar anatomia')).toBeInTheDocument()
+    expect(fetchMock.getPreviewRequests()).toBe(2)
+    fireEvent.click(screen.getByRole('button', { name: 'Confirmar planejamento' }))
+    expect(await screen.findByText('Planejamento confirmado')).toBeInTheDocument()
+    expect(fetchMock.getConfirmationPostRequests()).toBe(1)
+  })
+
+  it('libera o bloqueio e mantém o formulário disponível após falha do PUT', async () => {
+    const fetchMock = setupFetch({ updateFailures: 1 })
+    render(<App />)
+    fireEvent.click(screen.getByRole('button', { name: 'Demandas acadêmicas' }))
+    const managementPanel = within(screen.getByRole('region', { name: 'Demandas acadêmicas' }))
+    await managementPanel.findByText('Demanda gerenciada ativa')
+    fireEvent.click(managementPanel.getAllByRole('button', { name: 'Editar demanda' })[0])
+    fireEvent.change(screen.getByLabelText('Título'), { target: { value: 'Título mantido após erro' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Salvar alterações' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Falha temporária ao salvar a demanda.')
+    expect(screen.getByLabelText('Título')).toHaveValue('Título mantido após erro')
+    expect(screen.getByRole('button', { name: 'Salvar alterações' })).toBeEnabled()
+    expect(fetchMock.getDemandPutRequests()).toBe(1)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Salvar alterações' }))
+    expect(await managementPanel.findByText('Título mantido após erro')).toBeInTheDocument()
+    expect(fetchMock.getDemandPutRequests()).toBe(2)
+  })
+
+  it('mostra lista vazia e permite recuperar falha de rede ao carregar demandas', async () => {
+    const fetchMock = setupFetch({ allDemands: [], allDemandFailures: 1 })
+    render(<App />)
+    fireEvent.click(screen.getByRole('button', { name: 'Demandas acadêmicas' }))
+    expect(await screen.findByText('Falha temporária na lista completa.')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Tentar novamente' }))
+    expect(await screen.findByText('Nenhuma demanda encontrada')).toBeInTheDocument()
+    expect(fetchMock.getAllDemandRequests()).toBe(2)
+  })
+
+  it('preserva os campos e a regra de tarefas pendentes quando a API rejeita conclusão com HTTP 400', async () => {
+    setupFetch({ updateResponse: { status: 400, data: { detail: 'Conclua ou resolva todas as tarefas antes de concluir a demanda.' } } })
+    render(<App />)
+    fireEvent.click(screen.getByRole('button', { name: 'Demandas acadêmicas' }))
+    await screen.findByText('Demanda gerenciada ativa')
+    fireEvent.click(screen.getAllByRole('button', { name: 'Editar demanda' })[0])
+    fireEvent.change(screen.getByLabelText('Título'), { target: { value: 'Demanda ainda com tarefas' } })
+    fireEvent.change(screen.getByLabelText('Situação da demanda'), { target: { value: '2' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Salvar alterações' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('Conclua ou resolva todas as tarefas antes de concluir a demanda.')
+    expect(screen.getByLabelText('Título')).toHaveValue('Demanda ainda com tarefas')
+    expect(screen.getByLabelText('Situação da demanda')).toHaveValue('2')
+  })
+
+  it('mantém a edição recuperável quando a demanda atualizada retorna HTTP 404', async () => {
+    setupFetch({ updateResponse: { status: 404, data: { detail: 'Demanda não encontrada.' } } })
+    render(<App />)
+    fireEvent.click(screen.getByRole('button', { name: 'Demandas acadêmicas' }))
+    await screen.findByText('Demanda gerenciada ativa')
+    fireEvent.click(screen.getAllByRole('button', { name: 'Editar demanda' })[0])
+    fireEvent.change(screen.getByLabelText('Título'), { target: { value: 'Título preservado' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Salvar alterações' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('Demanda não encontrada.')
+    expect(screen.getByLabelText('Título')).toHaveValue('Título preservado')
+  })
+
     it('impede atualizar os dados durante o cadastro de demanda', async () => {
     let releaseCreate
     const createGate = new Promise((resolve) => {
@@ -1112,5 +1455,48 @@ describe('Planejamento semanal', () => {
     )).toHaveLength(1)
     releaseCreate()
     expect(await screen.findByRole('heading', { name: 'Trabalho de Fisiologia' })).toBeInTheDocument()
+  })
+
+  it('impede confirmação duplicada enquanto a requisição está pendente', async () => {
+    let releaseConfirmation
+    const confirmationGate = new Promise((resolve) => {
+      releaseConfirmation = resolve
+    })
+
+    const fetchMock = setupFetch({ confirmationGate })
+    render(<App />)
+
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Gerar prévia' }),
+    )
+
+    expect(
+      await screen.findByText('Revisar anatomia'),
+    ).toBeInTheDocument()
+
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Confirmar planejamento' }),
+    )
+
+    const pendingButton = await screen.findByRole('button', {
+      name: 'Confirmando…',
+    })
+
+    expect(pendingButton).toBeDisabled()
+    expect(fetchMock.getConfirmationPostRequests()).toBe(1)
+
+    // Simula uma tentativa de segundo clique apesar do bloqueio visual.
+    pendingButton.disabled = false
+    fireEvent.click(pendingButton)
+
+    expect(fetchMock.getConfirmationPostRequests()).toBe(1)
+
+    releaseConfirmation()
+
+    expect(
+      await screen.findByText('Planejamento confirmado'),
+    ).toBeInTheDocument()
+
+    expect(fetchMock.getConfirmationPostRequests()).toBe(1)
   })
 })

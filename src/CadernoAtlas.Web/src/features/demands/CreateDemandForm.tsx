@@ -15,11 +15,13 @@ export interface CreateDemandRequest {
 interface CreateDemandFormProps {
   onCreate: (request: CreateDemandRequest) => Promise<void>
   onCancel: () => void
+  disabled?: boolean
 }
 
 export default function CreateDemandForm({
   onCreate,
   onCancel,
+  disabled = false,
 }: CreateDemandFormProps) {
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
@@ -32,6 +34,7 @@ export default function CreateDemandForm({
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault()
+    if (isSubmitting) return
 
     const trimmedTitle = title.trim()
     const effortMinutes = effort.trim() === '' ? null : Number(effort)
@@ -100,6 +103,7 @@ export default function CreateDemandForm({
             autoFocus
             required
             minLength={2}
+            disabled={disabled}
             value={title}
             onChange={(event) => setTitle(event.target.value)}
             placeholder="Ex.: Prova de Anatomia"
@@ -110,6 +114,7 @@ export default function CreateDemandForm({
           Tipo
           <select
             required
+            disabled={disabled}
             value={type}
             onChange={(event) => setType(event.target.value)}
           >
@@ -126,6 +131,7 @@ export default function CreateDemandForm({
           Importância
           <select
             required
+            disabled={disabled}
             value={importance}
             onChange={(event) => setImportance(event.target.value)}
           >
@@ -140,6 +146,7 @@ export default function CreateDemandForm({
           Prazo (opcional)
           <input
             type="date"
+            disabled={disabled}
             value={dueDate}
             onChange={(event) => setDueDate(event.target.value)}
           />
@@ -149,6 +156,7 @@ export default function CreateDemandForm({
           Esforço estimado em minutos (opcional)
           <input
             type="number"
+            disabled={disabled}
             min={1}
             step={1}
             value={effort}
@@ -161,6 +169,7 @@ export default function CreateDemandForm({
           Descrição (opcional)
           <textarea
             rows={3}
+            disabled={disabled}
             value={description}
             onChange={(event) => setDescription(event.target.value)}
             placeholder="Detalhes que ajudem a identificar a demanda."
@@ -179,7 +188,7 @@ export default function CreateDemandForm({
           className="button button-secondary"
           type="button"
           onClick={onCancel}
-          disabled={isSubmitting}
+          disabled={disabled || isSubmitting}
         >
           Cancelar
         </button>
@@ -187,7 +196,7 @@ export default function CreateDemandForm({
         <button
           className="button button-primary"
           type="submit"
-          disabled={isSubmitting}
+          disabled={disabled || isSubmitting}
         >
           {isSubmitting ? 'Salvando...' : 'Salvar demanda'}
         </button>
