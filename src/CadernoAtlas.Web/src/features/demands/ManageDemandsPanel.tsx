@@ -1,5 +1,7 @@
 import { useMemo, useState, type FormEvent } from 'react'
 import StatusMessage from '../../components/ui/StatusMessage'
+import ManageDemandTasks, { type DemandTask, type UpdateDemandTaskRequest } from './ManageDemandTasks'
+import type { CreateDemandTaskRequest } from './CreateDemandTaskForm'
 
 export interface AcademicDemandRecord {
   id: number
@@ -33,14 +35,20 @@ interface ManageDemandsPanelProps {
   state: DemandListState
   onRetry: () => void
   onUpdate: (id: number, request: UpdateDemandRequest) => Promise<void>
+  onLoadTasks: (demandId: number, signal: AbortSignal) => Promise<DemandTask[]>
+  onCreateTask: (demandId: number, request: CreateDemandTaskRequest) => Promise<void>
+  onUpdateTask: (demandId: number, taskId: number, request: UpdateDemandTaskRequest) => Promise<DemandTask>
   isUpdatingDemand: boolean
+  isCreatingTask: boolean
+  isUpdatingTask: boolean
 }
 
 const typeLabels = ['Prova', 'Trabalho', 'APG', 'TCC', 'Outro']
 const importanceLabels = ['Baixa', 'Média', 'Alta']
 const statusLabels = ['Pendente', 'Em andamento', 'Concluída', 'Cancelada']
 
-export default function ManageDemandsPanel({ state, onRetry, onUpdate, isUpdatingDemand }: ManageDemandsPanelProps) {
+export default function ManageDemandsPanel({ state, onRetry, onUpdate, onLoadTasks, onCreateTask, onUpdateTask, isUpdatingDemand, isCreatingTask, isUpdatingTask }: ManageDemandsPanelProps) {
+  const taskMutationInProgress = isCreatingTask || isUpdatingTask
   const [statusFilter, setStatusFilter] = useState('')
   const [typeFilter, setTypeFilter] = useState('')
   const [importanceFilter, setImportanceFilter] = useState('')
@@ -49,6 +57,7 @@ export default function ManageDemandsPanel({ state, onRetry, onUpdate, isUpdatin
   const [form, setForm] = useState<UpdateDemandRequest | null>(null)
   const [formError, setFormError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
+  const [expandedTaskDemandId, setExpandedTaskDemandId] = useState<number | null>(null)
 
   const filteredDemands = useMemo(() => (state.data ?? []).filter((demand) => (
     (statusFilter === '' || demand.situacao === Number(statusFilter)) &&
@@ -58,6 +67,7 @@ export default function ManageDemandsPanel({ state, onRetry, onUpdate, isUpdatin
   )), [state.data, statusFilter, typeFilter, importanceFilter, deadlineFilter])
 
   function beginEdit(demand: AcademicDemandRecord): void {
+    setExpandedTaskDemandId(null)
     setEditingId(demand.id)
     setForm({
       titulo: demand.titulo,
@@ -104,28 +114,28 @@ export default function ManageDemandsPanel({ state, onRetry, onUpdate, isUpdatin
 
       <div className="demand-filters" aria-label="Filtros de demandas">
         <label className="form-field">Filtrar situação
-          <select aria-label="Filtrar por situação" disabled={isUpdatingDemand} value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
+          <select aria-label="Filtrar por situação" disabled={isUpdatingDemand || taskMutationInProgress} value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
             <option value="">Todas</option>{statusLabels.map((label, index) => <option value={index} key={label}>{label}</option>)}
           </select>
         </label>
         <label className="form-field">Filtrar tipo
-          <select aria-label="Filtrar por tipo" disabled={isUpdatingDemand} value={typeFilter} onChange={(event) => setTypeFilter(event.target.value)}>
+          <select aria-label="Filtrar por tipo" disabled={isUpdatingDemand || taskMutationInProgress} value={typeFilter} onChange={(event) => setTypeFilter(event.target.value)}>
             <option value="">Todos</option>{typeLabels.map((label, index) => <option value={index} key={label}>{label}</option>)}
           </select>
         </label>
         <label className="form-field">Filtrar importância
-          <select aria-label="Filtrar por importância" disabled={isUpdatingDemand} value={importanceFilter} onChange={(event) => setImportanceFilter(event.target.value)}>
+          <select aria-label="Filtrar por importância" disabled={isUpdatingDemand || taskMutationInProgress} value={importanceFilter} onChange={(event) => setImportanceFilter(event.target.value)}>
             <option value="">Todas</option>{importanceLabels.map((label, index) => <option value={index} key={label}>{label}</option>)}
           </select>
         </label>
         <label className="form-field">Prazo até
-          <input aria-label="Filtrar por prazo máximo" type="date" disabled={isUpdatingDemand} value={deadlineFilter} onChange={(event) => setDeadlineFilter(event.target.value)} />
+          <input aria-label="Filtrar por prazo máximo" type="date" disabled={isUpdatingDemand || taskMutationInProgress} value={deadlineFilter} onChange={(event) => setDeadlineFilter(event.target.value)} />
         </label>
       </div>
 
       {state.status === 'loading' && !state.data && <p role="status">Carregando demandas…</p>}
-      {state.status === 'error' && !state.data && <StatusMessage title="Não foi possível carregar as demandas" description={state.error ?? 'Tente novamente.'} onRetry={isUpdatingDemand ? undefined : onRetry} />}
-      {state.status === 'error' && state.data && <StatusMessage title="A lista pode estar desatualizada" description={state.error ?? 'Tente novamente.'} onRetry={isUpdatingDemand ? undefined : onRetry} compact />}
+      {state.status === 'error' && !state.data && <StatusMessage title="Não foi possível carregar as demandas" description={state.error ?? 'Tente novamente.'} onRetry={isUpdatingDemand || taskMutationInProgress ? undefined : onRetry} />}
+      {state.status === 'error' && state.data && <StatusMessage title="A lista pode estar desatualizada" description={state.error ?? 'Tente novamente.'} onRetry={isUpdatingDemand || taskMutationInProgress ? undefined : onRetry} compact />}
       {state.data && filteredDemands.length === 0 && (
         <div className="empty-state"><h3>Nenhuma demanda encontrada</h3><p>Ajuste os filtros ou cadastre uma nova demanda.</p></div>
       )}
@@ -159,7 +169,33 @@ export default function ManageDemandsPanel({ state, onRetry, onUpdate, isUpdatin
                 <div><dt>Prazo</dt><dd>{demand.prazo ?? 'Sem prazo'}</dd></div>
                 <div><dt>Esforço</dt><dd>{demand.esforcoEstimadoMinutos === null ? 'Não estimado' : `${demand.esforcoEstimadoMinutos} min`}</dd></div>
               </dl>
-              <button className="button button-secondary" type="button" disabled={isUpdatingDemand} onClick={() => beginEdit(demand)}>Editar demanda</button>
+              <div className="managed-demand-actions">
+                <button
+                  className="button button-secondary"
+                  type="button"
+                  aria-label={`${expandedTaskDemandId === demand.id ? 'Ocultar' : 'Ver'} tarefas de ${demand.titulo}`}
+                  aria-expanded={expandedTaskDemandId === demand.id}
+                  aria-controls={expandedTaskDemandId === demand.id ? `demand-tasks-${demand.id}` : undefined}
+                  disabled={isUpdatingDemand || taskMutationInProgress || editingId !== null}
+                  onClick={() => setExpandedTaskDemandId((current) => current === demand.id ? null : demand.id)}
+                >
+                  {expandedTaskDemandId === demand.id ? 'Ocultar tarefas' : 'Ver tarefas'}
+                </button>
+                <button className="button button-secondary" type="button" disabled={isUpdatingDemand || taskMutationInProgress} onClick={() => beginEdit(demand)}>Editar demanda</button>
+              </div>
+              {expandedTaskDemandId === demand.id && (
+                <ManageDemandTasks
+                  key={demand.id}
+                  demandId={demand.id}
+                  demandTitle={demand.titulo}
+                  canCreateTasks={demand.situacao === 0 || demand.situacao === 1}
+                  isCreatingTask={isCreatingTask}
+                  isUpdatingTask={isUpdatingTask}
+                  onLoad={onLoadTasks}
+                  onCreate={onCreateTask}
+                  onUpdate={onUpdateTask}
+                />
+              )}
             </>
           )}
         </article>

@@ -14,6 +14,8 @@ import ManageDemandsPanel, {
   type AcademicDemandRecord,
   type UpdateDemandRequest,
 } from './features/demands/ManageDemandsPanel'
+import type { DemandTask, UpdateDemandTaskRequest } from './features/demands/ManageDemandTasks'
+import type { CreateDemandTaskRequest } from './features/demands/CreateDemandTaskForm'
 
 import type {
   ConfirmationData,
@@ -106,6 +108,8 @@ interface AvailabilityPanelProps {
   isCreating: boolean
   isConfirming: boolean
   isUpdatingDemand: boolean
+  isCreatingTask: boolean
+  isUpdatingTask: boolean
 }
 
 const DAY_LABELS = ['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom']
@@ -218,6 +222,10 @@ async function apiGet<TResponse>(path: string, signal?: AbortSignal): Promise<TR
   return response.json() as Promise<TResponse>
 }
 
+function loadDemandTasks(demandId: number, signal: AbortSignal): Promise<DemandTask[]> {
+  return apiGet<DemandTask[]>(`/api/demandas-academicas/${demandId}/tarefas`, signal)
+}
+
 
 async function apiPost<TResponse, TBody extends object>(path: string, body: TBody): Promise<TResponse> {
   const response = await fetch(path, {
@@ -321,7 +329,8 @@ function DemandCard({ item }: DemandCardProps) {
   )
 }
 
-function AvailabilityPanel({ state, monday, onRetry, todayIso, onCreate, isCreating, isConfirming, isUpdatingDemand }: AvailabilityPanelProps) {
+function AvailabilityPanel({ state, monday, onRetry, todayIso, onCreate, isCreating, isConfirming, isUpdatingDemand, isCreatingTask, isUpdatingTask }: AvailabilityPanelProps) {
+  const taskMutationInProgress = isCreatingTask || isUpdatingTask
   const [isFormOpen, setIsFormOpen] = useState(false)
   const weekStart = toIsoDate(monday)
   const weekEnd = toIsoDate(shiftDays(monday, 6))
@@ -359,9 +368,9 @@ function AvailabilityPanel({ state, monday, onRetry, todayIso, onCreate, isCreat
         type="button"
         aria-expanded={isFormOpen}
         aria-controls={isFormOpen ? 'create-availability-form' : undefined}
-        disabled={isCreating || isConfirming || isUpdatingDemand}
+        disabled={isCreating || isConfirming || isUpdatingDemand || taskMutationInProgress}
         onClick={() => {
-          if (isCreating || isConfirming || isUpdatingDemand) return
+          if (isCreating || isConfirming || isUpdatingDemand || taskMutationInProgress) return
           setIsFormOpen((open) => !open)
         }}
       >
@@ -376,18 +385,18 @@ function AvailabilityPanel({ state, monday, onRetry, todayIso, onCreate, isCreat
           todayIso={todayIso}
           onCreate={onCreate}
           onCancel={() => setIsFormOpen(false)}
-          disabled={isConfirming || isUpdatingDemand}
+          disabled={isConfirming || isUpdatingDemand || taskMutationInProgress}
         />
       )}
 
       {state.status === 'loading' ? (
         <LoadingLines count={3} />
       ) : state.status === 'error' && !state.data ? (
-        <StatusMessage title="Não foi possível carregar os horários" description={state.error} onRetry={isUpdatingDemand ? undefined : onRetry} compact />
+        <StatusMessage title="Não foi possível carregar os horários" description={state.error} onRetry={isUpdatingDemand || taskMutationInProgress ? undefined : onRetry} compact />
       ) : (
         <>
           {state.status === 'error' && state.data && (
-            <StatusMessage title="Os horários podem estar desatualizados" description={state.error} onRetry={isUpdatingDemand ? undefined : onRetry} compact />
+            <StatusMessage title="Os horários podem estar desatualizados" description={state.error} onRetry={isUpdatingDemand || taskMutationInProgress ? undefined : onRetry} compact />
           )}
           <div className="availability-total">
             <span className="availability-total-number">{formatMinutes(totalMinutes)}</span>
@@ -463,6 +472,8 @@ function App() {
   const [isCreatingDemand, setIsCreatingDemand] = useState(false)
   const [isUpdatingDemand, setIsUpdatingDemand] = useState(false)
   const [isCreatingAvailability, setIsCreatingAvailability] = useState(false)
+  const [isCreatingTask, setIsCreatingTask] = useState(false)
+  const [isUpdatingTask, setIsUpdatingTask] = useState(false)
   const [previewState, setPreviewState] = useState<PreviewState>({ status: 'idle', data: null, error: null })
   const [confirmState, setConfirmState] = useState<ConfirmState>({ status: 'idle', data: null, error: null })
   const previewRequestRef = useRef<number>(0)
@@ -470,6 +481,7 @@ function App() {
   const demandUpdateInProgressRef = useRef(false)
   const availabilityCreationInProgressRef = useRef(false)
   const confirmationInProgressRef = useRef(false)
+  const taskMutationInProgressRef = useRef(false)
 
   useEffect(() => {
     const controller = new AbortController()
@@ -534,7 +546,7 @@ function App() {
   }, 0)
 
   function clearPreview(): void {
-    if (confirmationInProgressRef.current || demandUpdateInProgressRef.current) return
+    if (confirmationInProgressRef.current || demandUpdateInProgressRef.current || taskMutationInProgressRef.current) return
 
     invalidatePreview()
   }
@@ -546,7 +558,7 @@ function App() {
   }
 
   function changeWeek(days: number): void {
-    if (confirmationInProgressRef.current || demandUpdateInProgressRef.current) return
+    if (confirmationInProgressRef.current || demandUpdateInProgressRef.current || taskMutationInProgressRef.current) return
 
     clearPreview()
     setAvailabilityState((previous) => ({ ...previous, status: 'loading', error: null }))
@@ -554,7 +566,7 @@ function App() {
   }
 
   function selectCurrentWeek(): void {
-    if (confirmationInProgressRef.current || demandUpdateInProgressRef.current) return
+    if (confirmationInProgressRef.current || demandUpdateInProgressRef.current || taskMutationInProgressRef.current) return
 
     clearPreview()
     const currentWeek = getInitialWeek()
@@ -568,7 +580,8 @@ function App() {
       demandCreationInProgressRef.current ||
       availabilityCreationInProgressRef.current ||
       confirmationInProgressRef.current ||
-      demandUpdateInProgressRef.current
+      demandUpdateInProgressRef.current ||
+      taskMutationInProgressRef.current
     ) {
       return
     }
@@ -581,7 +594,7 @@ function App() {
   }
 
   function refreshDemands(): void {
-    if (confirmationInProgressRef.current || demandUpdateInProgressRef.current) return
+    if (confirmationInProgressRef.current || demandUpdateInProgressRef.current || taskMutationInProgressRef.current) return
 
     clearPreview()
     setDemandState((previous) => ({
@@ -593,7 +606,7 @@ function App() {
   }
 
   function refreshAllDemands(): void {
-    if (demandUpdateInProgressRef.current) return
+    if (demandUpdateInProgressRef.current || taskMutationInProgressRef.current || confirmationInProgressRef.current) return
     setAllDemandsState((previous) => ({ ...previous, status: 'loading', error: null }))
     setAllDemandsReloadToken((value) => value + 1)
   }
@@ -603,7 +616,8 @@ function App() {
       confirmationInProgressRef.current ||
       demandCreationInProgressRef.current ||
       availabilityCreationInProgressRef.current ||
-      demandUpdateInProgressRef.current
+      demandUpdateInProgressRef.current ||
+      taskMutationInProgressRef.current
     ) {
       throw new Error('Aguarde a operação em andamento antes de atualizar uma demanda.')
     }
@@ -625,7 +639,7 @@ function App() {
   }
 
   function refreshAvailability(): void {
-    if (confirmationInProgressRef.current || demandUpdateInProgressRef.current) return
+    if (confirmationInProgressRef.current || demandUpdateInProgressRef.current || taskMutationInProgressRef.current) return
 
     clearPreview()
     setAvailabilityState((previous) => ({
@@ -640,7 +654,7 @@ function App() {
     if (demandCreationInProgressRef.current) {
       throw new Error('Já existe um cadastro de demanda em andamento.')
     }
-    if (confirmationInProgressRef.current || demandUpdateInProgressRef.current) {
+    if (confirmationInProgressRef.current || demandUpdateInProgressRef.current || taskMutationInProgressRef.current) {
       throw new Error('Aguarde a confirmação do planejamento antes de cadastrar uma demanda.')
     }
 
@@ -663,7 +677,7 @@ function App() {
     if (availabilityCreationInProgressRef.current) {
       throw new Error('Já existe um cadastro de disponibilidade em andamento.')
     }
-    if (confirmationInProgressRef.current || demandUpdateInProgressRef.current) {
+    if (confirmationInProgressRef.current || demandUpdateInProgressRef.current || taskMutationInProgressRef.current) {
       throw new Error('Aguarde a confirmação do planejamento antes de cadastrar uma disponibilidade.')
     }
 
@@ -684,12 +698,80 @@ function App() {
     }
   }
 
+  async function createDemandTask(demandId: number, request: CreateDemandTaskRequest): Promise<void> {
+    if (taskMutationInProgressRef.current) {
+      throw new HttpError('Já existe um cadastro de tarefa em andamento.', 409)
+    }
+    if (
+      confirmationInProgressRef.current ||
+      demandCreationInProgressRef.current ||
+      demandUpdateInProgressRef.current ||
+      availabilityCreationInProgressRef.current
+    ) {
+      throw new HttpError('Aguarde a operação em andamento antes de cadastrar uma tarefa.', 409)
+    }
+
+    taskMutationInProgressRef.current = true
+    setIsCreatingTask(true)
+    try {
+      await apiPost<DemandTask, CreateDemandTaskRequest>(
+        `/api/demandas-academicas/${demandId}/tarefas`,
+        request,
+      )
+      invalidatePreview()
+    } catch (error: unknown) {
+      if (!isHttpError(error) || error.status >= 500 || error.status === 404 || error.status === 409) {
+        invalidatePreview()
+      }
+      throw error
+    } finally {
+      taskMutationInProgressRef.current = false
+      setIsCreatingTask(false)
+    }
+  }
+
+  async function updateDemandTask(
+    demandId: number,
+    taskId: number,
+    request: UpdateDemandTaskRequest,
+  ): Promise<DemandTask> {
+    if (taskMutationInProgressRef.current) {
+      throw new HttpError('Já existe uma alteração de tarefa em andamento.', 409)
+    }
+    if (
+      confirmationInProgressRef.current ||
+      demandCreationInProgressRef.current ||
+      demandUpdateInProgressRef.current ||
+      availabilityCreationInProgressRef.current
+    ) {
+      throw new HttpError('Aguarde a operação em andamento antes de atualizar uma tarefa.', 409)
+    }
+
+    taskMutationInProgressRef.current = true
+    setIsUpdatingTask(true)
+    try {
+      const updated = await apiPut<DemandTask, UpdateDemandTaskRequest>(
+        `/api/demandas-academicas/${demandId}/tarefas/${taskId}`,
+        request,
+      )
+      invalidatePreview()
+      return updated
+    } catch (error: unknown) {
+      if (!isHttpError(error) || error.status !== 400) invalidatePreview()
+      throw error
+    } finally {
+      taskMutationInProgressRef.current = false
+      setIsUpdatingTask(false)
+    }
+  }
+
   async function generatePreview(): Promise<void> {
     if (
       demandCreationInProgressRef.current ||
       availabilityCreationInProgressRef.current ||
       confirmationInProgressRef.current ||
-      demandUpdateInProgressRef.current
+      demandUpdateInProgressRef.current ||
+      taskMutationInProgressRef.current
     ) return
 
     const requestId = ++previewRequestRef.current
@@ -719,6 +801,7 @@ function App() {
       demandUpdateInProgressRef.current ||
       demandCreationInProgressRef.current ||
       availabilityCreationInProgressRef.current ||
+      taskMutationInProgressRef.current ||
       (confirmState.status === 'error' && !confirmState.canRetry)
     ) return
 
@@ -788,6 +871,7 @@ function App() {
   }
 
   const isConfirming = confirmState.status === 'loading'
+  const isTaskMutationInProgress = isCreatingTask || isUpdatingTask
 
   return (
     <div className="app-shell">
@@ -833,11 +917,11 @@ function App() {
               <p className="page-subtitle">Organize suas demandas em uma semana possível.</p>
             </div>
             <div className="page-heading-actions">
-              <button className="button button-secondary refresh-button" onClick={refreshAll} disabled={isCreatingDemand || isConfirming || isCreatingAvailability || isUpdatingDemand}>
+              <button className="button button-secondary refresh-button" onClick={refreshAll} disabled={isCreatingDemand || isConfirming || isCreatingAvailability || isUpdatingDemand || isTaskMutationInProgress}>
                 <Icon name="refresh" size={16} />
                 <span>Atualizar dados</span>
               </button>
-              <button className="button button-primary generate-preview-button" onClick={generatePreview} disabled={previewState.status === 'loading' || isConfirming || isCreatingDemand || isCreatingAvailability || isUpdatingDemand}>
+              <button className="button button-primary generate-preview-button" onClick={generatePreview} disabled={previewState.status === 'loading' || isConfirming || isCreatingDemand || isCreatingAvailability || isUpdatingDemand || isTaskMutationInProgress}>
                 <Icon name={previewState.status === 'loading' ? 'clock' : 'calendar'} size={16} />
                 <span>{previewState.status === 'loading' ? 'Gerando prévia…' : 'Gerar prévia'}</span>
               </button>
@@ -853,11 +937,11 @@ function App() {
               </div>
             </div>
             <div className="week-controls">
-              <button className="icon-button" disabled={isConfirming || isCreatingAvailability || isUpdatingDemand} onClick={() => changeWeek(-7)} aria-label="Semana anterior" title="Semana anterior">
+              <button className="icon-button" disabled={isConfirming || isCreatingAvailability || isUpdatingDemand || isTaskMutationInProgress} onClick={() => changeWeek(-7)} aria-label="Semana anterior" title="Semana anterior">
                 <Icon name="chevronLeft" size={18} />
               </button>
-              <button className="button button-week" disabled={isConfirming || isCreatingAvailability || isUpdatingDemand} onClick={selectCurrentWeek}>Semana atual</button>
-              <button className="icon-button" disabled={isConfirming || isCreatingAvailability || isUpdatingDemand} onClick={() => changeWeek(7)} aria-label="Próxima semana" title="Próxima semana">
+              <button className="button button-week" disabled={isConfirming || isCreatingAvailability || isUpdatingDemand || isTaskMutationInProgress} onClick={selectCurrentWeek}>Semana atual</button>
+              <button className="icon-button" disabled={isConfirming || isCreatingAvailability || isUpdatingDemand || isTaskMutationInProgress} onClick={() => changeWeek(7)} aria-label="Próxima semana" title="Próxima semana">
                 <Icon name="chevronRight" size={18} />
               </button>
             </div>
@@ -896,7 +980,7 @@ function App() {
                     type="button"
                     aria-expanded={isDemandFormOpen}
                     aria-controls={isDemandFormOpen ? 'create-demand-form' : undefined}
-                    disabled={isUpdatingDemand}
+                    disabled={isUpdatingDemand || isTaskMutationInProgress}
                     onClick={() => setIsDemandFormOpen(true)}
                   >
                     Nova demanda
@@ -908,18 +992,18 @@ function App() {
                 <CreateDemandForm
                   onCreate={createDemand}
                   onCancel={() => setIsDemandFormOpen(false)}
-                  disabled={isUpdatingDemand}
+                  disabled={isUpdatingDemand || isTaskMutationInProgress}
                 />
               )}
 
               {demandState.status === 'loading' && !demandState.data ? (
                 <LoadingLines count={4} />
               ) : demandState.status === 'error' && !demandState.data ? (
-                <StatusMessage title="Não foi possível carregar as demandas" description={demandState.error} onRetry={isUpdatingDemand ? undefined : refreshDemands} />
+                <StatusMessage title="Não foi possível carregar as demandas" description={demandState.error} onRetry={isUpdatingDemand || isTaskMutationInProgress ? undefined : refreshDemands} />
               ) : (
                 <>
                   {demandState.status === 'error' && demandState.data && (
-                    <StatusMessage title="Os dados podem estar desatualizados" description={demandState.error} onRetry={isUpdatingDemand ? undefined : refreshDemands} compact />
+                    <StatusMessage title="Os dados podem estar desatualizados" description={demandState.error} onRetry={isUpdatingDemand || isTaskMutationInProgress ? undefined : refreshDemands} compact />
                   )}
                   {activeDemandCount === 0 ? (
                     <div className="empty-state">
@@ -941,7 +1025,7 @@ function App() {
             </section>
 
             <div className="right-column">
-              <AvailabilityPanel state={availabilityState} monday={monday} onRetry={refreshAvailability} todayIso={todayIso} onCreate={createAvailability} isCreating={isCreatingAvailability} isConfirming={isConfirming} isUpdatingDemand={isUpdatingDemand} />
+              <AvailabilityPanel state={availabilityState} monday={monday} onRetry={refreshAvailability} todayIso={todayIso} onCreate={createAvailability} isCreating={isCreatingAvailability} isConfirming={isConfirming} isUpdatingDemand={isUpdatingDemand} isCreatingTask={isCreatingTask} isUpdatingTask={isUpdatingTask} />
 
               <PlanningPreview
                 previewState={previewState}
@@ -950,6 +1034,8 @@ function App() {
                 isCreatingDemand={isCreatingDemand}
                 isCreatingAvailability={isCreatingAvailability}
                 isUpdatingDemand={isUpdatingDemand}
+                isCreatingTask={isCreatingTask}
+                isUpdatingTask={isUpdatingTask}
                 clearPreview={clearPreview}
                 confirmPreview={confirmPreview}
                 generatePreview={generatePreview}
@@ -970,7 +1056,7 @@ function App() {
                 <p className="page-subtitle">Consulte, filtre e atualize suas demandas.</p>
               </div>
             </section>
-            <ManageDemandsPanel state={allDemandsState} onRetry={refreshAllDemands} onUpdate={updateDemand} isUpdatingDemand={isUpdatingDemand} />
+            <ManageDemandsPanel state={allDemandsState} onRetry={refreshAllDemands} onUpdate={updateDemand} onLoadTasks={loadDemandTasks} isUpdatingDemand={isUpdatingDemand} onCreateTask={createDemandTask} isCreatingTask={isCreatingTask} isUpdatingTask={isUpdatingTask} onUpdateTask={updateDemandTask} />
             <footer className="page-footer">
               <span>Demandas organizadas para uma rotina real.</span>
               <span>CadernoAtlas <span className="footer-separator">·</span> Demandas acadêmicas</span>
