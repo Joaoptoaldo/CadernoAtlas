@@ -20,7 +20,7 @@ O desenvolvimento está sendo feito de forma incremental: entender o contrato re
 | `src/CadernoAtlas.Web/` | Interface React/TypeScript construída com Vite. |
 | `tests/CadernoAtlas.Web.Tests/` | Testes automatizados do frontend. |
 | `docs/endpoints.md` | Referência detalhada dos endpoints e contratos da API. |
-| `docs/escopo-mvp.md` | Escopo do MVP expandido e funcionalidades existentes. |
+| `docs/escopo-mvp.md` | Escopo do MVP original/expandido da API e funcionalidades existentes. |
 | `docs/roadmap-interface-web.md` | Roadmap incremental da interface web, mapeamento de contratos e critérios de conclusão. |
 | `docs/ambiente-postgresql.md` | Ambiente local, conexões, migrations e separação de bancos. |
 | `docs/testes-postgresql.md` | Pré-requisitos e execução dos testes que dependem do PostgreSQL real. |

@@ -26,7 +26,19 @@ Este documento descreve detalhadamente todos os endpoints HTTP implementados na 
 - **Datas:**
   - Campos do tipo `DateOnly` utilizam o formato `yyyy-MM-dd` (ex.: `"2026-11-10"`).
   - Campos de carimbo temporal (`DateTime`) são retornados em formato ISO 8601 UTC (ex.: `"2026-10-16T15:00:00Z"`).
-- **Serialização de Enums:** Os valores de enums são serializados como texto (`string`).
+- **Serialização de Enums:** O comportamento padrão do `System.Text.Json` é
+  serializar enums como números. Como `Program.cs` registra
+  `AddControllers()` sem um conversor global, os campos de enum dos contratos
+  são numéricos no JSON quando nenhum conversor local se aplica. A exceção
+  confirmada está em `CriarTopicoEditalRequest.Status` e
+  `AtualizarTopicoEditalRequest.Status`, que usam
+  `JsonStringEnumConverter` e aceitam valores textuais como `"Pendente"`.
+  `TopicoEditalResponse.Status` também aparece como texto porque essa
+  propriedade do DTO de resposta é declarada como `string`, não como enum.
+  Essa representação JSON é independente da persistência: o
+  `AppDbContext` usa `HasConversion<string>()` para armazenar enums como texto
+  no PostgreSQL, mas essa conversão do Entity Framework não altera a
+  serialização JSON.
 - **Respostas de Erro:** Falhas de validação de modelo e regras de negócio retornam objetos com o padrão `ProblemDetails` do ASP.NET Core (RFC 7807), incluindo campos como `title`, `detail`, `status` e `errors`.
 
 ---
@@ -79,9 +91,9 @@ Representa compromissos e entregas acadêmicas (provas, trabalhos, atividades de
 {
   "titulo": "Entrega do Relatório de Estágio",
   "descricao": "Elaborar o relatório final e colher assinaturas da coordenação",
-  "tipo": "Trabalho",
+  "tipo": 1,
   "prazo": "2026-11-10",
-  "importancia": "Alta",
+  "importancia": 2,
   "esforcoEstimadoMinutos": 180
 }
 ```
@@ -92,11 +104,11 @@ Representa compromissos e entregas acadêmicas (provas, trabalhos, atividades de
   "id": 1,
   "titulo": "Entrega do Relatório de Estágio",
   "descricao": "Elaborar o relatório final e colher assinaturas da coordenação",
-  "tipo": "Trabalho",
+  "tipo": 1,
   "prazo": "2026-11-10",
-  "importancia": "Alta",
+  "importancia": 2,
   "esforcoEstimadoMinutos": 180,
-  "situacao": "Pendente",
+  "situacao": 0,
   "criadoEm": "2026-10-16T15:00:00Z"
 }
 ```
@@ -111,11 +123,11 @@ Representa compromissos e entregas acadêmicas (provas, trabalhos, atividades de
       "id": 1,
       "titulo": "Entrega do Relatório de Estágio",
       "descricao": "Elaborar o relatório final e colher assinaturas da coordenação",
-      "tipo": "Trabalho",
+      "tipo": 1,
       "prazo": "2026-10-18",
-      "importancia": "Alta",
+      "importancia": 2,
       "esforcoEstimadoMinutos": 180,
-      "situacao": "Pendente",
+      "situacao": 0,
       "criadoEm": "2026-10-16T15:00:00Z"
     },
     "faixaUrgencia": "Até 3 dias",
@@ -176,7 +188,7 @@ Tarefas representam etapas menores e executáveis necessárias para o cumpriment
   "descricao": "Adequar às normas ABNT",
   "ordem": 0,
   "esforcoEstimadoMinutos": 45,
-  "situacao": "Pendente"
+  "situacao": 0
 }
 ```
 
@@ -189,7 +201,7 @@ Tarefas representam etapas menores e executáveis necessárias para o cumpriment
   "descricao": "Adequar às normas ABNT",
   "ordem": 0,
   "esforcoEstimadoMinutos": 45,
-  "situacao": "Concluida"
+  "situacao": 2
 }
 ```
 
