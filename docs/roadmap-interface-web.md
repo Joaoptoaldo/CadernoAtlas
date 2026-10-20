@@ -1,406 +1,362 @@
-# Roadmap da interface web — CadernoAtlas
+# Roadmap atual da interface Web — CadernoAtlas
+
+Este documento orienta a conclusão funcional da interface Web existente.
+Ele descreve o estado confirmado no código e nos testes, as dependências entre
+as próximas etapas e os critérios para considerar o frontend concluído.
+
+Os contratos HTTP, DTOs, enums, validações e códigos de erro permanecem
+documentados em [endpoints.md](endpoints.md). As decisões do algoritmo de
+planejamento semanal permanecem em
+[adr/001-planejamento-semanal-mvp.md](adr/001-planejamento-semanal-mvp.md).
+O escopo do MVP original da API está em [escopo-mvp.md](escopo-mvp.md), e o
+índice e as responsabilidades documentais estão em [README.md](README.md).
+
+## 1. Princípios e limites
+
+O fluxo principal da Web deve ajudar o estudante a construir uma semana
+possível, sem recalcular prioridades ou alocações no navegador e sem salvar
+uma prévia automaticamente. O servidor continua sendo a fonte de verdade do
+planejamento.
+
+Este roadmap não altera a API, o banco, as regras de domínio ou o escopo
+original do MVP. A interface deve usar os contratos disponíveis e não criar
+campos, endpoints ou regras paralelas apenas para atender a uma tela.
+
+A decisão de hospedagem, publicação, domínio, configuração de produção e
+demais detalhes operacionais fica deliberadamente adiada até que as
+funcionalidades relevantes da API estejam disponíveis pela interface e os
+fluxos tenham sido testados e validados. A futura análise de alternativas
+também deverá considerar a restrição de custo inicial.
+
+## 2. Estado atual confirmado
+
+### 2.1 Stack e localização
+
+- Frontend em React, TypeScript e Vite, em
+  [`src/CadernoAtlas.Web/`](../src/CadernoAtlas.Web/).
+- Testes de interface com Vitest, Testing Library e `jsdom`, em
+  [`tests/CadernoAtlas.Web.Tests/`](../tests/CadernoAtlas.Web.Tests/).
+- Scripts disponíveis em
+  [`package.json`](../src/CadernoAtlas.Web/package.json): `dev`, `start`,
+  `build`, `lint`, `preview`, `test`, `test:run` e `typecheck`.
+- CI do frontend em
+  [`node.js.yml`](../.github/workflows/node.js.yml), com instalação via
+  `npm ci`, testes, lint e build em Node.js 24.
+
+React + Vite não são uma escolha pendente deste roadmap: são a stack adotada
+no estado atual. Uma troca futura exigiria uma decisão específica e não faz
+parte destas fases.
+
+### 2.2 Funcionalidades utilizáveis
+
+**Implementada — planejamento semanal:** a tela inicial carrega demandas
+priorizadas e disponibilidades, permite trocar a semana, gerar uma prévia,
+exibir alocações e atividades não alocadas, e confirmar a proposta. A
+confirmação preserva `inicioSemana`, `agora`, `propostaId` e `alocacoes`
+retornados pela API; não recalcula esses valores no navegador.
+
+**Implementada — estados do fluxo principal:** há estados de carregamento,
+erro localizado, lista vazia, prévia sem alocações, confirmação, conflito
+`409`, erro `400`, erro `5xx` e falha de rede. Prévia e confirmação também
+impedem envios duplicados durante a operação.
+
+**Implementada — consulta e criação de disponibilidade:** a interface
+consulta os intervalos da semana, calcula o total por meio dos horários
+recebidos e oferece cadastro de novo intervalo dentro da semana exibida.
+
+**Implementada — consulta, filtros, criação e edição de demandas:** a
+interface consulta demandas priorizadas para o planejamento, consulta a lista
+completa, filtra por situação, tipo, importância e prazo, cria novas demandas
+e atualiza uma demanda existente. Após mutações, invalida a prévia e recarrega
+os dados afetados.
+
+**Implementada — gestão de tarefas de demandas:** o cartão de demanda expande
+uma lista carregada sob demanda; a interface consulta, cria e edita tarefas
+(título, descrição, esforço, situação e ordem). Operações concorrentes
+incompatíveis são bloqueadas. A prévia é invalidada após atualizações
+confirmadas ou quando o resultado de uma mutação pode ser incerto. Exclusão
+(`DELETE`) ainda não está exposta na Web.
+
+**Parcial — qualidade de interface:** o código possui navegação entre
+planejamento e demandas, link para pular ao conteúdo principal, estados
+semânticos de status/alerta e formulários com validações básicas. Ainda falta
+validar completamente teclado, foco, responsividade e comportamento em um
+navegador real.
+
+### 2.3 Testes e limitações atuais
+
+Os testes de interface estão organizados em
+[`App.availability.test.jsx`](../tests/CadernoAtlas.Web.Tests/App.availability.test.jsx),
+[`App.demands.test.jsx`](../tests/CadernoAtlas.Web.Tests/App.demands.test.jsx),
+[`App.demand-tasks.test.jsx`](../tests/CadernoAtlas.Web.Tests/App.demand-tasks.test.jsx)
+e [`App.planning.test.jsx`](../tests/CadernoAtlas.Web.Tests/App.planning.test.jsx),
+com infraestrutura compartilhada em
+[`helpers/`](../tests/CadernoAtlas.Web.Tests/helpers/). Eles cobrem os fluxos
+separados de disponibilidade, demandas, tarefas e planejamento. São
+evidências de comportamento da implementação, não uma afirmação de que todos
+os critérios deste roadmap já foram atendidos.
+
+Em 20/10/2026, o [Frontend CI (run 39473717470)](https://github.com/Joaoptoaldo/CadernoAtlas/actions/runs/39473717470)
+passou com 74 testes, lint e build. O [.NET CI (run 39473717927)](https://github.com/Joaoptoaldo/CadernoAtlas/actions/runs/39473717927)
+passou com 178 testes.
 
-**Escopo deste documento:** mapear a interface de planejamento semanal para os contratos existentes e definir uma ordem incremental de implementação. Não propõe alteração imediata da API, do banco, da regra de planejamento ou da arquitetura.
+O workflow do frontend já executa testes, lint e build. Ainda permanecem:
 
-## 1. Objetivo e princípio de produto
-
-Implementar a primeira interface web do CadernoAtlas focada no planejamento semanal de estudantes universitários. O fluxo deve ajudar a pessoa a decidir o que cabe na rotina real, sem preencher todos os horários artificialmente nem tratar uma semana incompleta como falha pessoal.
-
-Princípio de produto: **“Uma semana possível. Seu planejamento deve caber na sua rotina, não o contrário.”**
-
-A primeira fatia da interface deve permitir:
+- validação dos fluxos contra a API real, em ambiente seguro;
+- revisão em navegador real de responsividade, teclado, foco e acessibilidade;
+- cobertura de lacunas contratuais e de estados que não estão comprovados nos
+  testes atuais;
+- implementação ou decisão registrada para os grupos de funcionalidades
+  destinados ao usuário final que ainda não aparecem na Web.
 
-1. consultar as demandas acadêmicas ativas e as disponibilidades já cadastradas;
-2. escolher uma semana e pedir uma prévia ao servidor;
-3. revisar sessões sugeridas e atividades que não couberam, incluindo os motivos;
-4. confirmar a proposta explicitamente;
-5. recuperar-se de dados desatualizados ou conflitos, gerando uma nova prévia.
+## 3. Inventário da API e estado correspondente na Web
 
-A tela não deve recalcular prioridades/alocações no navegador nem persistir uma prévia por conta própria. O servidor é a fonte de verdade do planejamento.
+As classificações abaixo se referem à interface atual, não à existência dos
+endpoints. Os contratos detalhados devem ser consultados em
+[endpoints.md](endpoints.md).
 
-## 2. Estado funcional e pendências
+| Grupo da API | Estado na Web | Trabalho restante | Critério de aceitação | Dependências |
+|---|---|---|---|---|
+| Demandas acadêmicas: listar priorizadas, listar com filtros, criar e atualizar | **Implementada** para os fluxos atualmente expostos | Confirmar contra a API real e fechar as lacunas de erro, acessibilidade e validação visual | Usuário consulta, filtra, cria e edita uma demanda sem perder o contexto; respostas e erros do contrato são apresentados corretamente | API de demandas; fluxo de planejamento para invalidar prévias |
+| Tarefas vinculadas a demandas | **Implementada parcialmente** | Implementar ou decidir a exclusão (`DELETE`), considerando que a API desvincula tarefas excluídas das sessões relacionadas com `SetNull` | Consulta, criação e edição de tarefas são utilizáveis; a decisão sobre exclusão considera seu efeito nos vínculos de sessões | Demanda selecionada; contratos de tarefas; regras de conclusão da demanda; vínculo com sessões |
+| Disponibilidades de estudo: listar e criar | **Implementada** para a fatia semanal | Validar conflitos e recuperação contra a API real; decidir se edição/exclusão serão necessárias quando a API não as oferece | Usuário consulta e cria intervalos na semana, entende vazio, erro e conflito `409`, sem intervalo fora da semana | API de disponibilidades; seletor de semana |
+| Sessões de estudo: listar, criar, editar, iniciar, concluir, cancelar e excluir | **Parcial**: sessões são exibidas indiretamente na confirmação do planejamento, sem gerenciamento próprio | Definir a necessidade de uma agenda/histórico e implementar as operações de usuário escolhidas; não inventar telas para endpoints sem decisão | Sessões relevantes podem ser consultadas e, se incluídas no escopo, alteradas conforme os estados permitidos pela API | Contratos e regras de ciclo de vida de sessões; confirmação do planejamento |
+| Planejamento semanal: prévia e confirmação | **Implementada** na primeira fatia local | Validar ponta a ponta com API real e concluir revisão de UX, acessibilidade e estados raros | Prévia não persiste; confirmação usa a proposta original; conflito ou erro não reapresenta sucesso nem reenvia payload obsoleto | Demandas, disponibilidades, sessões existentes e decisões do ADR |
+| Concursos públicos | **Não iniciada** | Decidir se a vertical de concursos fará parte da interface concluída e, se fizer, implementar CRUD | Usuário consegue realizar as operações incluídas no escopo, com estados vazio, erro e validação | Decisão de escopo; endpoints de concursos |
+| Disciplinas de edital | **Não iniciada** | Avaliar como fluxo dependente de concurso e implementar ou justificar exclusão | Disciplinas são gerenciáveis dentro de um concurso quando incluídas | Concursos; contratos de disciplinas |
+| Tópicos e subtópicos de edital | **Não iniciada** | Avaliar árvore, ordenação, status, vínculo de disciplina e exclusão em cascata na UX | Usuário consegue consultar e alterar a árvore sem violar as validações da API | Disciplinas; contratos de tópicos; enum textual específico do contrato |
+| Cadernos de estudo | **Não iniciada** | Decidir se cadernos terão uma tela no frontend atual e implementar o conjunto escolhido | Operações incluídas são acessíveis e seus estados são verificáveis | Decisão de escopo; endpoints de cadernos |
+| Endpoints de desenvolvimento e suporte, como `/_dev/database-check` | **Adiada deliberadamente** | Não expor infraestrutura na interface de usuário; documentar qualquer uso operacional separadamente | Nenhuma tela de produto depende de endpoint de suporte ou revela detalhes de infraestrutura | Ambiente de desenvolvimento e operação da API |
 
-### Implementado
+Nenhuma ausência foi tratada silenciosamente como irrelevante. Os grupos
+marcados como não iniciados ou parciais exigem uma decisão de escopo quando a
+funcionalidade for destinada ao usuário final. A conclusão funcional só poderá
+ser declarada depois que cada linha tiver implementação utilizável ou
+justificativa registrada.
 
-- Interface React + Vite para consultar demandas priorizadas e disponibilidades, selecionar semana, solicitar e revisar a prévia e confirmar o planejamento.
-- Cadastro de demanda acadêmica a partir do painel de prioridades, com atualização da lista após criação.
-- Tratamento de conflitos `409`, estados de carregamento e erros recuperáveis.
-- Nove testes automatizados de interface cobrindo carregamento inicial, repetição após falha de demandas, prévia sem persistência, confirmação, conflito `409` e cadastro de demanda (contrato, erro e envio duplicado).
+## 4. Fases de implementação e validação
 
-### Cobertura e integração pendentes
+As fases abaixo não têm datas arbitrárias. Uma fase só avança quando seus
+pré-requisitos e critérios objetivos forem atendidos.
 
-Os nove testes existentes não cobrem todos os cenários listados nos critérios de conclusão da seção 7. Permanecem lacunas para estados vazios e prévia sem alocações, falha de carregamento de disponibilidades, respostas `400`, falhas de rede na confirmação e revisão em navegador real de responsividade, teclado e acessibilidade.
+### Fase 0 — Fechar o escopo funcional da Web
 
-A interface e seus testes ainda não foram integrados ao histórico normal do Git nem aos passos de CI do frontend. Esse é um estado temporário de versionamento e automação; não altera o fato de que os fluxos descritos acima estão implementados localmente. A estratégia de hospedagem de produção também continua pendente. O proxy Vite atende ao desenvolvimento local, mas não define o deploy.
+**Objetivo:** decidir quais grupos da tabela de inventário pertencem à
+interface concluída e quais serão justificadamente excluídos.
 
-Os contratos e referências de API consultados para este roadmap permanecem listados na seção de referência ao final.
+**Escopo:** tarefas, sessões, concursos, disciplinas, tópicos, subtópicos e
+cadernos; confirmar também a necessidade de telas além da primeira fatia de
+planejamento.
 
-## 3. Inventário dos contratos reais
+**Pré-requisitos:** estado atual do frontend, contratos em
+[endpoints.md](endpoints.md), escopo do MVP da API em
+[escopo-mvp.md](escopo-mvp.md) e decisões do ADR.
 
-Os caminhos e nomes abaixo foram verificados nos contratos e no código da API consultados para este roadmap. Os exemplos de nomes JSON usam o padrão camelCase habitual do ASP.NET Core.
+**Critérios de aceitação:**
 
-### 3.1 Prévia do planejamento
+1. Cada linha do inventário tem decisão `incluída`, `excluída com justificativa`
+   ou `adiada`.
+2. A decisão não altera retroativamente o escopo original da API.
+3. Dependências entre grupos estão registradas antes da implementação.
 
-**`GET /api/planejamento-semanal/previa?inicioSemana=yyyy-MM-dd`**\
-Controller: `PlanejamentoSemanalController.ObterPrevia`\
-Request query: `inicioSemana` é obrigatório e deve ser uma data válida que caia em uma segunda-feira. Não enviar `agora` como parâmetro: o instante é obtido no servidor por `TimeProvider`.
+**Testes/verificações:** revisão dos controllers, contratos e fluxos
+existentes; atualização deste inventário quando uma decisão for tomada.
 
-**Resposta `200 OK` (`PlanejamentoSemanalResponse`):**
+**Conclusão da fase:** não há grupo de usuário final sem responsável,
+dependência ou decisão de escopo.
 
-```json
-{
-  "inicioSemana": "2026-10-19",
-  "agora": "2026-10-18T12:00:00-03:00",
-  "propostaId": "hmac-sha256:...",
-  "alocacoes": [
-    {
-      "demandaAcademicaId": 12,
-      "tarefaDemandaId": null,
-      "titulo": "Revisar conteúdo da prova",
-      "dataPlanejada": "2026-10-19",
-      "horaInicio": "19:00:00",
-      "duracaoPlanejadaMinutos": 60
-    }
-  ],
-  "naoAlocadas": [
-    {
-      "demandaAcademicaId": 14,
-      "tarefaDemandaId": null,
-      "titulo": "Leitura do capítulo",
-      "motivo": 2,
-      "descricao": "..."
-    }
-  ]
-}
-```
+### Fase 1 — Consolidar a fatia de demandas, disponibilidade e planejamento
 
-O JSON acima é ilustrativo do formato e não representa dados reais do banco. Os IDs podem ser nulos conforme a unidade de planejamento.
+**Objetivo:** transformar o fluxo local já implementado em uma fatia
+verificada contra a API real.
 
-- `alocacoes`: lista de atividades sugeridas. Cada item contém `demandaAcademicaId`, `tarefaDemandaId`, `titulo`, `dataPlanejada`, `horaInicio` e `duracaoPlanejadaMinutos`.
-- `naoAlocadas`: lista das atividades elegíveis que não receberam horário, com `motivo` e `descricao` para explicar o resultado.
-- `propostaId`: identificador assinado que precisa ser preservado literalmente para a confirmação. O front-end não deve criar, transformar ou recalcular esse valor.
-- A resposta também inclui `inicioSemana` e `agora`, ambos necessários para confirmar a mesma proposta.
+**Escopo:** demandas priorizadas e gerenciadas, disponibilidade semanal,
+prévia, confirmação, recuperação de erros, navegação e estados vazios.
 
-**Status observados/testados:** `200 OK` em caso de sucesso; `400 Bad Request` quando a semana está ausente, tem formato inválido, não cai numa segunda-feira ou ultrapassa a faixa de datas suportada. `GET` calcula a proposta sem persistir sessões.
+**Pré-requisitos:** Fase 0; API em execução com os contratos documentados;
+ambiente de teste seguro.
 
-### 3.2 Confirmação do planejamento
+**Critérios de aceitação:**
 
-**`POST /api/planejamento-semanal/confirmar`**\
-Controller: `PlanejamentoSemanalController.Confirmar`\
-Body (`ConfirmarPlanejamentoSemanalRequest`):
+1. A tela consulta os endpoints corretos e não duplica a priorização ou o
+   algoritmo de alocação.
+2. Criação e edição de demandas e criação de disponibilidade respeitam
+   enums, campos opcionais, validações e erros do contrato.
+3. A prévia não cria sessões e a confirmação envia os valores recebidos sem
+   transformá-los.
+4. `400`, `409`, `5xx`, falha de rede, vazio e carregamento têm tratamentos
+   distintos e recuperáveis.
 
-```json
-{
-  "inicioSemana": "2026-10-19",
-  "agora": "2026-10-18T12:00:00-03:00",
-  "propostaId": "hmac-sha256:...",
-  "alocacoes": [
-    {
-      "demandaAcademicaId": 12,
-      "tarefaDemandaId": null,
-      "titulo": "Revisar conteúdo da prova",
-      "dataPlanejada": "2026-10-19",
-      "horaInicio": "19:00:00",
-      "duracaoPlanejadaMinutos": 60
-    }
-  ]
-}
-```
+**Testes/verificações:** testes de interface existentes e lacunas relevantes;
+execução do `test:run`, `lint` e `build`; uma verificação contra a API real sem
+apontar para banco inadequado.
 
-Enviar os valores da prévia sem modificá-los: `inicioSemana`, `agora`, `propostaId` e `alocacoes`. Não enviar `naoAlocadas` no corpo de confirmação. A proposta é stateless; a API recarrega os dados, recalcula o resultado e valida se a proposta continua íntegra e no futuro.
+**Conclusão da fase:** a primeira fatia passa por um fluxo ponta a ponta
+controlado e não possui pendência conhecida que impeça seu uso previsto.
 
-**Resposta `200 OK` (`ConfirmarPlanejamentoSemanalResponse`):** `inicioSemana`, `agora` e `sessoesCriadas`, sendo cada sessão criada uma `SessaoEstudoResponse` com `id`, `titulo`, `dataPlanejada`, `horaInicioPlanejada`, `duracaoPlanejadaMinutos`, `duracaoRealMinutos`, `situacao`, `demandaAcademicaId`, `tarefaDemandaId`, `observacoes`, `criadoEm`, `inicioRealEm`, `concluidaEm` e `canceladaEm`.
+### Fase 2 — Tarefas, sessões e agenda de estudo
 
-**Status e recuperação:**
+**Objetivo:** cobrir os recursos de estudo que sustentam o planejamento, caso
+a Fase 0 os inclua na interface final.
 
-- `400 Bad Request`: início de semana ou proposta incompletos/inválidos, ou alocação nula. Exibir a mensagem da API de maneira legível; não presumir que o caso será corrigido por tentar novamente sem alterar nada.
-- `409 Conflict`: proposta desatualizada ou adulterada, alocação que deixou de estar no futuro, sobreposição com sessão ativa ou conflito transacional. O controller devolve `ProblemDetails` com `title` e `detail` em casos tratados.
-- `200 OK`: confirmação concluída; usar `sessoesCriadas` para apresentar o resultado confirmado.
-- Erros de rede e respostas `5xx`: estado recuperável de falha, sem assumir que a confirmação foi concluída quando não há resposta. Em caso de resultado ambíguo após falha de conexão, consultar as sessões existentes ou gerar uma nova prévia antes de repetir uma ação de escrita.
+**Escopo:** tarefas vinculadas a demandas; consulta e operações escolhidas
+para sessões; visualização de sessões confirmadas; consistência entre
+situações da API e ações habilitadas.
 
-A confirmação usa transação `Serializable`; as falhas PostgreSQL `23P01` para a constraint de sobreposição ativa e `40001` de serialização são convertidas em `409 Conflict`. O front-end não precisa conhecer nem interpretar esses códigos SQL: deve tratar o status HTTP e a mensagem de problema.
+**Pré-requisitos:** Fase 1; decisão de escopo da Fase 0; contratos e regras de
+tarefas e sessões; definição de uma navegação que não confunda prévia com
+sessão persistida.
 
-### 3.3 Lista priorizada de demandas
+**Critérios de aceitação:**
 
-**`GET /api/demandas-academicas/priorizadas`**\
-Controller: `DemandasAcademicasController.ListarPriorizadas`\
-Sem parâmetros. Retorna apenas demandas em situação `Pendente` ou `EmAndamento`, ordenadas pela regra de prioridade existente.
+1. Uma tarefa é sempre apresentada no contexto da demanda correta.
+2. A interface não permite ações incompatíveis com o estado da demanda ou da
+   sessão e comunica rejeições da API.
+3. Sessões confirmadas podem ser identificadas como persistidas, sem
+   atribuir conclusão automática à demanda ou à tarefa.
+4. A interface não duplica a unidade de planejamento definida no ADR.
 
-Formato por item: `demanda` (objeto `DemandaAcademicaResponse`), `faixaUrgencia`, `diasAtePrazo` e `justificativa`.
+**Testes/verificações:** testes de ciclo de vida, estados vazios, `400`,
+`404`, `409`, falha de rede e prevenção de ações duplicadas; verificação
+contra a API real quando o fluxo estiver implementado.
 
-Campos de `demanda`: `id`, `titulo`, `descricao`, `tipo`, `prazo`, `importancia`, `esforcoEstimadoMinutos`, `situacao` e `criadoEm`.
+**Conclusão da fase:** todas as operações incluídas na decisão da Fase 0 têm
+fluxo utilizável e testes correspondentes.
 
-- `prazo` e `esforcoEstimadoMinutos` podem ser nulos; a interface deve mostrar “Sem prazo” ou “A estimar”, conforme o caso.
-- O endpoint já retorna a ordenação da prioridade. Não reordenar no navegador por uma regra paralela.
-- A resposta priorizada contém **demandas-pai**, não a lista expandida de tarefas usada pelo planejador.
-- `200 OK` em caso de sucesso. Falhas de transporte/servidor devem aparecer em um estado com ação de tentar novamente.
+### Fase 3 — Vertical de concursos, editais e cadernos
 
-O endpoint `GET /api/demandas-academicas` também existe, com filtros opcionais `situacao`, `tipo`, `importancia` e `prazoAte=yyyy-MM-dd`. Sem filtro de situação, ele também pode incluir demandas concluídas/canceladas e ordena por título; por isso, a lista `priorizadas` é a fonte mais adequada para o painel principal.
+**Objetivo:** implementar ou encerrar com justificativa os grupos legados de
+organização de concursos e estudos.
 
-### 3.4 Disponibilidade semanal
+**Escopo:** concursos, disciplinas, tópicos/subtópicos e cadernos, somente
+nas operações aprovadas na Fase 0.
 
-**`GET /api/disponibilidades-estudo?dataDe=yyyy-MM-dd&dataAte=yyyy-MM-dd`**\
-Controller: `DisponibilidadesEstudoController.Listar`. Os parâmetros são opcionais; para o painel semanal, enviar as datas da segunda-feira e do domingo selecionados.
+**Pré-requisitos:** Fase 0; decisões de navegação; dependências entre
+concurso, disciplina e tópico; definição de como cadernos se relacionam com
+as telas existentes.
 
-Retorna um array de `{ id, data, horaInicio, horaFim, criadoEm }`, ordenado por data e horário. Retorna `400 Bad Request` se `dataDe` for posterior a `dataAte`.
+**Critérios de aceitação:**
 
-A API **não fornece um total de horas agregado**. O resumo (por exemplo, `7h30`) precisa ser calculado pela interface somando `horaFim - horaInicio` para os intervalos devolvidos, agrupados por data. Não usar os números do wireframe como dados fixos.
+1. Recursos dependentes não podem ser criados sem o contexto exigido.
+2. A árvore de tópicos preserva ordenação, hierarquia e validações do backend.
+3. Estados de vazio, carregamento, validação e erro são utilizáveis.
+4. Qualquer operação não exposta na Web tem justificativa registrada no
+   inventário.
 
-**`POST /api/disponibilidades-estudo`** também existe para criar um intervalo, com body `{ data, horaInicio, horaFim }`. Retorna `201 Created`, `400 Bad Request` para campos/horários inválidos e `409 Conflict` quando o intervalo se sobrepõe a uma disponibilidade existente. Neste momento não há endpoint de atualização ou exclusão de disponibilidade.
+**Testes/verificações:** testes de integração de cada fluxo incluído,
+validação dos contratos e revisão de navegação/acessibilidade.
 
-O protótipo não define um formulário de gerenciamento de disponibilidade. Se a tela inicial precisar ser autossuficiente quando não houver nenhum horário cadastrado, será necessário aprovar uma pequena interface de cadastro usando o `POST` existente ou definir outra forma de preparar dados para a primeira demonstração.
+**Conclusão da fase:** a vertical incluída está utilizável ou cada exclusão
+foi explicitamente aprovada e documentada.
 
-### 3.5 Sessões existentes
+### Fase 4 — Validação integrada e qualidade de conclusão
 
-**`GET /api/sessoes-estudo?dataDe=yyyy-MM-dd&dataAte=yyyy-MM-dd&situacao=...`**\
-Controller: `SessoesEstudoController.Listar`. Todos os filtros são opcionais. Retorna `200 OK` e uma lista de `SessaoEstudoResponse`, ordenada por data, hora e ID.
+**Objetivo:** validar o frontend como produto utilizável, não apenas como
+componentes isolados.
 
-Outros endpoints de sessões existentes incluem `POST /api/sessoes-estudo`, `PUT /api/sessoes-estudo/{id}` e ações para iniciar, concluir, cancelar e excluir conforme as regras de situação; criação retorna `201`, validações podem retornar `400` e conflitos de situação/sobreposição podem retornar `409`.
+**Escopo:** cobertura final, navegador real, responsividade, acessibilidade,
+contratos, estados de erro, lint, typecheck, build e CI.
 
-Para a primeira tela de planejamento, não é necessário carregar sessões para recalcular horários no front-end: `GET /previa` já considera sessões ativas no servidor e `POST /confirmar` devolve as sessões criadas. O `GET /api/sessoes-estudo` pode ser usado posteriormente para uma visualização de calendário ou para confirmar o estado após uma falha de rede ambígua, sem ampliar agora o escopo para gerenciamento de sessões.
+**Pré-requisitos:** todas as fases funcionais incluídas concluídas.
 
-### 3.6 Tarefas vinculadas a demandas
+**Critérios de aceitação:**
 
-`GET /api/demandas-academicas/{demandaId}/tarefas` lista tarefas de uma demanda específica. As respostas da tarefa contêm `id`, `demandaAcademicaId`, `titulo`, `descricao`, `ordem`, `esforcoEstimadoMinutos` e `situacao`.
+1. Fluxos principais passam de ponta a ponta contra uma API e banco de teste
+   apropriados.
+2. Testes cobrem sucesso, vazio, carregamento, validação, `404`, `409`,
+   `5xx`, rede e duplo envio onde aplicável.
+3. Navegação por teclado, foco, nomes acessíveis e mensagens de estado são
+   verificáveis em navegador real.
+4. `npm run test:run`, `npm run lint`, `npm run typecheck` e `npm run build`
+   passam localmente, e o workflow do frontend passa no CI.
 
-A prévia pode alocar uma tarefa como unidade de estudo: nesses casos, `titulo` representa a atividade e `tarefaDemandaId` a identifica; a resposta não garante que o `demandaAcademicaId` esteja preenchido para a alocação de tarefa (os testes atuais cobrem esse caso). Não presumir que toda alocação corresponde diretamente a um cartão da lista de demandas.
+**Testes/verificações:** executar os comandos definidos em
+[`package.json`](../src/CadernoAtlas.Web/package.json), revisar os resultados
+do workflow e repetir os fluxos críticos após qualquer correção.
 
-### 3.7 Enumerações no JSON
+**Conclusão da fase:** não restam pendências funcionais conhecidas que
+impeçam o uso previsto e os critérios da seção 5 estão comprovados.
 
-`Program.cs` registra `AddControllers()` sem configurar globalmente `JsonStringEnumConverter`. Os enums devem ser tratados como valores numéricos no contrato JSON atual, a menos que a configuração local revele alguma personalização adicional. No mapeamento presente nos modelos:
+### Fase 5 — Conclusão funcional antes da implantação
 
-- `tipo`: `0 Prova`, `1 Trabalho`, `2 APG`, `3 TCC`, `4 Outro`.
-- `importancia`: `0 Baixa`, `1 Media`, `2 Alta`.
-- `situacao` de demanda: `0 Pendente`, `1 EmAndamento`, `2 Concluida`, `3 Cancelada`.
-- `situacao` de sessão: `0 Planejada`, `1 EmAndamento`, `2 Concluida`, `3 Cancelada`.
-- `motivo` de não alocação: `0 EstimativaAusente`, `1 EstimativaInvalida`, `2 SemDisponibilidadeNaSemana`, `3 DuracaoMaiorQueQualquerDisponibilidade`, `4 HorarioOcupadoPorSessaoExistente`, `5 CapacidadeConsumidaPorAtividadesPrioritarias`.
+**Objetivo:** registrar a decisão de que o frontend está funcionalmente
+concluído, sem misturar essa decisão com hospedagem.
 
-Criar funções explícitas de apresentação para traduzir esses códigos em rótulos amigáveis. Não depender da conversão de `PascalCase` em texto de tela.
+**Escopo:** checklist final do inventário, evidências de testes e validações,
+pendências aceitas e fontes documentais.
 
-## 4. Mapeamento da tela para a API
+**Pré-requisitos:** Fase 4 concluída.
 
-### 4.1 Estado inicial: “Revisão da semana”
+**Critérios de aceitação:**
 
-Ao abrir a página, usar a segunda-feira da semana selecionada como referência e carregar, em paralelo:
+1. Todos os grupos relevantes da API foram avaliados.
+2. Toda funcionalidade de usuário final está utilizável ou tem exclusão
+   justificada.
+3. Os fluxos principais foram validados ponta a ponta.
+4. Contratos são respeitados e regras de negócio não foram duplicadas no
+   frontend.
+5. Estados de erro, carregamento e ausência de dados estão tratados.
+6. Testes, lint, typecheck, build e CI passaram.
+7. Não há pendência funcional conhecida que impeça o uso previsto.
 
-1. `GET /api/demandas-academicas/priorizadas` para o painel **Prioridades acadêmicas**;
-2. `GET /api/disponibilidades-estudo?dataDe={segunda}&dataAte={domingo}` para resumo de disponibilidade e horários por dia.
+**Testes/verificações:** preencher a evidência de cada item, revisar o
+inventário e conferir o diff e o estado do Git.
 
-Não chamar a prévia automaticamente na montagem da tela: o Figma solicita que a pessoa revise os dados e clique em **Gerar prévia**. O estado inicial não deve conter sessões inventadas nem os exemplos estáticos do wireframe.
+**Conclusão da fase:** somente após todos os itens acima estarem comprovados
+o produto poderá entrar na análise de implantação.
 
-O painel de disponibilidade soma os intervalos do retorno; a lista de demandas mostra tipo, prazo, importância e estimativa, sempre tratando campos opcionais. Como `DemandaAcademicaResponse` não contém nome/ID de disciplina, não preencher uma disciplina fictícia.
+### Fase 6 — Implantação, deliberadamente adiada
 
-**Estado vazio:** se o endpoint retornar `[]`, mostrar uma explicação específica para demandas ou disponibilidade ausente. Não chamar isso de falha. Ações para cadastrar dados exigem uma decisão de escopo; ver seção 8.
+Esta fase não será executada neste roadmap. Depois da conclusão funcional,
+será necessário analisar alternativas de hospedagem, publicação, domínio,
+configuração de produção, observabilidade, segurança e custo inicial. Não há
+provedor escolhido, infraestrutura criada ou deploy autorizado por este
+documento.
 
-**Falha parcial:** se somente demandas ou disponibilidades falhar, preservar o painel que carregou e mostrar erro/repetição no painel que falhou. Um erro de uma chamada não deve apagar dados obtidos com sucesso pela outra.
+## 5. Checklist verificável de conclusão funcional
 
-### 4.2 Ao escolher outra semana
+O frontend só pode ser considerado pronto para a etapa de implantação quando
+todos os itens forem marcados com evidência:
 
-- Validar no front-end que a data representa uma segunda-feira e enviá-la em `yyyy-MM-dd`.
-- Buscar novamente as disponibilidades para o período selecionado.
-- Invalidar uma prévia existente quando a semana muda. A prévia está associada a uma semana e aos dados usados no seu cálculo.
-- Não inventar uma regra de proibição de semanas passadas nesta etapa; o backend exige segunda-feira, mas não bloqueia explicitamente toda semana passada. A política para semanas passadas precisa ser decidida antes da finalização da UX.
+- [ ] Todos os grupos de endpoints destinados ao usuário final foram
+      implementados ou excluídos com justificativa.
+- [ ] O inventário registra o estado, o trabalho restante, a aceitação e as
+      dependências de cada grupo.
+- [ ] Demandas, disponibilidades e planejamento respeitam os contratos reais.
+- [ ] Tarefas, sessões, concursos, editais e cadernos foram decididos e
+      tratados conforme o escopo aprovado.
+- [ ] Os fluxos principais foram validados ponta a ponta com ambiente seguro.
+- [ ] A prévia não é confundida com persistência e a confirmação usa a
+      proposta original.
+- [ ] Não há duplicação indevida de regras de negócio no frontend.
+- [ ] Carregamento, vazio, validação, erro de rede, `400`, `404`, `409` e
+      `5xx` são tratados onde aplicável.
+- [ ] Navegação, teclado, foco, responsividade e mensagens de estado foram
+      revisados em navegador real.
+- [ ] Testes relevantes, `npm run lint`, `npm run typecheck`, `npm run build`
+      e o CI do frontend passam.
+- [ ] Não há pendência funcional conhecida que impeça o uso previsto.
+- [ ] A implantação continua separada desta conclusão e permanece sujeita a
+      uma análise futura de alternativas e custo.
 
-### 4.3 Gerar prévia
+## 6. Referências de implementação
 
-Ao clicar em **Gerar prévia**:
+### Frontend e testes
 
-1. desabilitar temporariamente o botão e mostrar estado de carregamento;
-2. chamar `GET /api/planejamento-semanal/previa?inicioSemana={yyyy-MM-dd}`;
-3. no sucesso, guardar a resposta inteira em memória, incluindo `propostaId`, `agora`, `alocacoes` e `naoAlocadas`;
-4. apresentar o estado **Prévia não salva**, o total sugerido (soma de `duracaoPlanejadaMinutos`), os cartões de sessão, os itens não alocados e os motivos/descrições devolvidos pela API;
-5. manter visível que nada será gravado até a pessoa confirmar.
+- [`App.tsx`](../src/CadernoAtlas.Web/src/App.tsx)
+- [`PlanningPreview.tsx`](../src/CadernoAtlas.Web/src/features/planning/PlanningPreview.tsx)
+- [`ManageDemandsPanel.tsx`](../src/CadernoAtlas.Web/src/features/demands/ManageDemandsPanel.tsx)
+- [`CreateDemandForm.tsx`](../src/CadernoAtlas.Web/src/features/demands/CreateDemandForm.tsx)
+- [`CreateAvailabilityForm.tsx`](../src/CadernoAtlas.Web/src/features/availability/CreateAvailabilityForm.tsx)
+- [`App.availability.test.jsx`](../tests/CadernoAtlas.Web.Tests/App.availability.test.jsx)
+- [`App.demands.test.jsx`](../tests/CadernoAtlas.Web.Tests/App.demands.test.jsx)
+- [`App.demand-tasks.test.jsx`](../tests/CadernoAtlas.Web.Tests/App.demand-tasks.test.jsx)
+- [`App.planning.test.jsx`](../tests/CadernoAtlas.Web.Tests/App.planning.test.jsx)
+- [`helpers/`](../tests/CadernoAtlas.Web.Tests/helpers/)
 
-O total de horas alocadas deve ser calculado a partir das alocações retornadas, não copiado do total de disponibilidade. Os dois números têm significados diferentes.
+### API e decisões
 
-Se `alocacoes` estiver vazio, apresentar o resultado válido com suas razões em `naoAlocadas`. A política para exibir/habilitar **Confirmar planejamento** com zero alocações está em aberto e precisa de aprovação; a API pode aceitar uma lista vazia, mas a UX deve evitar uma confirmação sem efeito que surpreenda a pessoa.
-
-### 4.4 Prévia exibida
-
-Fonte para a lista **Seu plano da semana**: `alocacoes` da resposta de prévia. Fonte para a lista **Atividades não alocadas**: `naoAlocadas` da mesma resposta. Não tentar executar o algoritmo de prioridade/alocação no front-end.
-
-Exibir:
-
-- título (`titulo`), data (`dataPlanejada`), hora inicial (`horaInicio`) e duração (`duracaoPlanejadaMinutos`);
-- vínculo de demanda/tarefa quando houver ID disponível e quando a UI tiver informação real suficiente;
-- o motivo e a `descricao` para cada item não alocado, com um rótulo visual legível para `motivo`;
-- estado **Prévia não salva** e texto equivalente a “A prévia só é salva ao confirmar”.
-
-**Diferenças protótipo/contrato para resolver:**
-
-- O wireframe inclui uma segunda linha de “foco”/disciplina (por exemplo, “Revisão de integrais · Cálculo II”), mas `AlocacaoPlanejamentoResponse` só contém `titulo`, IDs, data, hora e duração. Para a primeira versão, remover/ocultar a linha de foco ou mostrar somente informação realmente disponível. Adicionar um novo campo à API exigiria uma decisão separada.
-- O wireframe chama uma demanda de “Disciplina”, mas o modelo/DTO de demanda expõe `tipo`, não uma disciplina associada. Mostrar tipo e demais campos existentes sem inventar associação.
-- A lista priorizada lista demandas-pai, enquanto o planejador pode alocar tarefas. Uma alocação baseada em tarefa pode ter `tarefaDemandaId` e `demandaAcademicaId = null`; não pressupor que os dados dos cartões da lista inicial bastem para expandir toda alocação em nome de sua demanda-pai.
-- O wireframe tem exemplos fixos de datas, horários e títulos. Na aplicação, todos esses dados devem vir dos endpoints ou de estado realmente selecionado.
-
-O MVP não deve permitir editar manualmente as alocações dentro da prévia: a decisão de domínio registrada em `docs/adr/001-planejamento-semanal-mvp.md` é revisar e confirmar/descartar a proposta, sem editar as alocações antes da confirmação. Ajustar essa decisão exige aprovação explícita.
-
-### 4.5 Confirmar planejamento
-
-Ao clicar em **Confirmar planejamento**:
-
-1. enviar `POST /api/planejamento-semanal/confirmar` usando apenas `inicioSemana`, `agora`, `propostaId` e `alocacoes` guardados da resposta de prévia;
-2. não regenerar `propostaId`, alterar as alocações, reenviar `naoAlocadas` ou recalcular os horários no cliente;
-3. mostrar indicador de envio e evitar duplo clique;
-4. em `200 OK`, mostrar confirmação e usar `sessoesCriadas` como evidência das sessões persistidas;
-5. em `409 Conflict`, explicar o `title`/`detail` retornado, descartar a proposta como confirmável e oferecer **Gerar nova prévia**. Não repetir automaticamente a mesma confirmação;
-6. em `400 Bad Request`, mostrar mensagem apropriada e permitir que a pessoa retome o fluxo; preservar o detalhe útil do problema sem exibir stack trace;
-7. em falha de rede/`5xx`, informar que não foi possível verificar o resultado e permitir recuperação. Não afirmar que não houve gravação se a conexão falhou depois do envio.
-
-Depois da confirmação, atualizar o status para **Planejamento confirmado**. Se a pessoa continuar nesta página, usar os dados de `sessoesCriadas`; uma nova prévia só deve ser gerada mediante ação explícita.
-
-## 5. Componentes e estados de interface
-
-Componentes sugeridos como divisão de responsabilidades, não como escolha de biblioteca:
-
-- **App shell**: navegação lateral e área de conteúdo.
-- **Cabeçalho de planejamento**: título, descrição, semana selecionada e status do fluxo.
-- **Seletor da semana**: seleciona uma semana com início na segunda-feira.
-- **Resumo de disponibilidade**: horas totais e blocos agrupados por dia, calculados do endpoint.
-- **Lista de prioridades** e **Cartão de demanda**: representa os itens retornados por `priorizadas`.
-- **Botão de ação**: “Gerar prévia” ou “Confirmar planejamento”, de acordo com o estado.
-- **Cartão de sessão proposta**: representação de um `AlocacaoPlanejamentoResponse`.
-- **Lista de atividades não alocadas**: rótulo e descrição por motivo.
-- **Feedback acessível**: alertas de erro, sucesso, aviso de conflito, loading, vazio e botão de tentar novamente.
-
-Estados do fluxo:
-
-`Inicial/carregando dados` → `Revisão da semana` → `Gerando prévia` → `Prévia exibida` → `Confirmando` → `Planejamento confirmado`.
-
-Ramificações recuperáveis:
-
-- erro ao carregar demandas ou disponibilidade → erro localizado com repetição;
-- sem dados → estado vazio distinto de erro;
-- erro ao gerar prévia (`400`, rede ou `5xx`) → manter a tela e permitir corrigir a semana/repetir;
-- conflito ao confirmar (`409`) → avisar e pedir nova prévia;
-- erro ao confirmar (`400`/rede/`5xx`) → preservar contexto para recuperação, sem afirmar sucesso;
-- trocar a semana ou recarregar dados de base depois de a prévia ser gerada → invalidar a prévia anterior.
-
-## 6. Ordem incremental de implementação
-
-### Etapa 0 — Conferência e decisões de base
-
-- Confirmar branch, `git status` e commits locais; conferir se os controllers/DTOs locais correspondem ao commit-base.
-- Decidir a stack de front-end (proposta a considerar: React + Vite, sem compromisso antes da aprovação) e como a interface alcançará a API em desenvolvimento/produção.
-- Resolver os pontos bloqueadores da seção 8 antes de criar estrutura ou instalar dependências.
-
-**Saída:** plano revisado, escopo da primeira fatia aprovado e nenhuma alteração de código ainda.
-
-### Etapa 1 — Esqueleto visual e carregamento inicial
-
-- Criar somente o app front-end aprovado e a composição de layout baseada no Figma.
-- Implementar navegação, cabeçalho, seletor de semana, resumo de disponibilidade e lista priorizada.
-- Conectar os dois GETs e mostrar estados de carregamento, vazio, erro e nova tentativa.
-- Usar dados reais; não inserir exemplos fixos no código da aplicação.
-
-**Saída verificável:** página inicial carrega demandas/disponibilidade e continua compreensível quando qualquer endpoint retorna lista vazia ou falha.
-
-### Etapa 2 — Geração e apresentação da prévia
-
-- Conectar o botão ao `GET /api/planejamento-semanal/previa`.
-- Guardar a proposta retornada e renderizar as alocações e motivos de não alocação.
-- Exibir claramente que a prévia ainda não está salva.
-- Cobrir resposta sem alocações, sem itens não alocados e ausência de disponibilidade.
-
-**Saída verificável:** a tela reflete o payload do backend sem cálculos de alocação locais e não cria sessões.
-
-### Etapa 3 — Confirmação e conflitos
-
-- Ligar o botão à `POST /api/planejamento-semanal/confirmar`, enviando somente os campos do contrato.
-- Tratar `200`, `400`, `409`, falha de rede e `5xx`.
-- Em `409`, invalidar o payload antigo e disponibilizar geração de uma prévia nova.
-- Prevenir envio duplicado enquanto a confirmação estiver em andamento.
-
-**Saída verificável:** proposta válida é confirmada; proposta stale ou conflitante gera recuperação clara, sem repetição automática do payload antigo.
-
-### Etapa 4 — Testes, responsividade e revisão visual
-
-- Criar testes de UI/API simulada para os estados principais e falhas.
-- Validar o contrato de integração com a API real em ambiente de desenvolvimento seguro.
-- Ajustar layout para desktop, tablet e celular antes de considerar a interface finalizada.
-- Comparar o render com o Figma, respeitando o contrato real onde o wireframe contém dados que a API ainda não fornece.
-- Rodar testes e build existentes antes de sugerir commit. Inspecionar `git status` e stage apenas os arquivos desta fatia.
-
-**Saída verificável:** critérios de conclusão da seção 7 satisfeitos; mudanças mantidas isoladas e sem incluir a etapa seguinte no mesmo commit.
-
-## 7. Critérios de conclusão e testes
-
-A primeira versão da interface será considerada concluída quando:
-
-1. O front-end carrega demandas priorizadas e disponibilidade da semana pelos endpoints corretos.
-2. A soma de horas disponíveis e a soma das durações alocadas são calculadas a partir de dados recebidos, e não são confundidas.
-3. A semana enviada tem formato `yyyy-MM-dd` e segunda-feira como início.
-4. A prévia exibe todas as alocações recebidas e todas as atividades não alocadas com seu motivo/descrição.
-5. A prévia não é persistida antes da confirmação e o rótulo de estado deixa isso explícito.
-6. A confirmação reenvia os valores relevantes da proposta original sem os recalcular ou modificar.
-7. Uma confirmação válida mostra as sessões devolvidas pela API.
-8. Um `409 Conflict` resulta em mensagem compreensível e ação de gerar nova prévia; o mesmo payload não é reenviado automaticamente.
-9. Erros de rede/servidor, `400`, listas vazias e carregamentos têm estados visíveis e distintos.
-10. Campos opcionais e enums são renderizados com rótulos amigáveis; a interface não pressupõe disciplina ou foco ausentes do contrato.
-11. Não há dados de exemplo mascarados como dados reais, nem requisições ou mutações de banco remoto.
-12. O layout funciona em desktop, tablet e celular; teclado, foco e mensagens de estado são utilizáveis.
-13. Testes de interface cobrem carregamento, dados vazios, falha de cada chamada inicial, prévia sem alocação, motivos de não alocação, confirmação bem-sucedida, `400`, `409`, falha de rede e prevenção de duplo clique.
-14. Build e testes relevantes passam antes do commit, e `git status` confirma que apenas arquivos da fatia foram incluídos.
-
-## 8. Decisões ainda pendentes de aprovação
-
-1. **Stack:** a interface desta fatia está implementada em React + Vite. Uma eventual mudança de stack deve depender de uma necessidade validada.
-2. **Navegação lateral:** substituir `Concursos e editais` por `Disciplinas` ou `Planos de estudo` na navegação inicial, ou ocultar essa entrada no MVP. A decisão é apenas de interface e não remove endpoints/recursos atuais.
-3. **Disciplina/foco no wireframe:** para o MVP, aceitar que cartões mostrem tipo e título disponíveis, removendo a linha de disciplina/foco que a API não fornece? Alternativa: abrir uma tarefa separada de evolução de contrato, fora desta primeira fatia.
-4. **Sem dados cadastrados:** o painel já permite cadastrar demandas. Ainda falta decidir se a interface deve oferecer cadastro de disponibilidades; a API permite `POST`, mas a disponibilidade não tem endpoints de edição/exclusão.
-5. **Semana passada:** permitir visualizar prévias de semanas anteriores ou restringir o seletor a semana atual/futura? O contrato atual valida segunda-feira, mas não declara uma proibição geral de semana passada.
-6. **Prévia sem alocações:** esconder/desabilitar confirmação quando a lista `alocacoes` estiver vazia, ou permitir a confirmação vazia explicitamente? A API pode aceitar a lista vazia; a decisão aqui é de UX.
-7. **Integração/hosting:** a interface ainda não foi integrada ao histórico normal do Git nem ao CI do frontend. O proxy do Vite resolve o acesso à API no desenvolvimento local; definir a hospedagem e a estratégia de integração para produção permanece pendente.
-8. **Folga do planejamento:** o exemplo do Figma usa toda a disponibilidade de 7h30. Não alterar o algoritmo ou adicionar margens agora. Primeiro observar resultados reais e depois decidir se a margem/flexibilidade deve ser regra de domínio.
-
-## 9. Fora do escopo desta etapa
-
-- Introduzir outra stack ou instalar dependências sem necessidade validada.
-- Alterar `PlanejadorSemanal`, sua regra first-fit, prioridades ou constraints PostgreSQL.
-- Criar endpoints, campos ou DTOs fictícios para satisfazer o wireframe.
-- Introduzir autenticação, autorização, `UsuarioId` ou migrações de ownership nesta primeira fatia. A autenticação permanece necessária antes de abrir o produto a múltiplos usuários/publicação, mas não precisa bloquear o protótipo local.
-- Criar banco paralelo para prévias, salvar a proposta ao gerar ou permitir editar alocações antes da confirmação.
-- Adicionar geração de resumos, questões, flashcards, IA ou gamificação sem evidência de necessidade.
-- Alterar banco remoto, executar migrations remotas, reverter migrations irreversíveis, fazer push/merge ou modificar histórico Git.
-
-## 10. Arquivos de referência consultados
-
-**Controllers:**
-
-- `src/CadernoAtlas.Api/Controllers/PlanejamentoSemanalController.cs`
-- `src/CadernoAtlas.Api/Controllers/DemandasAcademicasController.cs`
-- `src/CadernoAtlas.Api/Controllers/DisponibilidadesEstudoController.cs`
-- `src/CadernoAtlas.Api/Controllers/SessoesEstudoController.cs`
-- `src/CadernoAtlas.Api/Controllers/TarefasDemandaController.cs`
-
-**Contracts e modelos:**
-
-- `src/CadernoAtlas.Api/Contracts/PlanejamentoSemanal/PreviaPlanejamentoSemanalRequest.cs`
-- `src/CadernoAtlas.Api/Contracts/PlanejamentoSemanal/ConfirmarPlanejamentoSemanalRequest.cs`
-- `src/CadernoAtlas.Api/Contracts/PlanejamentoSemanal/PlanejamentoSemanalResponse.cs`
-- `src/CadernoAtlas.Api/Contracts/PlanejamentoSemanal/ConfirmarPlanejamentoSemanalResponse.cs`
-- `src/CadernoAtlas.Api/Contracts/DemandasAcademicas/` (criação, atualização e respostas)
-- `src/CadernoAtlas.Api/Contracts/DisponibilidadesEstudo/`
-- `src/CadernoAtlas.Api/Contracts/SessoesEstudo/`
-- `src/CadernoAtlas.Api/Models/TipoDemandaAcademica.cs`
-- `src/CadernoAtlas.Api/Models/ImportanciaDemandaAcademica.cs`
-- `src/CadernoAtlas.Api/Models/SituacaoDemandaAcademica.cs`
-- `src/CadernoAtlas.Api/Models/SituacaoSessaoEstudo.cs`
-- `src/CadernoAtlas.Api/Program.cs`
-
-**Serviços, regras e testes:**
-
-- `src/CadernoAtlas.Api/Services/PlanejadorSemanal.cs`
-- `src/CadernoAtlas.Api/Services/PriorizadorDemandasAcademicas.cs`
-- `src/CadernoAtlas.Api/Services/PlanejamentoSemanalDadosFingerprintService.cs`
-- `src/CadernoAtlas.Api/Services/PlanejamentoSemanalPropostaIdService.cs`
-- `tests/CadernoAtlas.Api.Tests/PlanejamentoSemanalEndpointTests.cs`
-- `tests/CadernoAtlas.Api.Tests/DemandasAcademicasTests.cs`
-- `tests/CadernoAtlas.Api.Tests/DisponibilidadesEstudoTests.cs`
-- `tests/CadernoAtlas.Api.Tests/SessoesEstudoTests.cs`
-- `tests/CadernoAtlas.Api.Tests/PostgreSqlSessoesEstudoTests.cs`
-- `docs/adr/001-planejamento-semanal-mvp.md`
-
----
-
-**Próximos passos propostos:** completar os cenários de teste pendentes da seção 7, revisar responsividade e acessibilidade em navegador e decidir a integração dos arquivos da interface ao Git e ao CI do frontend. Definir também uma estratégia de hospedagem antes de publicar a aplicação.
+- [Contratos e endpoints da API](endpoints.md)
+- [ADR do planejamento semanal](adr/001-planejamento-semanal-mvp.md)
+- [Escopo do MVP original da API](escopo-mvp.md)
+- [Índice da documentação](README.md)
