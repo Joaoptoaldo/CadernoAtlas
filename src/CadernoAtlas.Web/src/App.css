@@ -1,6 +1,8 @@
 #root { min-height: 100vh; }
 
 .app-shell { min-height: 100vh; }
+.skip-link { position: fixed; top: 12px; left: 12px; z-index: 10; padding: 10px 14px; transform: translateY(calc(-100% - 16px)); color: #fff; background: var(--green-deep); border-radius: 8px; box-shadow: 0 2px 8px rgba(26, 50, 41, .2); text-decoration: none; }
+.skip-link:focus-visible { transform: translateY(0); outline: 3px solid #e6b85c; outline-offset: 2px; }
 .sidebar {
   position: fixed;
   inset: 0 auto 0 0;
@@ -23,6 +25,7 @@
 .sidebar-section-label { margin: 49px 9px 13px; color: #9aa39f; font-size: 10px; font-weight: 700; letter-spacing: 1.15px; }
 .side-nav { display: grid; gap: 6px; }
 .nav-item { display: flex; align-items: center; gap: 12px; min-height: 44px; padding: 0 12px; border-radius: 10px; color: #6b7772; font-size: 12.5px; font-weight: 600; text-decoration: none; transition: background .16s ease, color .16s ease; }
+.nav-item-button { width: 100%; border: 0; background: transparent; text-align: left; cursor: pointer; font-family: inherit; }
 .nav-item-active { background: #eaf3f0; color: var(--green-deep); }
 .nav-item-active svg { color: var(--green); }
 .sidebar-bottom { margin-top: auto; padding: 19px 13px 0; border-top: 1px solid #eff1ee; }
@@ -155,6 +158,15 @@ h1 { margin: 0; color: var(--green-deep); font-size: clamp(26px, 2.5vw, 33px); f
 @keyframes skeleton-pulse { 0% { background-position: 100% 0; } 100% { background-position: -100% 0; } }
 .page-footer { display: flex; justify-content: space-between; gap: 15px; margin-top: 25px; padding: 16px 1px 5px; color: #9ba49d; border-top: 1px solid #e8ebe6; font-size: 9px; line-height: 1.7; }
 .footer-separator { padding: 0 4px; color: #c2cac3; }
+.demand-filters { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 18px; }
+.managed-demand-card { display: grid; gap: 14px; margin: 12px 0; padding: 17px; background: #fff; border: 1px solid var(--border); border-radius: 12px; }
+.managed-demand-card h3 { margin: 0; color: var(--green-deep); font-size: 14px; }
+.managed-demand-card p { margin: 6px 0 0; color: #77837d; font-size: 12px; line-height: 1.6; }
+.managed-demand-details { display: flex; flex-wrap: wrap; gap: 10px 24px; margin: 0; }
+.managed-demand-details div { min-width: 100px; }
+.managed-demand-details dt { color: #89958f; font-size: 10px; }
+.managed-demand-details dd { margin: 3px 0 0; color: #50665a; font-size: 12px; }
+.edit-demand-form { display: grid; gap: 15px; }
 
 @media (min-width: 1600px) {
   .page-content { padding-top: 45px; }
