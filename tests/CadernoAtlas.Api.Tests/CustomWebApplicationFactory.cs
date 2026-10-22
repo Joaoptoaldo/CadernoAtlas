@@ -1,7 +1,9 @@
 using Microsoft.Extensions.Hosting;
 using System.Data.Common;
+using System.Diagnostics.CodeAnalysis;
 using CadernoAtlas.Api.Data;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
@@ -17,10 +19,15 @@ public sealed class CustomWebApplicationFactory
 {
     private readonly TimeProvider? _timeProvider;
 
-    public CustomWebApplicationFactory(TimeProvider? timeProvider = null)
+    public CustomWebApplicationFactory(
+        TimeProvider? timeProvider = null,
+        bool bancoDisponivel = true)
     {
         _timeProvider = timeProvider;
+        BancoDisponivel = bancoDisponivel;
     }
+
+    private bool BancoDisponivel { get; }
 
     protected override IHost CreateHost(IHostBuilder builder)
     {
@@ -82,6 +89,11 @@ public sealed class CustomWebApplicationFactory
 
             services.AddSingleton<DbConnection>(_ =>
             {
+                if (!BancoDisponivel)
+                {
+                    return new UnavailableDbConnection();
+                }
+
                 var connection = new SqliteConnection(
                     "Data Source=:memory:");
 
@@ -98,6 +110,57 @@ public sealed class CustomWebApplicationFactory
 
                     options.UseSqlite(connection);
                 });
+
+            services.AddControllers()
+                .AddApplicationPart(typeof(TestExceptionController).Assembly);
         });
+    }
+
+    private sealed class UnavailableDbConnection : DbConnection
+    {
+        [AllowNull]
+        public override string ConnectionString
+        {
+            get => "Data Source=unavailable";
+            set { }
+        }
+
+        public override string Database => "unavailable";
+
+        public override string DataSource => "unavailable";
+
+        public override string ServerVersion => "unavailable";
+
+        public override System.Data.ConnectionState State =>
+            System.Data.ConnectionState.Closed;
+
+        public override void ChangeDatabase(string databaseName)
+        {
+            throw new InvalidOperationException(
+                "A conexão de teste está indisponível.");
+        }
+
+        public override void Close()
+        {
+        }
+
+        public override void Open()
+        {
+            throw new InvalidOperationException(
+                "A conexão de teste está indisponível.");
+        }
+
+        protected override DbTransaction BeginDbTransaction(
+            System.Data.IsolationLevel isolationLevel)
+        {
+            throw new InvalidOperationException(
+                "A conexão de teste está indisponível.");
+        }
+
+        protected override DbCommand CreateDbCommand()
+        {
+            throw new InvalidOperationException(
+                "A conexão de teste está indisponível.");
+        }
     }
 }

@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
+using CadernoAtlas.Api.Contracts.PlanejamentoSemanal;
 using CadernoAtlas.Api.Contracts.SessoesEstudo;
 using CadernoAtlas.Api.Data;
 using CadernoAtlas.Api.Models;
@@ -481,6 +482,241 @@ public sealed class PostgreSqlSessoesEstudoTests(
         }
 
         return null;
+    }
+}
+
+[Collection(PostgreSqlSessoesEstudoCollection.Nome)]
+[Trait("Category", "PostgreSql")]
+public sealed class PostgreSqlPlanejamentoSemanalTests(
+    PostgreSqlSessoesEstudoFixture fixture)
+{
+    private static readonly DateOnly InicioSemana = new(2030, 1, 7);
+    private static readonly DateTimeOffset AgoraFixo = new(
+        2030, 1, 5, 8, 0, 0, TimeSpan.FromHours(-3));
+
+    [Fact]
+    public async Task ConfirmarPlanejamento_DuplicataConcorrente_MesmaProposta_RetornaApenasUmaPersistida()
+    {
+        // Este teste valida concorrência FUNCIONAL: duas confirmações simultâneas da mesma proposta
+        // resultam em exatamente UMA persistência. O conflito observado pode ser:
+        // - Serialização PostgreSQL 40001 (nível banco, transação Serializable)
+        // - Constraint GiST 23P01 (sobreposição de intervalos)
+        // - Validação de negócio: "Proposta desatualizada" (fingerprint/HMAC)
+        // O teste NÃO garante reprodução de 40001; a validação antecipada de fingerprint
+        // costuma interceptar a concorrência antes do SaveChangesAsync.
+        using var factory = new PostgreSqlWebApplicationFactory(
+            fixture.ConnectionString);
+        using var client = factory.CreateClient();
+
+        // Identificador único desta execução do teste para isolar dados
+        var idExecucao = Guid.NewGuid().ToString("N");
+        var prefixoTitulo = $"Demanda concorrência {idExecucao}";
+
+        // Limpeza prévia: remove dados residuais de execuções anteriores deste teste
+        await using (var dbContextPre = fixture.CreateDbContext())
+        {
+            var sessoesResiduais = await dbContextPre.SessoesEstudo
+                .Where(s => s.Titulo.StartsWith("Demanda concorrência"))
+                .ToListAsync();
+            Console.WriteLine($"[PRE-LIMPEZA] Sessões residuais encontradas: {sessoesResiduais.Count}");
+            dbContextPre.SessoesEstudo.RemoveRange(sessoesResiduais);
+
+            var demandasResiduais = await dbContextPre.DemandasAcademicas
+                .Where(d => d.Titulo.StartsWith("Demanda concorrência"))
+                .ToListAsync();
+            Console.WriteLine($"[PRE-LIMPEZA] Demandas residuais encontradas: {demandasResiduais.Count}");
+            dbContextPre.DemandasAcademicas.RemoveRange(demandasResiduais);
+
+            var disponibilidadesResiduais = await dbContextPre.DisponibilidadesEstudo
+                .Where(d => d.Data == InicioSemana && d.HoraInicio == new TimeOnly(9, 0) && d.HoraFim == new TimeOnly(12, 0))
+                .ToListAsync();
+            Console.WriteLine($"[PRE-LIMPEZA] Disponibilidades residuais encontradas: {disponibilidadesResiduais.Count}");
+            dbContextPre.DisponibilidadesEstudo.RemoveRange(disponibilidadesResiduais);
+
+            await dbContextPre.SaveChangesAsync();
+            Console.WriteLine("[PRE-LIMPEZA] SaveChangesAsync concluído");
+
+            // Verificação pós-limpeza
+            var sessoesPos = await dbContextPre.SessoesEstudo
+                .Where(s => s.Titulo.StartsWith("Demanda concorrência"))
+                .CountAsync();
+            var demandasPos = await dbContextPre.DemandasAcademicas
+                .Where(d => d.Titulo.StartsWith("Demanda concorrência"))
+                .CountAsync();
+            var disponibilidadesPos = await dbContextPre.DisponibilidadesEstudo
+                .Where(d => d.Data == InicioSemana && d.HoraInicio == new TimeOnly(9, 0) && d.HoraFim == new TimeOnly(12, 0))
+                .CountAsync();
+            Console.WriteLine($"[PRE-LIMPEZA VERIFICAÇÃO] Sessões={sessoesPos}, Demandas={demandasPos}, Disponibilidades={disponibilidadesPos}");
+            Assert.Equal(0, sessoesPos);
+            Assert.Equal(0, demandasPos);
+            Assert.Equal(0, disponibilidadesPos);
+        }
+
+        int demandaId;
+        int disponibilidadeId;
+        using (var scope = factory.Services.CreateScope())
+        {
+            var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var demanda = new DemandaAcademica
+            {
+                Titulo = prefixoTitulo,
+                EsforcoEstimadoMinutos = 60,
+                Importancia = ImportanciaDemandaAcademica.Media,
+                Situacao = SituacaoDemandaAcademica.Pendente
+            };
+            dbContext.DemandasAcademicas.Add(demanda);
+            var disponibilidade = new DisponibilidadeEstudo
+            {
+                Data = InicioSemana,
+                HoraInicio = new TimeOnly(9, 0),
+                HoraFim = new TimeOnly(12, 0)
+            };
+            dbContext.DisponibilidadesEstudo.Add(disponibilidade);
+            await dbContext.SaveChangesAsync();
+            demandaId = demanda.Id;
+            disponibilidadeId = disponibilidade.Id;
+        }
+
+        // DEBUG: Verifica o estado do banco antes de obter a prévia
+        await using (var dbContextDebug = fixture.CreateDbContext())
+        {
+            var demandasCount = await dbContextDebug.DemandasAcademicas
+                .Where(d => d.Titulo.StartsWith("Demanda concorrência"))
+                .CountAsync();
+            var sessoesCount = await dbContextDebug.SessoesEstudo
+                .Where(s => s.Titulo.StartsWith("Demanda concorrência"))
+                .CountAsync();
+            var disponibilidadesCount = await dbContextDebug.DisponibilidadesEstudo
+                .Where(d => d.Data == InicioSemana && d.HoraInicio == new TimeOnly(9, 0) && d.HoraFim == new TimeOnly(12, 0))
+                .CountAsync();
+
+            // Log para diagnóstico
+            Console.WriteLine($"DEBUG: Demandas={demandasCount}, Sessoes={sessoesCount}, Disponibilidades={disponibilidadesCount}");
+            // Deve ter exatamente 1 demanda (a que acabamos de criar), 0 sessões, 1 disponibilidade
+            Assert.Equal(1, demandasCount);
+            Assert.Equal(0, sessoesCount);
+            Assert.Equal(1, disponibilidadesCount);
+        }
+
+        // Obtém uma única prévia válida
+        var previa = await ObterPreviaValidaAsync(client);
+
+        // Garante que a prévia tem exatamente uma alocação para asserção determinística
+        Assert.Single(previa.Alocacoes);
+
+        try
+        {
+            // Rendezvous com timeout para sincronizar o início das duas requisições.
+            // Usa CountdownEvent: cada task sinaliza chegada (Signal) e aguarda (Wait) com timeout.
+            using var rendezvous = new CountdownEvent(2);
+            const int TimeoutMs = 5000;
+
+            var tarefaA = Task.Run(async () =>
+            {
+                rendezvous.Signal();
+                Assert.True(rendezvous.Wait(TimeoutMs), "Timeout no rendezvous (tarefa A)");
+                return await client.PostAsJsonAsync(
+                    "/api/planejamento-semanal/confirmar",
+                    new ConfirmarPlanejamentoSemanalRequest(
+                        previa.InicioSemana,
+                        previa.Agora,
+                        previa.PropostaId,
+                        previa.Alocacoes));
+            });
+
+            var tarefaB = Task.Run(async () =>
+            {
+                rendezvous.Signal();
+                Assert.True(rendezvous.Wait(TimeoutMs), "Timeout no rendezvous (tarefa B)");
+                return await client.PostAsJsonAsync(
+                    "/api/planejamento-semanal/confirmar",
+                    new ConfirmarPlanejamentoSemanalRequest(
+                        previa.InicioSemana,
+                        previa.Agora,
+                        previa.PropostaId,
+                        previa.Alocacoes));
+            });
+
+            var respostas = await Task.WhenAll(tarefaA, tarefaB);
+
+            // Assert: exatamente uma requisição deve ter sucesso
+            var sucessos = respostas.Count(r => r.StatusCode == HttpStatusCode.OK);
+            var conflitos = respostas.Count(r => r.StatusCode == HttpStatusCode.Conflict);
+
+            Assert.Equal(1, sucessos);
+            Assert.Equal(1, conflitos);
+
+            // Verifica o tipo de conflito (pode ser serialização 40001, sobreposição 23P01,
+            // ou validação de proposta desatualizada - fingerprint/HMAC)
+            var conflito = Assert.Single(respostas, r => r.StatusCode == HttpStatusCode.Conflict);
+            var problema = await conflito.Content.ReadFromJsonAsync<ProblemDetails>();
+
+            Assert.True(
+                problema?.Title == "Conflito ao confirmar planejamento." ||
+                problema?.Title == "Sessão sobreposta." ||
+                problema?.Title == "Proposta desatualizada.",
+                $"Conflito inesperado: {problema?.Title}");
+
+            // Verifica que exatamente UMA sessão foi persistida para cada alocação da prévia
+            // (a prévia tem exatamente uma alocação, garantido pelo Assert.Single acima)
+            await using var dbContext = fixture.CreateDbContext();
+            var titulosEsperados = previa.Alocacoes.Select(a => a.Titulo).ToHashSet();
+
+            var sessoesPersistidas = await dbContext.SessoesEstudo
+                .Where(s => titulosEsperados.Contains(s.Titulo))
+                .ToListAsync();
+
+            Assert.Single(sessoesPersistidas);
+            Assert.Equal(SituacaoSessaoEstudo.Planejada, sessoesPersistidas[0].Situacao);
+            Assert.Contains(sessoesPersistidas[0].Titulo, titulosEsperados);
+        }
+        finally
+        {
+            // Limpeza: remove TODOS os dados criados por esta execução do teste
+            await using var dbContext = fixture.CreateDbContext();
+
+            // Remove sessões criadas (título igual ao da demanda criada neste teste)
+            var sessoes = await dbContext.SessoesEstudo
+                .Where(s => s.Titulo == prefixoTitulo)
+                .ToListAsync();
+            dbContext.SessoesEstudo.RemoveRange(sessoes);
+
+            // Remove a demanda criada
+            var demanda = await dbContext.DemandasAcademicas
+                .Where(d => d.Titulo == prefixoTitulo)
+                .FirstOrDefaultAsync();
+            if (demanda is not null)
+            {
+                dbContext.DemandasAcademicas.Remove(demanda);
+            }
+
+            // Remove a disponibilidade criada (por Data/Hora exata, pois não tem ID único)
+            var disponibilidade = await dbContext.DisponibilidadesEstudo
+                .Where(d => d.Id == disponibilidadeId)
+                .FirstOrDefaultAsync();
+            if (disponibilidade is not null)
+            {
+                dbContext.DisponibilidadesEstudo.Remove(disponibilidade);
+            }
+
+            await dbContext.SaveChangesAsync();
+        }
+    }
+
+    private static async Task<PlanejamentoSemanalResponse> ObterPreviaValidaAsync(
+        HttpClient client)
+    {
+        var response = await client.GetAsync(
+            $"/api/planejamento-semanal/previa?inicioSemana={InicioSemana:yyyy-MM-dd}&agora={AgoraFixo:O}");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        var previa = await response.Content.ReadFromJsonAsync<PlanejamentoSemanalResponse>();
+        Assert.NotNull(previa);
+        Assert.NotEmpty(previa.Alocacoes);
+        Assert.False(string.IsNullOrWhiteSpace(previa.PropostaId));
+
+        return previa;
     }
 }
 
