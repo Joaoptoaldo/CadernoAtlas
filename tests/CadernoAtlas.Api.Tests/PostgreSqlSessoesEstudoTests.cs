@@ -372,13 +372,16 @@ public sealed class PostgreSqlSessoesEstudoTests(
         await using var transacao = await dbContext.Database.BeginTransactionAsync();
         var data = NovaData();
 
-        dbContext.SessoesEstudo.AddRange(
-            CriarSessao(data, new TimeOnly(9, 0), 60),
-            CriarSessao(data, new TimeOnly(10, 0), 60));
+        var primeira = CriarSessao(data, new TimeOnly(9, 0), 60);
+        var segunda = CriarSessao(data, new TimeOnly(10, 0), 60);
+        dbContext.SessoesEstudo.AddRange(primeira, segunda);
 
         await dbContext.SaveChangesAsync();
 
-        Assert.Equal(2, await dbContext.SessoesEstudo.CountAsync());
+        Assert.Equal(
+            2,
+            await dbContext.SessoesEstudo.CountAsync(sessao =>
+                sessao.Id == primeira.Id || sessao.Id == segunda.Id));
     }
 
     [Fact]
@@ -388,17 +391,20 @@ public sealed class PostgreSqlSessoesEstudoTests(
         await using var transacao = await dbContext.Database.BeginTransactionAsync();
         var data = NovaData();
 
-        dbContext.SessoesEstudo.AddRange(
-            CriarSessao(data, new TimeOnly(9, 0), 60),
-            CriarSessao(
-                data,
-                new TimeOnly(9, 30),
-                60,
-                SituacaoSessaoEstudo.Concluida));
+        var planejada = CriarSessao(data, new TimeOnly(9, 0), 60);
+        var concluida = CriarSessao(
+            data,
+            new TimeOnly(9, 30),
+            60,
+            SituacaoSessaoEstudo.Concluida);
+        dbContext.SessoesEstudo.AddRange(planejada, concluida);
 
         await dbContext.SaveChangesAsync();
 
-        Assert.Equal(2, await dbContext.SessoesEstudo.CountAsync());
+        Assert.Equal(
+            2,
+            await dbContext.SessoesEstudo.CountAsync(sessao =>
+                sessao.Id == planejada.Id || sessao.Id == concluida.Id));
     }
 
     [Fact]
@@ -408,21 +414,24 @@ public sealed class PostgreSqlSessoesEstudoTests(
         await using var transacao = await dbContext.Database.BeginTransactionAsync();
         var data = NovaData();
 
-        dbContext.SessoesEstudo.AddRange(
-            CriarSessao(
-                data,
-                new TimeOnly(9, 0),
-                60,
-                SituacaoSessaoEstudo.EmAndamento),
-            CriarSessao(
-                data,
-                new TimeOnly(9, 30),
-                60,
-                SituacaoSessaoEstudo.Cancelada));
+        var emAndamento = CriarSessao(
+            data,
+            new TimeOnly(9, 0),
+            60,
+            SituacaoSessaoEstudo.EmAndamento);
+        var cancelada = CriarSessao(
+            data,
+            new TimeOnly(9, 30),
+            60,
+            SituacaoSessaoEstudo.Cancelada);
+        dbContext.SessoesEstudo.AddRange(emAndamento, cancelada);
 
         await dbContext.SaveChangesAsync();
 
-        Assert.Equal(2, await dbContext.SessoesEstudo.CountAsync());
+        Assert.Equal(
+            2,
+            await dbContext.SessoesEstudo.CountAsync(sessao =>
+                sessao.Id == emAndamento.Id || sessao.Id == cancelada.Id));
     }
 
     [Fact]
@@ -452,13 +461,16 @@ public sealed class PostgreSqlSessoesEstudoTests(
         await using var transacao = await dbContext.Database.BeginTransactionAsync();
         var data = NovaData();
 
-        dbContext.SessoesEstudo.AddRange(
-            CriarSessao(data, new TimeOnly(8, 0), 90),
-            CriarSessao(data, new TimeOnly(9, 30), 30));
+        var primeira = CriarSessao(data, new TimeOnly(8, 0), 90);
+        var segunda = CriarSessao(data, new TimeOnly(9, 30), 30);
+        dbContext.SessoesEstudo.AddRange(primeira, segunda);
 
         await dbContext.SaveChangesAsync();
 
-        Assert.Equal(2, await dbContext.SessoesEstudo.CountAsync());
+        Assert.Equal(
+            2,
+            await dbContext.SessoesEstudo.CountAsync(sessao =>
+                sessao.Id == primeira.Id || sessao.Id == segunda.Id));
     }
 
     [Fact]
@@ -547,47 +559,6 @@ public sealed class PostgreSqlPlanejamentoSemanalTests(
         var idExecucao = Guid.NewGuid().ToString("N");
         var prefixoTitulo = $"Demanda concorrência {idExecucao}";
 
-        // Limpeza prévia: remove apenas dados residuais desta execução específica (mesmo prefixo)
-        // Não remove dados de outros testes ("Sessão concorrente%")
-        await using (var dbContextPre = fixture.CreateDbContext())
-        {
-            var sessoesResiduais = await dbContextPre.SessoesEstudo
-                .Where(s => s.Titulo.StartsWith(prefixoTitulo))
-                .ToListAsync();
-            Console.WriteLine($"[PRE-LIMPEZA] Sessões residuais encontradas: {sessoesResiduais.Count}");
-            dbContextPre.SessoesEstudo.RemoveRange(sessoesResiduais);
-
-            var demandasResiduais = await dbContextPre.DemandasAcademicas
-                .Where(d => d.Titulo.StartsWith(prefixoTitulo))
-                .ToListAsync();
-            Console.WriteLine($"[PRE-LIMPEZA] Demandas residuais encontradas: {demandasResiduais.Count}");
-            dbContextPre.DemandasAcademicas.RemoveRange(demandasResiduais);
-
-            var disponibilidadesResiduais = await dbContextPre.DisponibilidadesEstudo
-                .Where(d => d.Data == InicioSemana && d.HoraInicio == new TimeOnly(9, 0) && d.HoraFim == new TimeOnly(12, 0))
-                .ToListAsync();
-            Console.WriteLine($"[PRE-LIMPEZA] Disponibilidades residuais encontradas: {disponibilidadesResiduais.Count}");
-            dbContextPre.DisponibilidadesEstudo.RemoveRange(disponibilidadesResiduais);
-
-            await dbContextPre.SaveChangesAsync();
-            Console.WriteLine("[PRE-LIMPEZA] SaveChangesAsync concluído");
-
-            // Verificação pós-limpeza
-            var sessoesPos = await dbContextPre.SessoesEstudo
-                .Where(s => s.Titulo.StartsWith(prefixoTitulo))
-                .CountAsync();
-            var demandasPos = await dbContextPre.DemandasAcademicas
-                .Where(d => d.Titulo.StartsWith(prefixoTitulo))
-                .CountAsync();
-            var disponibilidadesPos = await dbContextPre.DisponibilidadesEstudo
-                .Where(d => d.Data == InicioSemana && d.HoraInicio == new TimeOnly(9, 0) && d.HoraFim == new TimeOnly(12, 0))
-                .CountAsync();
-            Console.WriteLine($"[PRE-LIMPEZA VERIFICAÇÃO] Sessões={sessoesPos}, Demandas={demandasPos}, Disponibilidades={disponibilidadesPos}");
-            Assert.Equal(0, sessoesPos);
-            Assert.Equal(0, demandasPos);
-            Assert.Equal(0, disponibilidadesPos);
-        }
-
         int demandaId;
         int disponibilidadeId;
         using (var scope = factory.Services.CreateScope())
@@ -598,6 +569,7 @@ public sealed class PostgreSqlPlanejamentoSemanalTests(
                 Titulo = prefixoTitulo,
                 EsforcoEstimadoMinutos = 60,
                 Importancia = ImportanciaDemandaAcademica.Media,
+                Prazo = InicioSemana.AddDays(-1),
                 Situacao = SituacaoDemandaAcademica.Pendente
             };
             dbContext.DemandasAcademicas.Add(demanda);
@@ -613,22 +585,19 @@ public sealed class PostgreSqlPlanejamentoSemanalTests(
             disponibilidadeId = disponibilidade.Id;
         }
 
-        // DEBUG: Verifica o estado do banco antes de obter a prévia
+        // Verifica apenas os dados criados por esta execução.
         await using (var dbContextDebug = fixture.CreateDbContext())
         {
             var demandasCount = await dbContextDebug.DemandasAcademicas
-                .Where(d => d.Titulo.StartsWith("Demanda concorrência"))
+                .Where(d => d.Id == demandaId)
                 .CountAsync();
             var sessoesCount = await dbContextDebug.SessoesEstudo
-                .Where(s => s.Titulo.StartsWith("Demanda concorrência"))
+                .Where(s => s.DemandaAcademicaId == demandaId)
                 .CountAsync();
             var disponibilidadesCount = await dbContextDebug.DisponibilidadesEstudo
-                .Where(d => d.Data == InicioSemana && d.HoraInicio == new TimeOnly(9, 0) && d.HoraFim == new TimeOnly(12, 0))
+                .Where(d => d.Id == disponibilidadeId)
                 .CountAsync();
 
-            // Log para diagnóstico
-            Console.WriteLine($"DEBUG: Demandas={demandasCount}, Sessoes={sessoesCount}, Disponibilidades={disponibilidadesCount}");
-            // Deve ter exatamente 1 demanda (a que acabamos de criar), 0 sessões, 1 disponibilidade
             Assert.Equal(1, demandasCount);
             Assert.Equal(0, sessoesCount);
             Assert.Equal(1, disponibilidadesCount);
@@ -637,11 +606,16 @@ public sealed class PostgreSqlPlanejamentoSemanalTests(
         // Obtém uma única prévia válida
         var previa = await ObterPreviaValidaAsync(client);
 
-        // Garante que a prévia tem exatamente uma alocação para asserção determinística
-        Assert.Single(previa.Alocacoes);
+        var alocacaoDaExecucao = Assert.Single(
+            previa.Alocacoes,
+            a => a.DemandaAcademicaId == demandaId);
 
-        // Títulos das alocações da prévia — usados nas asserções e no cleanup
-        var titulosEsperados = previa.Alocacoes.Select(a => a.Titulo).ToHashSet();
+        var tarefasEsperadas = previa.Alocacoes
+            .Where(a =>
+                a.DemandaAcademicaId == demandaId &&
+                a.TarefaDemandaId.HasValue)
+            .Select(a => a.TarefaDemandaId!.Value)
+            .ToHashSet();
 
         try
         {
@@ -703,27 +677,38 @@ public sealed class PostgreSqlPlanejamentoSemanalTests(
             // (a prévia tem exatamente uma alocação, garantido pelo Assert.Single acima)
             await using var dbContext = fixture.CreateDbContext();
             var sessoesPersistidas = await dbContext.SessoesEstudo
-                .Where(s => titulosEsperados.Contains(s.Titulo))
+                .Where(s =>
+                    s.DemandaAcademicaId == demandaId ||
+                    (s.TarefaDemandaId.HasValue &&
+                     tarefasEsperadas.Contains(s.TarefaDemandaId.Value)))
                 .ToListAsync();
 
             Assert.Single(sessoesPersistidas);
             Assert.Equal(SituacaoSessaoEstudo.Planejada, sessoesPersistidas[0].Situacao);
-            Assert.Contains(sessoesPersistidas[0].Titulo, titulosEsperados);
+            Assert.Equal(demandaId, sessoesPersistidas[0].DemandaAcademicaId);
+            Assert.Equal(
+                alocacaoDaExecucao.Titulo,
+                sessoesPersistidas[0].Titulo);
         }
         finally
         {
-            // Limpeza: remove TODOS os dados criados por esta execução do teste
             await using var dbContext = fixture.CreateDbContext();
 
-            // Remove sessões criadas pelo planner (vinculadas à demanda e/ou com títulos da prévia)
             var sessoes = await dbContext.SessoesEstudo
-                .Where(s => s.DemandaAcademicaId == demandaId || titulosEsperados.Contains(s.Titulo))
+                .Where(s =>
+                    s.DemandaAcademicaId == demandaId ||
+                    (s.TarefaDemandaId.HasValue &&
+                     tarefasEsperadas.Contains(s.TarefaDemandaId.Value)))
                 .ToListAsync();
             dbContext.SessoesEstudo.RemoveRange(sessoes);
 
-            // Remove a demanda criada
+            var tarefas = await dbContext.TarefasDemanda
+                .Where(t => t.DemandaAcademicaId == demandaId)
+                .ToListAsync();
+            dbContext.TarefasDemanda.RemoveRange(tarefas);
+
             var demanda = await dbContext.DemandasAcademicas
-                .Where(d => d.Titulo == prefixoTitulo)
+                .Where(d => d.Id == demandaId)
                 .FirstOrDefaultAsync();
             if (demanda is not null)
             {
