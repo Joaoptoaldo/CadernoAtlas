@@ -1,5 +1,5 @@
 ﻿import { describe, expect, it } from 'vitest'
-import { fireEvent, screen, within } from '@testing-library/react'
+import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { renderApp } from './helpers/renderApp.jsx'
 import { setupFetch, buildPreview, getCurrentMondayIso } from './helpers/fetchMocks.js'
 
@@ -140,6 +140,36 @@ describe('Planejamento semanal e acessibilidade', () => {
     expect(await screen.findByText('09:00–11:00')).toBeInTheDocument()
     expect(fetchMock.getDemandListRequests()).toBe(1)
     expect(fetchMock.getAvailabilityRequests()).toBe(2)
+  })
+
+  it('não recarrega a disponibilidade nem limpa a prévia ao selecionar a semana atual já selecionada', async () => {
+    const fetchMock = setupFetch()
+    renderApp()
+
+    expect(await screen.findByRole('heading', { name: 'Prova de Anatomia' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /Gerar pr/ }))
+    expect(await screen.findByText('Revisar anatomia')).toBeInTheDocument()
+
+    const availabilityRequests = fetchMock.getAvailabilityRequests()
+    fireEvent.click(screen.getByRole('button', { name: 'Semana atual' }))
+
+    expect(screen.getByText('Revisar anatomia')).toBeInTheDocument()
+    await waitFor(() => expect(fetchMock.getAvailabilityRequests()).toBe(availabilityRequests))
+  })
+
+  it('retorna à semana atual e recarrega a disponibilidade quando outra semana está selecionada', async () => {
+    const fetchMock = setupFetch()
+    renderApp()
+
+    expect(await screen.findByRole('heading', { name: 'Prova de Anatomia' })).toBeInTheDocument()
+    const initialAvailabilityRequests = fetchMock.getAvailabilityRequests()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Próxima semana' }))
+    await waitFor(() => expect(fetchMock.getAvailabilityRequests()).toBe(initialAvailabilityRequests + 1))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Semana atual' }))
+    await waitFor(() => expect(fetchMock.getAvailabilityRequests()).toBe(initialAvailabilityRequests + 2))
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes(`dataDe=${getCurrentMondayIso()}`))).toBe(true)
   })
 
 
