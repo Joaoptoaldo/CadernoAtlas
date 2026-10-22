@@ -23,6 +23,32 @@ public sealed class PostgreSqlSessoesEstudoCollection : ICollectionFixture<Postg
     public const string Nome = "PostgreSQL sessões de estudo";
 }
 
+// Semáforo estático para serializar os dois testes de concorrência que compartilham o mesmo banco
+// e usam padrões de título que se sobrepõem ("Sessão concorrente%" e "Demanda concorrência%").
+// Isso evita contaminação cruzada quando xUnit executa as classes de teste em paralelo.
+internal static class ConcurrencyTestGate
+{
+    private static readonly SemaphoreSlim _gate = new(1, 1);
+    private static readonly TimeSpan _timeout = TimeSpan.FromSeconds(30);
+
+    public static async Task<IDisposable> EnterAsync(CancellationToken ct = default)
+    {
+        var acquired = await _gate.WaitAsync(_timeout, ct);
+        if (!acquired)
+        {
+            throw new TimeoutException(
+                $"Timeout de {_timeout.TotalSeconds}s aguardando acesso ao gate de concorrência. " +
+                "Outro teste pode estar travado ou demorando demais.");
+        }
+        return new Releaser(_gate);
+    }
+
+    private sealed class Releaser(SemaphoreSlim semaphore) : IDisposable
+    {
+        public void Dispose() => semaphore.Release();
+    }
+}
+
 public sealed class PostgreSqlSessoesEstudoFixture : IAsyncLifetime
 {
     public const string NomeVariavelConexao = "CADERNOATLAS_POSTGRES_TEST_CONNECTION_STRING";
@@ -124,6 +150,9 @@ public sealed class PostgreSqlSessoesEstudoEndpointTests(
     [Fact]
     public async Task CriarSessoesSobrepostasConcorrentemente_ApenasUmaEhCriada()
     {
+        // Serializa com o outro teste de concorrência para evitar contaminação cruzada
+        using var _ = await ConcurrencyTestGate.EnterAsync();
+
         using var factory = new PostgreSqlWebApplicationFactory(
             fixture.ConnectionString);
         using var client = factory.CreateClient();
@@ -173,7 +202,10 @@ public sealed class PostgreSqlSessoesEstudoEndpointTests(
             var problema = await conflito.Content
                 .ReadFromJsonAsync<ProblemDetails>();
 
-            Assert.Equal("Sessão sobreposta.", problema?.Title);
+            Assert.True(
+                problema?.Title == "Sessão sobreposta." ||
+                problema?.Title == "Conflito de concorrência (deadlock).",
+                $"Conflito inesperado: {problema?.Title}");
 
             // Confirma que apenas uma das sessões foi persistida.
             await using var dbContext = fixture.CreateDbContext();
@@ -497,6 +529,9 @@ public sealed class PostgreSqlPlanejamentoSemanalTests(
     [Fact]
     public async Task ConfirmarPlanejamento_DuplicataConcorrente_MesmaProposta_RetornaApenasUmaPersistida()
     {
+        // Serializa com o outro teste de concorrência para evitar contaminação cruzada
+        using var _ = await ConcurrencyTestGate.EnterAsync();
+
         // Este teste valida concorrência FUNCIONAL: duas confirmações simultâneas da mesma proposta
         // resultam em exatamente UMA persistência. O conflito observado pode ser:
         // - Serialização PostgreSQL 40001 (nível banco, transação Serializable)
@@ -512,17 +547,18 @@ public sealed class PostgreSqlPlanejamentoSemanalTests(
         var idExecucao = Guid.NewGuid().ToString("N");
         var prefixoTitulo = $"Demanda concorrência {idExecucao}";
 
-        // Limpeza prévia: remove dados residuais de execuções anteriores deste teste
+        // Limpeza prévia: remove apenas dados residuais desta execução específica (mesmo prefixo)
+        // Não remove dados de outros testes ("Sessão concorrente%")
         await using (var dbContextPre = fixture.CreateDbContext())
         {
             var sessoesResiduais = await dbContextPre.SessoesEstudo
-                .Where(s => s.Titulo.StartsWith("Demanda concorrência"))
+                .Where(s => s.Titulo.StartsWith(prefixoTitulo))
                 .ToListAsync();
             Console.WriteLine($"[PRE-LIMPEZA] Sessões residuais encontradas: {sessoesResiduais.Count}");
             dbContextPre.SessoesEstudo.RemoveRange(sessoesResiduais);
 
             var demandasResiduais = await dbContextPre.DemandasAcademicas
-                .Where(d => d.Titulo.StartsWith("Demanda concorrência"))
+                .Where(d => d.Titulo.StartsWith(prefixoTitulo))
                 .ToListAsync();
             Console.WriteLine($"[PRE-LIMPEZA] Demandas residuais encontradas: {demandasResiduais.Count}");
             dbContextPre.DemandasAcademicas.RemoveRange(demandasResiduais);
@@ -538,10 +574,10 @@ public sealed class PostgreSqlPlanejamentoSemanalTests(
 
             // Verificação pós-limpeza
             var sessoesPos = await dbContextPre.SessoesEstudo
-                .Where(s => s.Titulo.StartsWith("Demanda concorrência"))
+                .Where(s => s.Titulo.StartsWith(prefixoTitulo))
                 .CountAsync();
             var demandasPos = await dbContextPre.DemandasAcademicas
-                .Where(d => d.Titulo.StartsWith("Demanda concorrência"))
+                .Where(d => d.Titulo.StartsWith(prefixoTitulo))
                 .CountAsync();
             var disponibilidadesPos = await dbContextPre.DisponibilidadesEstudo
                 .Where(d => d.Data == InicioSemana && d.HoraInicio == new TimeOnly(9, 0) && d.HoraFim == new TimeOnly(12, 0))
@@ -604,6 +640,9 @@ public sealed class PostgreSqlPlanejamentoSemanalTests(
         // Garante que a prévia tem exatamente uma alocação para asserção determinística
         Assert.Single(previa.Alocacoes);
 
+        // Títulos das alocações da prévia — usados nas asserções e no cleanup
+        var titulosEsperados = previa.Alocacoes.Select(a => a.Titulo).ToHashSet();
+
         try
         {
             // Rendezvous com timeout para sincronizar o início das duas requisições.
@@ -647,21 +686,22 @@ public sealed class PostgreSqlPlanejamentoSemanalTests(
             Assert.Equal(1, conflitos);
 
             // Verifica o tipo de conflito (pode ser serialização 40001, sobreposição 23P01,
-            // ou validação de proposta desatualizada - fingerprint/HMAC)
+            // validação de proposta desatualizada - fingerprint/HMAC,
+            // ou deadlock 40P01)
             var conflito = Assert.Single(respostas, r => r.StatusCode == HttpStatusCode.Conflict);
             var problema = await conflito.Content.ReadFromJsonAsync<ProblemDetails>();
 
             Assert.True(
                 problema?.Title == "Conflito ao confirmar planejamento." ||
                 problema?.Title == "Sessão sobreposta." ||
-                problema?.Title == "Proposta desatualizada.",
+                problema?.Title == "Proposta desatualizada." ||
+                problema?.Title == "Conflito de concorrência (deadlock)." ||
+                problema?.Title == "Conflito de concorrência (serialização).",
                 $"Conflito inesperado: {problema?.Title}");
 
             // Verifica que exatamente UMA sessão foi persistida para cada alocação da prévia
             // (a prévia tem exatamente uma alocação, garantido pelo Assert.Single acima)
             await using var dbContext = fixture.CreateDbContext();
-            var titulosEsperados = previa.Alocacoes.Select(a => a.Titulo).ToHashSet();
-
             var sessoesPersistidas = await dbContext.SessoesEstudo
                 .Where(s => titulosEsperados.Contains(s.Titulo))
                 .ToListAsync();
@@ -675,9 +715,9 @@ public sealed class PostgreSqlPlanejamentoSemanalTests(
             // Limpeza: remove TODOS os dados criados por esta execução do teste
             await using var dbContext = fixture.CreateDbContext();
 
-            // Remove sessões criadas (título igual ao da demanda criada neste teste)
+            // Remove sessões criadas pelo planner (vinculadas à demanda e/ou com títulos da prévia)
             var sessoes = await dbContext.SessoesEstudo
-                .Where(s => s.Titulo == prefixoTitulo)
+                .Where(s => s.DemandaAcademicaId == demandaId || titulosEsperados.Contains(s.Titulo))
                 .ToListAsync();
             dbContext.SessoesEstudo.RemoveRange(sessoes);
 

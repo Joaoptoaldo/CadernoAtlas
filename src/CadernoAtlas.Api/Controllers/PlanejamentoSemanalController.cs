@@ -226,6 +226,18 @@ public sealed class PlanejamentoSemanalController : ControllerBase
             await transacao.RollbackAsync(CancellationToken.None);
             return Conflict(ObterProblemaDeSobreposicao());
         }
+        catch (DbUpdateException excecao)
+            when (EhDeadlock(excecao))
+        {
+            await transacao.RollbackAsync(CancellationToken.None);
+            return Conflict(ObterProblemaDeDeadlock());
+        }
+        catch (InvalidOperationException excecao)
+            when (EhDeadlock(excecao))
+        {
+            await transacao.RollbackAsync(CancellationToken.None);
+            return Conflict(ObterProblemaDeDeadlock());
+        }
         catch (Exception excecao)
             when (EhFalhaDeSerializacao(excecao))
         {
@@ -314,8 +326,18 @@ public sealed class PlanejamentoSemanalController : ControllerBase
     {
         return new ProblemDetails
         {
-            Title = "Conflito ao confirmar planejamento.",
-            Detail = "Os dados foram alterados simultaneamente. Gere uma nova prévia.",
+            Title = "Conflito de concorrência (serialização).",
+            Detail = "Os dados foram alterados por outra operação. Obtenha uma nova prévia e tente novamente.",
+            Status = StatusCodes.Status409Conflict
+        };
+    }
+
+    private static ProblemDetails ObterProblemaDeDeadlock()
+    {
+        return new ProblemDetails
+        {
+            Title = "Conflito de concorrência (deadlock).",
+            Detail = "Ocorreu um deadlock no banco de dados. Tente novamente.",
             Status = StatusCodes.Status409Conflict
         };
     }
@@ -328,6 +350,22 @@ public sealed class PlanejamentoSemanalController : ControllerBase
         {
             if (atual is PostgresException postgresException
                 && postgresException.SqlState == "40001")
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool EhDeadlock(Exception excecao)
+    {
+        for (Exception? atual = excecao;
+            atual is not null;
+            atual = atual.InnerException)
+        {
+            if (atual is PostgresException postgresException
+                && postgresException.SqlState == "40P01")
             {
                 return true;
             }

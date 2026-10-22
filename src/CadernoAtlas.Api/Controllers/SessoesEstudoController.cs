@@ -109,6 +109,16 @@ public sealed class SessoesEstudoController : ControllerBase
         {
             return Conflict(ObterProblemaDeSobreposicao());
         }
+        catch (DbUpdateException excecao)
+            when (EhDeadlock(excecao))
+        {
+            return Conflict(ObterProblemaDeDeadlock());
+        }
+        catch (InvalidOperationException excecao)
+            when (EhDeadlock(excecao))
+        {
+            return Conflict(ObterProblemaDeDeadlock());
+        }
 
         return CreatedAtAction(
             nameof(ObterPorId),
@@ -162,6 +172,16 @@ public sealed class SessoesEstudoController : ControllerBase
         {
             return Conflict(ObterProblemaDeSobreposicao());
         }
+        catch (DbUpdateException excecao)
+            when (EhDeadlock(excecao))
+        {
+            return Conflict(ObterProblemaDeDeadlock());
+        }
+        catch (InvalidOperationException excecao)
+            when (EhDeadlock(excecao))
+        {
+            return Conflict(ObterProblemaDeDeadlock());
+        }
 
         return Ok(ParaResposta(sessao));
     }
@@ -184,12 +204,38 @@ public sealed class SessoesEstudoController : ControllerBase
         return false;
     }
 
+    private static bool EhDeadlock(Exception excecao)
+    {
+        for (Exception? atual = excecao;
+            atual is not null;
+            atual = atual.InnerException)
+        {
+            if (atual is PostgresException postgresException
+                && postgresException.SqlState == "40P01")
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     private static ProblemDetails ObterProblemaDeSobreposicao()
     {
         return new ProblemDetails
         {
             Title = "Sessão sobreposta.",
             Detail = "Já existe uma sessão de estudo ativa que se sobrepõe ao intervalo informado.",
+            Status = StatusCodes.Status409Conflict
+        };
+    }
+
+    private static ProblemDetails ObterProblemaDeDeadlock()
+    {
+        return new ProblemDetails
+        {
+            Title = "Conflito de concorrência (deadlock).",
+            Detail = "Ocorreu um deadlock no banco de dados. Tente novamente.",
             Status = StatusCodes.Status409Conflict
         };
     }
