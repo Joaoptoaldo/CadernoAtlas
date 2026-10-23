@@ -85,6 +85,48 @@ public class TarefasDemandaTests
     }
 
     [Fact]
+    public async Task PutTarefa_MudaOrdem_ReposicionaOutrasTarefas()
+    {
+        using var factory = new CustomWebApplicationFactory();
+        await factory.InicializarBancoAsync();
+        using var client = factory.CreateClient();
+
+        var demanda = await CriarDemandaAsync(client);
+        var rota = $"/api/demandas-academicas/{demanda.Id}/tarefas";
+
+        foreach (var titulo in new[] { "Primeira etapa", "Segunda etapa", "Terceira etapa" })
+        {
+            var response = await client.PostAsJsonAsync(
+                rota,
+                new CriarTarefaDemandaRequest { Titulo = titulo });
+            Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        }
+
+        var tarefasAntes = await (await client.GetAsync(rota)).Content
+            .ReadFromJsonAsync<List<TarefaDemandaResponse>>();
+        Assert.NotNull(tarefasAntes);
+        var primeira = Assert.Single(tarefasAntes.Where(tarefa => tarefa.Titulo == "Primeira etapa"));
+
+        var atualizacao = await client.PutAsJsonAsync(
+            $"{rota}/{primeira.Id}",
+            new AtualizarTarefaDemandaRequest
+            {
+                Titulo = primeira.Titulo,
+                Ordem = 2,
+                Situacao = primeira.Situacao
+            });
+        Assert.Equal(HttpStatusCode.OK, atualizacao.StatusCode);
+
+        var tarefasDepois = await (await client.GetAsync(rota)).Content
+            .ReadFromJsonAsync<List<TarefaDemandaResponse>>();
+        Assert.NotNull(tarefasDepois);
+        Assert.Equal(
+            new[] { "Segunda etapa", "Terceira etapa", "Primeira etapa" },
+            tarefasDepois.Select(tarefa => tarefa.Titulo).ToArray());
+        Assert.Equal(new[] { 0, 1, 2 }, tarefasDepois.Select(tarefa => tarefa.Ordem).ToArray());
+    }
+
+    [Fact]
     public async Task PutTarefa_Concluida_PermiteConcluirDemanda()
     {
         using var factory = new CustomWebApplicationFactory();

@@ -1,11 +1,19 @@
 import { useState, useCallback } from 'react'
-import { apiPost, apiPut, isHttpError, HttpError } from '../../apiClient'
+import { apiPost, apiPut, isHttpError } from '../../apiClient'
 import type { CreateDemandRequest } from './CreateDemandForm'
 import type { UpdateDemandRequest } from './ManageDemandsPanel'
 import type { CreateDemandTaskRequest } from './CreateDemandTaskForm'
 import type { UpdateDemandTaskRequest, DemandTask } from './ManageDemandTasks'
 import type { LoadState } from '../shared/loadState'
 import type { ConcurrencyLocks } from '../shared/useConcurrencyLocks'
+
+function shouldInvalidatePreviewOnError(error: unknown): boolean {
+  // Erro de rede ou resultado incerto pode significar que a mutação foi persistida.
+  if (!isHttpError(error)) return true
+
+  // Erros que podem refletir conflito/estado alterado ou falha transitória.
+  return error.status === 404 || error.status === 408 || error.status === 409 || error.status === 429 || error.status >= 500
+}
 
 export interface UseDemandMutationsOptions {
   concurrencyLocks: Pick<
@@ -67,8 +75,13 @@ export function useDemandMutations(options: UseDemandMutationsOptions): UseDeman
     if (demandCreationInProgressRef.current) {
       throw new Error('Já existe um cadastro de demanda em andamento.')
     }
-    if (confirmationInProgressRef.current || demandUpdateInProgressRef.current || taskMutationInProgressRef.current) {
-      throw new Error('Aguarde a confirmação do planejamento antes de cadastrar uma demanda.')
+    if (
+      confirmationInProgressRef.current ||
+      availabilityCreationInProgressRef.current ||
+      demandUpdateInProgressRef.current ||
+      taskMutationInProgressRef.current
+    ) {
+      throw new Error('Aguarde a operação em andamento antes de cadastrar uma demanda.')
     }
 
     setDemandCreationInProgress(true)
@@ -80,16 +93,21 @@ export function useDemandMutations(options: UseDemandMutationsOptions): UseDeman
       setDemandState((prev) => ({ ...prev, status: 'loading', error: null }))
       setDemandReloadToken((v) => v + 1)
       refreshAllDemands()
+    } catch (error: unknown) {
+      if (shouldInvalidatePreviewOnError(error)) invalidatePreview()
+      throw error
     } finally {
       setDemandCreationInProgress(false)
       setIsCreatingDemand(false)
     }
   }, [
     demandCreationInProgressRef,
+    availabilityCreationInProgressRef,
     confirmationInProgressRef,
     demandUpdateInProgressRef,
     taskMutationInProgressRef,
     clearPreview,
+    invalidatePreview,
     setDemandState,
     setDemandReloadToken,
     refreshAllDemands,
@@ -116,6 +134,9 @@ export function useDemandMutations(options: UseDemandMutationsOptions): UseDeman
       setDemandReloadToken((v) => v + 1)
       setAllDemandsState((prev) => ({ ...prev, status: 'loading', error: null }))
       setAllDemandsReloadToken((v) => v + 1)
+    } catch (error: unknown) {
+      if (shouldInvalidatePreviewOnError(error)) invalidatePreview()
+      throw error
     } finally {
       setDemandUpdateInProgress(false)
       setIsUpdatingDemand(false)
@@ -153,9 +174,7 @@ export function useDemandMutations(options: UseDemandMutationsOptions): UseDeman
       await apiPost<DemandTask, CreateDemandTaskRequest>(`/api/demandas-academicas/${demandId}/tarefas`, request)
       invalidatePreview()
     } catch (error: unknown) {
-      if (!isHttpError(error) || (error as HttpError).status >= 500 || (error as HttpError).status === 404 || (error as HttpError).status === 409) {
-        invalidatePreview()
-      }
+      if (shouldInvalidatePreviewOnError(error)) invalidatePreview()
       throw error
     } finally {
       setTaskMutationInProgress(false)
@@ -191,7 +210,7 @@ export function useDemandMutations(options: UseDemandMutationsOptions): UseDeman
       invalidatePreview()
       return updated
     } catch (error: unknown) {
-      if (!isHttpError(error) || (error as HttpError).status !== 400) invalidatePreview()
+      if (shouldInvalidatePreviewOnError(error)) invalidatePreview()
       throw error
     } finally {
       setTaskMutationInProgress(false)

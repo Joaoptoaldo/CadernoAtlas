@@ -152,16 +152,12 @@ export default function ManageDemandTasks({
     void requestTasks()
   }
 
-  function updateSucceeded(updatedTask: DemandTask): void {
-    setState((current) => current.status === 'success'
-      ? {
-          status: 'success',
-          data: current.data
-            .map((task) => task.id === updatedTask.id ? updatedTask : task)
-            .sort((left, right) => left.ordem - right.ordem || left.id - right.id),
-        }
-      : current)
+  function updateSucceeded(): void {
+    // A API normaliza a ordem e reposiciona as tarefas irmãs; recarregar evita
+    // manter na interface uma projeção local divergente do estado persistido.
     setEditingTaskId(null)
+    setState({ status: 'loading' })
+    void requestTasks()
   }
 
   return (

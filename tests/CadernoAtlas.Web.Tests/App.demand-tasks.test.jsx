@@ -54,6 +54,36 @@ describe('Tarefas de demandas', () => {
   })
 
 
+  it('reposiciona a tarefa editada e atualiza a ordem exibida das demais', async () => {
+    setupFetch({
+      tasksByDemand: {
+        1: [
+          { id: 1, demandaAcademicaId: 1, titulo: 'Primeira etapa', descricao: null, ordem: 0, esforcoEstimadoMinutos: null, situacao: 0 },
+          { id: 2, demandaAcademicaId: 1, titulo: 'Segunda etapa', descricao: null, ordem: 1, esforcoEstimadoMinutos: null, situacao: 0 },
+          { id: 3, demandaAcademicaId: 1, titulo: 'Terceira etapa', descricao: null, ordem: 2, esforcoEstimadoMinutos: null, situacao: 0 },
+        ],
+      },
+    })
+    renderApp()
+    fireEvent.click(screen.getByRole('button', { name: 'Demandas acadêmicas' }))
+    await screen.findByText('Demanda gerenciada ativa')
+    fireEvent.click(screen.getByRole('button', { name: 'Ver tarefas de Demanda gerenciada ativa' }))
+
+    const taskRegion = await screen.findByRole('region', { name: 'Tarefas de Demanda gerenciada ativa' })
+    fireEvent.click(within(taskRegion).getAllByRole('button', { name: 'Editar tarefa' })[0])
+    fireEvent.change(within(taskRegion).getByLabelText('Posição da tarefa'), { target: { value: '3' } })
+    fireEvent.click(within(taskRegion).getByRole('button', { name: 'Salvar tarefa' }))
+
+    await waitFor(() => {
+      expect(within(taskRegion).getAllByRole('heading', { level: 4 }).map((heading) => heading.textContent)).toEqual([
+        'Segunda etapa', 'Terceira etapa', 'Primeira etapa',
+      ])
+    })
+    expect(within(taskRegion).getAllByText(/^Etapa /).map((label) => label.textContent)).toEqual([
+      'Etapa 1', 'Etapa 2', 'Etapa 3',
+    ])
+  })
+
   it('torna observável o carregamento enquanto a consulta de tarefas está pendente', async () => {
     let resolveTasks
     const taskGate = new Promise((resolve) => { resolveTasks = resolve })
@@ -531,7 +561,7 @@ describe('Tarefas de demandas', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Salvar tarefa' }))
 
     expect(await screen.findByRole('heading', { name: 'Tarefa atualizada', level: 4 })).toBeInTheDocument()
-    expect(screen.getByText('Etapa 3')).toBeInTheDocument()
+    expect(screen.getByText('Etapa 2')).toBeInTheDocument()
     expect(screen.getByText('90 min')).toBeInTheDocument()
     expect(screen.getByRole('region', { name: 'Tarefas de Demanda gerenciada ativa' })).toHaveTextContent('Concluída')
     expect(within(screen.getByRole('region', { name: 'Tarefas de Demanda gerenciada ativa' })).getAllByRole('heading', { level: 4 }).map((heading) => heading.textContent)).toEqual(['Outra tarefa', 'Tarefa atualizada'])
@@ -546,6 +576,7 @@ describe('Tarefas de demandas', () => {
       }),
     }))
     expect(fetchMock.getTaskPutRequests()).toBe(1)
+    expect(fetchMock.getTaskRequests(1)).toBe(2)
     fireEvent.click(screen.getByRole('button', { name: 'Planejamento semanal' }))
     expect(screen.queryByRole('button', { name: 'Confirmar planejamento' })).not.toBeInTheDocument()
   })

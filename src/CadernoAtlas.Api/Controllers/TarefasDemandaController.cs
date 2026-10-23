@@ -141,13 +141,13 @@ public sealed class TarefasDemandaController : ControllerBase
         [FromBody] AtualizarTarefaDemandaRequest request,
         CancellationToken cancellationToken)
     {
-        var tarefa = await _dbContext.TarefasDemanda
-            .FirstOrDefaultAsync(
-                tarefa =>
-                    tarefa.Id == tarefaId
-                    && tarefa.DemandaAcademicaId == demandaId,
-                cancellationToken);
+        var tarefas = await _dbContext.TarefasDemanda
+            .Where(tarefa => tarefa.DemandaAcademicaId == demandaId)
+            .OrderBy(tarefa => tarefa.Ordem)
+            .ThenBy(tarefa => tarefa.Id)
+            .ToListAsync(cancellationToken);
 
+        var tarefa = tarefas.FirstOrDefault(tarefa => tarefa.Id == tarefaId);
         if (tarefa is null)
         {
             return NotFound();
@@ -176,6 +176,17 @@ public sealed class TarefasDemandaController : ControllerBase
         tarefa.Ordem = request.Ordem;
         tarefa.EsforcoEstimadoMinutos = request.EsforcoEstimadoMinutos;
         tarefa.Situacao = request.Situacao;
+
+        // Move a tarefa para a posição solicitada e mantém a sequência contígua.
+        // A API recebe Ordem baseada em zero; valores acima do tamanho viram a última posição.
+        var ordemDestino = Math.Clamp(request.Ordem, 0, tarefas.Count - 1);
+        tarefas.Remove(tarefa);
+        tarefas.Insert(ordemDestino, tarefa);
+
+        for (var indice = 0; indice < tarefas.Count; indice++)
+        {
+            tarefas[indice].Ordem = indice;
+        }
 
         await _dbContext.SaveChangesAsync(cancellationToken);
 

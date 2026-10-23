@@ -163,6 +163,7 @@ Tarefas representam etapas menores e executáveis necessárias para o cumpriment
 - **Demanda Concluída Bloqueada:** Não é permitido adicionar novas tarefas em uma demanda cuja situação seja `Concluida` (`409 Conflict`).
 - **Bloqueio de Reabertura:** Não é permitido alterar a situação de uma tarefa para `Pendente` ou `EmAndamento` caso a demanda pai esteja `Concluida` (`409 Conflict`). A demanda deve ser reaberta primeiro.
 - **Sequenciamento Automático:** Ao criar uma tarefa, o sistema calcula automaticamente o campo `Ordem` como o próximo valor incremental disponível (`ultimaOrdem + 1`).
+- **Reposicionamento:** Ao atualizar `Ordem` via `PUT`, a posição solicitada é limitada ao intervalo válido de `0` a `N - 1`, onde `N` é a quantidade de tarefas da demanda. A tarefa é movida para essa posição e todas as tarefas da demanda são renumeradas continuamente de `0` a `N - 1`. A resposta contém a ordem efetiva persistida.
 - **Valores de Situação:** `Pendente`, `EmAndamento`, `Concluida`.
 - **Esforço estimado:** `esforcoEstimadoMinutos` é opcional, mas quando informado deve ser um inteiro maior que zero. A resposta inclui o mesmo campo; ele pode ser `null` para tarefas sem estimativa.
 
