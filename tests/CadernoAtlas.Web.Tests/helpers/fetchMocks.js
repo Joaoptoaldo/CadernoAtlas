@@ -276,19 +276,40 @@ export function setupFetch({
         remainingTaskUpdateNetworkFailures -= 1
         throw new TypeError('Failed to fetch')
       }
-      const response = remainingTaskUpdateResponses.shift() ?? taskUpdateResponse ?? {
+      const requestBody = JSON.parse(init.body)
+      const existingTasks = currentTasksByDemand[demandId] ?? []
+      const maxOrder = Math.max(0, existingTasks.length - 1)
+      const requestedOrder = Math.max(0, Math.min(Number(requestBody.ordem) || 0, maxOrder))
+      let response = remainingTaskUpdateResponses.shift() ?? taskUpdateResponse ?? {
         status: 200,
         data: {
-          ...JSON.parse(init.body),
+          ...requestBody,
           id: taskId,
           demandaAcademicaId: demandId,
+          ordem: requestedOrder,
         },
       }
+
       if (response.status >= 200 && response.status < 300) {
-        currentTasksByDemand[demandId] = (currentTasksByDemand[demandId] ?? []).map((task) => (
-          task.id === taskId ? response.data : task
-        ))
+        const currentTask = existingTasks.find((task) => task.id === taskId)
+        const targetOrder = Math.max(
+          0,
+          Math.min(Number(response.data?.ordem ?? requestBody.ordem) || 0, maxOrder),
+        )
+        const updatedTask = {
+          ...(currentTask ?? {}),
+          ...requestBody,
+          ...(response.data ?? {}),
+          id: taskId,
+          demandaAcademicaId: demandId,
+          ordem: targetOrder,
+        }
+        const reordered = existingTasks.filter((task) => task.id !== taskId)
+        reordered.splice(targetOrder, 0, updatedTask)
+        currentTasksByDemand[demandId] = reordered.map((task, index) => ({ ...task, ordem: index }))
+        response = { ...response, data: updatedTask }
       }
+
       return jsonResponse(response.data, response.status)
     }
 
