@@ -3,6 +3,7 @@ import { cleanup } from '@testing-library/react'
 
 afterEach(() => {
   cleanup()
+  vi.restoreAllMocks()
   vi.unstubAllGlobals()
 })
 
@@ -115,6 +116,10 @@ export function setupFetch({
   taskUpdateResponses = [],
   taskUpdateGate,
   taskUpdateNetworkFailures = 0,
+  taskDeleteResponse = null,
+  taskDeleteResponses = [],
+  taskDeleteGate,
+  taskDeleteNetworkFailures = 0,
   createResponse = {
     status: 201,
     data: {
@@ -158,10 +163,13 @@ export function setupFetch({
   let confirmationPostRequests = 0
   let taskPostRequests = 0
   let taskPutRequests = 0
+  let taskDeleteRequests = 0
   let remainingTaskCreateNetworkFailures = taskCreateNetworkFailures
   let remainingTaskUpdateNetworkFailures = taskUpdateNetworkFailures
+  let remainingTaskDeleteNetworkFailures = taskDeleteNetworkFailures
   const remainingTaskCreateResponses = [...taskCreateResponses]
   const remainingTaskUpdateResponses = [...taskUpdateResponses]
+  const remainingTaskDeleteResponses = [...taskDeleteResponses]
   const taskRequestCounts = new Map()
   const currentTasksByDemand = Object.fromEntries(
     Object.entries(tasksByDemand).map(([demandId, tasks]) => [Number(demandId), [...tasks]]),
@@ -313,6 +321,29 @@ export function setupFetch({
       return jsonResponse(response.data, response.status)
     }
 
+
+    if (taskUpdateRoute && init.method === 'DELETE') {
+      const demandId = Number(taskUpdateRoute[1])
+      const taskId = Number(taskUpdateRoute[2])
+      taskDeleteRequests += 1
+      if (taskDeleteGate) await taskDeleteGate
+      if (remainingTaskDeleteNetworkFailures > 0) {
+        remainingTaskDeleteNetworkFailures -= 1
+        throw new TypeError('Failed to fetch')
+      }
+
+      const existingTasks = currentTasksByDemand[demandId] ?? []
+      const taskExists = existingTasks.some((task) => task.id === taskId)
+      const response = remainingTaskDeleteResponses.shift() ?? taskDeleteResponse ?? (taskExists
+        ? { status: 204, data: null }
+        : { status: 404, data: { detail: 'Tarefa não encontrada.' } })
+
+      if (response.status >= 200 && response.status < 300) {
+        currentTasksByDemand[demandId] = existingTasks.filter((task) => task.id !== taskId)
+      }
+      return jsonResponse(response.data, response.status)
+    }
+
     if (path === '/api/disponibilidades-estudo' && init.method === 'POST') {
       availabilityPostRequests += 1
       if (availabilityCreateGate) await availabilityCreateGate
@@ -386,5 +417,6 @@ export function setupFetch({
     : taskRequestCounts.get(demandId) ?? 0
   fetchMock.getTaskPostRequests = () => taskPostRequests
   fetchMock.getTaskPutRequests = () => taskPutRequests
+  fetchMock.getTaskDeleteRequests = () => taskDeleteRequests
   return fetchMock
 }

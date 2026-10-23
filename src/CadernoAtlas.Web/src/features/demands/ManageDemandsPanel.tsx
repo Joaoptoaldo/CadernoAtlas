@@ -41,14 +41,16 @@ interface ManageDemandsPanelProps {
   isUpdatingDemand: boolean
   isCreatingTask: boolean
   isUpdatingTask: boolean
+  isDeletingTask: boolean
+  onDeleteTask: (demandId: number, taskId: number) => Promise<void>
 }
 
 const typeLabels = ['Prova', 'Trabalho', 'APG', 'TCC', 'Outro']
 const importanceLabels = ['Baixa', 'Média', 'Alta']
 const statusLabels = ['Pendente', 'Em andamento', 'Concluída', 'Cancelada']
 
-export default function ManageDemandsPanel({ state, onRetry, onUpdate, onLoadTasks, onCreateTask, onUpdateTask, isUpdatingDemand, isCreatingTask, isUpdatingTask }: ManageDemandsPanelProps) {
-  const taskMutationInProgress = isCreatingTask || isUpdatingTask
+export default function ManageDemandsPanel({ state, onRetry, onUpdate, onLoadTasks, onCreateTask, onUpdateTask, onDeleteTask, isUpdatingDemand, isCreatingTask, isUpdatingTask, isDeletingTask }: ManageDemandsPanelProps) {
+  const taskMutationInProgress = isCreatingTask || isUpdatingTask || isDeletingTask
   const [statusFilter, setStatusFilter] = useState('')
   const [typeFilter, setTypeFilter] = useState('')
   const [importanceFilter, setImportanceFilter] = useState('')
@@ -191,9 +193,11 @@ export default function ManageDemandsPanel({ state, onRetry, onUpdate, onLoadTas
                   canCreateTasks={demand.situacao === 0 || demand.situacao === 1}
                   isCreatingTask={isCreatingTask}
                   isUpdatingTask={isUpdatingTask}
+                 isDeletingTask={isDeletingTask}
                   onLoad={onLoadTasks}
                   onCreate={onCreateTask}
                   onUpdate={onUpdateTask}
+                 onDelete={onDeleteTask}
                 />
               )}
             </>

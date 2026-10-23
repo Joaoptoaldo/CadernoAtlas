@@ -74,8 +74,7 @@ os dados afetados.
 uma lista carregada sob demanda; a interface consulta, cria e edita tarefas
 (título, descrição, esforço, situação e ordem). Operações concorrentes
 incompatíveis são bloqueadas. A prévia é invalidada após atualizações
-confirmadas ou quando o resultado de uma mutação pode ser incerto. Exclusão
-(`DELETE`) ainda não está exposta na Web.
+confirmadas ou quando o resultado de uma mutação pode ser incerto. Exclusão (`DELETE`) está disponível para demandas ativas, com confirmação explícita e recarga da lista após sucesso. Erros de resultado incerto exigem consulta da lista antes de tentar novamente. Sessões vinculadas continuam existindo, mas perdem o vínculo com a tarefa excluída.
 
 **Parcial — qualidade de interface:** o código possui navegação entre
 planejamento e demandas, link para pular ao conteúdo principal, estados
