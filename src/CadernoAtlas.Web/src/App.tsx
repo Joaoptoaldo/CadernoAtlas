@@ -117,10 +117,12 @@ function App() {
     isUpdatingDemand,
     isCreatingTask,
     isUpdatingTask,
+    isDeletingTask,
     createDemand,
     updateDemand,
     createDemandTask,
     updateDemandTask,
+    deleteDemandTask,
   } = useDemandMutations({
     concurrencyLocks,
     invalidatePreview,
@@ -380,7 +382,7 @@ function App() {
             </section>
 
               <div className="right-column">
-                <AvailabilityPanel state={availabilityState} monday={monday} onRetry={refreshAvailability} todayIso={todayIso} onCreate={createAvailability} isCreating={isCreatingAvailability} isConfirming={isConfirming} isUpdatingDemand={isUpdatingDemand} isCreatingTask={isCreatingTask} isUpdatingTask={isUpdatingTask} />
+                <AvailabilityPanel state={availabilityState} monday={monday} onRetry={refreshAvailability} todayIso={todayIso} onCreate={createAvailability} isCreating={isCreatingAvailability} isConfirming={isConfirming} isUpdatingDemand={isUpdatingDemand} isCreatingTask={isCreatingTask} isUpdatingTask={isUpdatingTask || isDeletingTask} />
 
                 <PlanningPreview
                   previewState={previewState}
@@ -390,7 +392,7 @@ function App() {
                   isCreatingAvailability={isCreatingAvailability}
                   isUpdatingDemand={isUpdatingDemand}
                   isCreatingTask={isCreatingTask}
-                  isUpdatingTask={isUpdatingTask}
+                  isUpdatingTask={isUpdatingTask || isDeletingTask}
                   clearPreview={clearPreview}
                   confirmPreview={confirmPreview}
                   generatePreview={generatePreview}
@@ -411,7 +413,7 @@ function App() {
                   <p className="page-subtitle">Consulte, filtre e atualize suas demandas.</p>
                 </div>
               </section>
-              <ManageDemandsPanel state={allDemandsState} onRetry={refreshAllDemands} onUpdate={updateDemand} onLoadTasks={loadDemandTasks} isUpdatingDemand={isUpdatingDemand} onCreateTask={createDemandTask} isCreatingTask={isCreatingTask} isUpdatingTask={isUpdatingTask} onUpdateTask={updateDemandTask} />
+              <ManageDemandsPanel state={allDemandsState} onRetry={refreshAllDemands} onUpdate={updateDemand} onLoadTasks={loadDemandTasks} isUpdatingDemand={isUpdatingDemand} onCreateTask={createDemandTask} isCreatingTask={isCreatingTask} isUpdatingTask={isUpdatingTask || isDeletingTask} onUpdateTask={updateDemandTask} isDeletingTask={isDeletingTask} onDeleteTask={deleteDemandTask} />
               <footer className="page-footer">
                 <span>Demandas organizadas para uma rotina real.</span>
                 <span>CadernoAtlas <span className="footer-separator">·</span> Demandas acadêmicas</span>

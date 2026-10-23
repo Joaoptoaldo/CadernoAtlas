@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react'
-import { apiPost, apiPut, isHttpError } from '../../apiClient'
+import { apiDelete, apiPost, apiPut, isHttpError } from '../../apiClient'
 import type { CreateDemandRequest } from './CreateDemandForm'
 import type { UpdateDemandRequest } from './ManageDemandsPanel'
 import type { CreateDemandTaskRequest } from './CreateDemandTaskForm'
@@ -37,10 +37,12 @@ export interface UseDemandMutationsReturn {
   isUpdatingDemand: boolean
   isCreatingTask: boolean
   isUpdatingTask: boolean
+  isDeletingTask: boolean
   createDemand: (request: CreateDemandRequest) => Promise<void>
   updateDemand: (id: number, request: UpdateDemandRequest) => Promise<void>
   createDemandTask: (demandId: number, request: CreateDemandTaskRequest) => Promise<void>
   updateDemandTask: (demandId: number, taskId: number, request: UpdateDemandTaskRequest) => Promise<DemandTask>
+  deleteDemandTask: (demandId: number, taskId: number) => Promise<void>
 }
 
 export function useDemandMutations(options: UseDemandMutationsOptions): UseDemandMutationsReturn {
@@ -70,6 +72,7 @@ export function useDemandMutations(options: UseDemandMutationsOptions): UseDeman
   const [isUpdatingDemand, setIsUpdatingDemand] = useState(false)
   const [isCreatingTask, setIsCreatingTask] = useState(false)
   const [isUpdatingTask, setIsUpdatingTask] = useState(false)
+  const [isDeletingTask, setIsDeletingTask] = useState(false)
 
   const createDemand = useCallback(async (request: CreateDemandRequest) => {
     if (demandCreationInProgressRef.current) {
@@ -226,14 +229,51 @@ export function useDemandMutations(options: UseDemandMutationsOptions): UseDeman
     setTaskMutationInProgress,
   ])
 
+  const deleteDemandTask = useCallback(async (demandId: number, taskId: number) => {
+    if (taskMutationInProgressRef.current) {
+      throw new Error('Já existe uma mutação de tarefa em andamento.')
+    }
+    if (
+      confirmationInProgressRef.current ||
+      demandCreationInProgressRef.current ||
+      demandUpdateInProgressRef.current ||
+      availabilityCreationInProgressRef.current
+    ) {
+      throw new Error('Aguarde a operação em andamento antes de excluir uma tarefa.')
+    }
+
+    setTaskMutationInProgress(true)
+    setIsDeletingTask(true)
+    try {
+      await apiDelete(`/api/demandas-academicas/${demandId}/tarefas/${taskId}`)
+      invalidatePreview()
+    } catch (error: unknown) {
+      if (shouldInvalidatePreviewOnError(error)) invalidatePreview()
+      throw error
+    } finally {
+      setTaskMutationInProgress(false)
+      setIsDeletingTask(false)
+    }
+  }, [
+    taskMutationInProgressRef,
+    confirmationInProgressRef,
+    demandCreationInProgressRef,
+    demandUpdateInProgressRef,
+    availabilityCreationInProgressRef,
+    invalidatePreview,
+    setTaskMutationInProgress,
+  ])
+
   return {
     isCreatingDemand,
     isUpdatingDemand,
     isCreatingTask,
     isUpdatingTask,
+    isDeletingTask,
     createDemand,
     updateDemand,
     createDemandTask,
     updateDemandTask,
+    deleteDemandTask,
   }
 }

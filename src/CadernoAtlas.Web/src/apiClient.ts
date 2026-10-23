@@ -139,3 +139,17 @@ export async function apiPut<
 
   return response.json() as Promise<TResponse>
 }
+
+export async function apiDelete(path: string): Promise<void> {
+  const response = await fetch(path, {
+    method: 'DELETE',
+    headers: { Accept: 'application/json' },
+  })
+
+  if (!response.ok) {
+    throw new HttpError(
+      await readErrorMessage(response, false),
+      response.status,
+    )
+  }
+}

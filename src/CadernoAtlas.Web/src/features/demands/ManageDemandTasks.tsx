@@ -26,9 +26,11 @@ interface ManageDemandTasksProps {
   canCreateTasks: boolean
   isCreatingTask: boolean
   isUpdatingTask: boolean
+  isDeletingTask: boolean
   onLoad: (demandId: number, signal: AbortSignal) => Promise<DemandTask[]>
   onCreate: (demandId: number, request: CreateDemandTaskRequest) => Promise<void>
   onUpdate: (demandId: number, taskId: number, request: UpdateDemandTaskRequest) => Promise<DemandTask>
+  onDelete: (demandId: number, taskId: number) => Promise<void>
 }
 
 type TaskLoadState =
@@ -55,7 +57,15 @@ function errorMessage(error: unknown): string {
     : 'Ocorreu um erro ao consultar as tarefas. Tente novamente.'
 }
 
-function taskLoadError(error: unknown, creationConfirmed: boolean): TaskLoadState {
+function taskLoadError(error: unknown, creationConfirmed: boolean, deletionConfirmed = false): TaskLoadState {
+  if (deletionConfirmed) {
+    return {
+      status: 'error',
+      title: 'Tarefa excluída, mas a lista não foi atualizada',
+      message: `A exclusão foi confirmada pela API, mas não foi possível recarregar as tarefas. ${errorMessage(error)}`,
+    }
+  }
+
   if (creationConfirmed) {
     return {
       status: 'error',
@@ -80,18 +90,31 @@ export default function ManageDemandTasks({
   canCreateTasks,
   isCreatingTask,
   isUpdatingTask,
+  isDeletingTask,
   onLoad,
   onCreate,
   onUpdate,
+  onDelete,
 }: ManageDemandTasksProps) {
   const [state, setState] = useState<TaskLoadState>({ status: 'loading' })
   const [isCreateOpen, setIsCreateOpen] = useState(false)
   const [creationConfirmed, setCreationConfirmed] = useState(false)
+  const [deletionConfirmed, setDeletionConfirmed] = useState(false)
   const [editingTaskId, setEditingTaskId] = useState<number | null>(null)
+  const [deletingTaskId, setDeletingTaskId] = useState<number | null>(null)
+  const [deletionError, setDeletionError] = useState<{
+    taskId: number
+    message: string
+    requiresReconciliation: boolean
+    outcomeUnknown: boolean
+  } | null>(null)
   const requestSequenceRef = useRef(0)
   const activeControllerRef = useRef<AbortController | null>(null)
   const creationConfirmedRef = useRef(false)
-  const mutationInProgress = isCreatingTask || isUpdatingTask
+  const deletionConfirmedRef = useRef(false)
+  const deletingTaskIdRef = useRef<number | null>(null)
+  const mutationInProgress = isCreatingTask || isUpdatingTask || isDeletingTask
+  const taskReconciliationRequired = deletionError?.requiresReconciliation ?? false
 
   const requestTasks = useCallback(async (): Promise<boolean> => {
     activeControllerRef.current?.abort()
@@ -104,12 +127,15 @@ export default function ManageDemandTasks({
       if (requestId === requestSequenceRef.current && !controller.signal.aborted) {
         setState({ status: 'success', data })
         creationConfirmedRef.current = false
+        deletionConfirmedRef.current = false
         setCreationConfirmed(false)
+        setDeletionConfirmed(false)
+        setDeletionError(null)
       }
       return requestId === requestSequenceRef.current && !controller.signal.aborted
     } catch (error: unknown) {
       if (requestId !== requestSequenceRef.current || controller.signal.aborted || (error instanceof Error && error.name === 'AbortError')) return false
-      setState(taskLoadError(error, creationConfirmedRef.current))
+      setState(taskLoadError(error, creationConfirmedRef.current, deletionConfirmedRef.current))
       return false
     }
   }, [demandId, onLoad])
@@ -123,11 +149,14 @@ export default function ManageDemandTasks({
         if (requestId !== requestSequenceRef.current || controller.signal.aborted) return
         setState({ status: 'success', data })
         creationConfirmedRef.current = false
+        deletionConfirmedRef.current = false
         setCreationConfirmed(false)
+        setDeletionConfirmed(false)
+        setDeletionError(null)
       })
       .catch((error: unknown) => {
         if (requestId !== requestSequenceRef.current || controller.signal.aborted || (error instanceof Error && error.name === 'AbortError')) return
-        setState(taskLoadError(error, creationConfirmedRef.current))
+        setState(taskLoadError(error, creationConfirmedRef.current, deletionConfirmedRef.current))
       })
     return () => {
       requestSequenceRef.current += 1
@@ -160,8 +189,85 @@ export default function ManageDemandTasks({
     void requestTasks()
   }
 
+
+  async function deleteTask(task: DemandTask): Promise<void> {
+    if (
+      mutationInProgress ||
+      deletingTaskIdRef.current !== null ||
+      editingTaskId !== null ||
+      isCreateOpen ||
+      taskReconciliationRequired
+    ) return
+
+    const confirmed = window.confirm(
+      `Excluir a tarefa "${task.titulo}"?\n\nEsta ação não pode ser desfeita. As sessões de estudo vinculadas continuarão existindo, mas perderão o vínculo com esta tarefa.`,
+    )
+    if (!confirmed) return
+
+    deletingTaskIdRef.current = task.id
+    setDeletingTaskId(task.id)
+    setDeletionError(null)
+    try {
+      await onDelete(demandId, task.id)
+      deletionConfirmedRef.current = true
+      setDeletionConfirmed(true)
+      setState({ status: 'loading' })
+      void requestTasks()
+    } catch (error: unknown) {
+      const status = typeof error === 'object' && error !== null && 'status' in error && typeof error.status === 'number'
+        ? error.status
+        : null
+      const outcomeUnknown = status === null || status === 408 || status === 429 || status >= 500
+      const requiresReconciliation = outcomeUnknown || status === 404 || status === 409
+      setDeletionError({
+        taskId: task.id,
+        message: outcomeUnknown
+          ? 'Não foi possível confirmar se a tarefa foi excluída. Consulte a lista antes de decidir se tentará novamente.'
+          : error instanceof Error && error.message
+            ? error.message
+            : 'Não foi possível excluir a tarefa. Tente novamente.',
+        requiresReconciliation,
+        outcomeUnknown,
+      })
+    } finally {
+      deletingTaskIdRef.current = null
+      setDeletingTaskId(null)
+    }
+  }
+
+  async function reconcileDeletion(): Promise<void> {
+    if (!deletionError?.requiresReconciliation || isDeletingTask) return
+    const taskId = deletionError.taskId
+    setState({ status: 'loading' })
+    const refreshed = await requestTasks()
+    if (refreshed) {
+      setDeletionError(null)
+      return
+    }
+    setDeletionError((current) => current?.taskId === taskId
+      ? { ...current, message: `${current.message} A lista não foi atualizada; consulte novamente antes de repetir a exclusão.` }
+      : current)
+  }
+
   return (
     <section className="managed-tasks-panel" id={`demand-tasks-${demandId}`} aria-label={`Tarefas de ${demandTitle}`}>
+      {deletionError && (
+        <div className="task-delete-error" role="alert">
+          <p>{deletionError.message}</p>
+          {deletionError.requiresReconciliation && (
+            <button
+              type="button"
+              className="text-button"
+              disabled={isDeletingTask || isCreatingTask || isUpdatingTask}
+              onClick={() => void reconcileDeletion()}
+            >
+              {deletionError.outcomeUnknown
+                ? 'Consultar tarefas antes de tentar novamente'
+                : 'Atualizar lista de tarefas'}
+            </button>
+          )}
+        </div>
+      )}
       {canCreateTasks && (
         <>
           <button
@@ -169,7 +275,7 @@ export default function ManageDemandTasks({
             type="button"
             aria-expanded={isCreateOpen}
             aria-controls={isCreateOpen ? `create-task-form-${demandId}` : undefined}
-            disabled={mutationInProgress || editingTaskId !== null}
+            disabled={mutationInProgress || taskReconciliationRequired || editingTaskId !== null}
             onClick={() => setIsCreateOpen((open) => !open)}
           >
             {isCreateOpen ? 'Fechar cadastro' : 'Nova tarefa'}
@@ -178,7 +284,7 @@ export default function ManageDemandTasks({
             <CreateDemandTaskForm
               key={demandId}
               demandId={demandId}
-              disabled={mutationInProgress || editingTaskId !== null}
+              disabled={mutationInProgress || taskReconciliationRequired || editingTaskId !== null}
               onCreate={onCreate}
               onCreated={creationSucceeded}
               onReconcile={reconcileTasks}
@@ -187,6 +293,7 @@ export default function ManageDemandTasks({
         </>
       )}
       {creationConfirmed && state.status === 'loading' && <p className="task-create-success" role="status">Tarefa criada. Atualizando a lista…</p>}
+      {deletionConfirmed && state.status === 'loading' && <p className="task-create-success" role="status">Tarefa excluída. Atualizando a lista…</p>}
       {state.status === 'loading' && <p className="managed-tasks-loading" role="status">Carregando tarefas…</p>}
       {state.status === 'error' && (
         <StatusMessage
@@ -201,7 +308,7 @@ export default function ManageDemandTasks({
       )}
       {state.status === 'success' && state.data.length > 0 && (
         <ol className="managed-task-list">
-          {state.data.map((task) => (
+          {state.data.map((task, index) => (
             <li className="managed-task-card" key={task.id}>
               <div className="managed-task-heading">
                 <h4>{task.titulo}</h4>
@@ -209,14 +316,15 @@ export default function ManageDemandTasks({
               </div>
               <p>{task.descricao || 'Descrição não informada'}</p>
               <div className="managed-task-details">
-                <span>Etapa {task.ordem + 1}</span>
+                <span>Etapa {index + 1}</span>
                 <span>{task.esforcoEstimadoMinutos == null ? 'Esforço não estimado' : `${task.esforcoEstimadoMinutos} min`}</span>
               </div>
               {editingTaskId === task.id ? (
                 <EditDemandTaskForm
                   task={task}
+                  initialOrder={index}
                   demandId={demandId}
-                  disabled={mutationInProgress}
+                  disabled={mutationInProgress || taskReconciliationRequired}
                   onCancel={() => setEditingTaskId(null)}
                   onUpdate={onUpdate}
                   onUpdated={updateSucceeded}
@@ -224,14 +332,25 @@ export default function ManageDemandTasks({
                 />
               ) : (
                 canCreateTasks && (
-                  <button
-                    className="button button-secondary"
-                    type="button"
-                    disabled={mutationInProgress || editingTaskId !== null || isCreateOpen}
-                    onClick={() => setEditingTaskId(task.id)}
-                  >
-                    Editar tarefa
-                  </button>
+                  <div className="managed-task-actions">
+                    <button
+                      className="button button-secondary"
+                      type="button"
+                      disabled={mutationInProgress || taskReconciliationRequired || editingTaskId !== null || isCreateOpen}
+                      onClick={() => setEditingTaskId(task.id)}
+                    >
+                      Editar tarefa
+                    </button>
+                    <button
+                      className="button button-secondary"
+                      type="button"
+                      aria-label={`Excluir tarefa ${task.titulo}`}
+                      disabled={mutationInProgress || taskReconciliationRequired || editingTaskId !== null || isCreateOpen}
+                      onClick={() => void deleteTask(task)}
+                    >
+                      {deletingTaskId === task.id ? 'Excluindo…' : 'Excluir tarefa'}
+                    </button>
+                  </div>
                 )
               )}
             </li>
@@ -244,6 +363,7 @@ export default function ManageDemandTasks({
 
 function EditDemandTaskForm({
   task,
+  initialOrder,
   demandId,
   disabled,
   onCancel,
@@ -252,6 +372,7 @@ function EditDemandTaskForm({
   onReconcile,
 }: {
   task: DemandTask
+  initialOrder: number
   demandId: number
   disabled: boolean
   onCancel: () => void
@@ -261,7 +382,7 @@ function EditDemandTaskForm({
 }) {
   const [titulo, setTitulo] = useState(task.titulo)
   const [descricao, setDescricao] = useState(task.descricao ?? '')
-  const [ordem, setOrdem] = useState(String(task.ordem + 1))
+  const [ordem, setOrdem] = useState(String(initialOrder + 1))
   const [esforco, setEsforco] = useState(task.esforcoEstimadoMinutos == null ? '' : String(task.esforcoEstimadoMinutos))
   const [situacao, setSituacao] = useState(String(task.situacao))
   const [saving, setSaving] = useState(false)
