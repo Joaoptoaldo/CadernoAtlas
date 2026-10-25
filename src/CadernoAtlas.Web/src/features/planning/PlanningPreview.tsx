@@ -59,6 +59,7 @@ export interface PlanningPreviewProps {
   isUpdatingDemand: boolean
   isCreatingTask: boolean
   isUpdatingTask: boolean
+  isDeletingTask: boolean
   clearPreview: () => void
   confirmPreview: () => void
   generatePreview: () => void
@@ -103,6 +104,7 @@ export default function PlanningPreview({
   isUpdatingDemand,
   isCreatingTask,
   isUpdatingTask,
+  isDeletingTask,
   clearPreview,
   confirmPreview,
   generatePreview,
@@ -152,7 +154,7 @@ export default function PlanningPreview({
                 ? `${previewState.error} ${confirmState.error}`
                 : previewState.error}
             </p>
-            <button className="text-button" onClick={generatePreview} disabled={isUpdatingDemand || isCreatingTask || isUpdatingTask}>Tentar novamente</button>
+            <button className="text-button" onClick={generatePreview} disabled={isUpdatingDemand || isCreatingTask || isUpdatingTask || isDeletingTask}>Tentar novamente</button>
           </div>
         </div>
       )}
@@ -210,14 +212,14 @@ export default function PlanningPreview({
 
           {previewState.status === 'success' && (
             <div className="planning-actions">
-              <button className="button button-secondary" onClick={clearPreview} disabled={isConfirming || isUpdatingDemand || isCreatingTask || isUpdatingTask}>Descartar prévia</button>
-              <button className="button button-primary confirm-button" onClick={confirmPreview} disabled={isConfirming || isCreatingDemand || isCreatingAvailability || isUpdatingDemand || isCreatingTask || isUpdatingTask || (confirmState.status === 'error' && !confirmState.canRetry) || previewState.data.alocacoes.length === 0}>
+              <button className="button button-secondary" onClick={clearPreview} disabled={isConfirming || isUpdatingDemand || isCreatingTask || isUpdatingTask || isDeletingTask}>Descartar prévia</button>
+              <button className="button button-primary confirm-button" onClick={confirmPreview} disabled={isConfirming || isCreatingDemand || isCreatingAvailability || isUpdatingDemand || isCreatingTask || isUpdatingTask || isDeletingTask || (confirmState.status === 'error' && !confirmState.canRetry) || previewState.data.alocacoes.length === 0}>
                 {isConfirming ? 'Confirmando…' : 'Confirmar planejamento'}
               </button>
             </div>
           )}
           {previewState.status === 'confirmed' && (
-            <button className="button button-secondary planning-regenerate" onClick={clearPreview} disabled={isUpdatingDemand || isCreatingTask || isUpdatingTask}>Gerar outra prévia</button>
+            <button className="button button-secondary planning-regenerate" onClick={clearPreview} disabled={isUpdatingDemand || isCreatingTask || isUpdatingTask || isDeletingTask}>Gerar outra prévia</button>
           )}
         </>
       )}

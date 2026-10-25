@@ -389,6 +389,7 @@ function EditDemandTaskForm({
   const [error, setError] = useState<string | null>(null)
   const [outcomeUnknown, setOutcomeUnknown] = useState(false)
   const [reconciled, setReconciled] = useState(false)
+  const [isReconciling, setIsReconciling] = useState(false)
   const savingRef = useRef(false)
   const controlsDisabled = disabled || saving
 
@@ -433,7 +434,7 @@ function EditDemandTaskForm({
       const status = typeof updateError === 'object' && updateError !== null && 'status' in updateError && typeof updateError.status === 'number'
         ? updateError.status
         : null
-      if (status === null || status >= 500) {
+      if (status === null || status === 408 || status === 429 || status >= 500) {
         setOutcomeUnknown(true)
         setError('Não foi possível confirmar se a tarefa foi atualizada. Consulte a lista antes de decidir se tentará novamente.')
       } else {
@@ -447,16 +448,20 @@ function EditDemandTaskForm({
   }
 
   async function reconcile(): Promise<void> {
+    if (isReconciling) return
+    setIsReconciling(true)
     setError(null)
     try {
       if (await onReconcile()) {
         setReconciled(true)
-        setError('Consulta concluída. Revise os dados da tarefa antes de tentar novamente.')
+        onCancel()
       } else {
         setError('A lista não pôde ser atualizada. Tente consultar novamente antes de reenviar.')
       }
     } catch {
       setError('A lista não pôde ser atualizada. Tente consultar novamente antes de reenviar.')
+    } finally {
+      setIsReconciling(false)
     }
   }
 
@@ -484,8 +489,8 @@ function EditDemandTaskForm({
       {saving && <p role="status">Salvando tarefa…</p>}
       {error && <p role="alert">{error}</p>}
       {outcomeUnknown && (
-        <button type="button" className="text-button" disabled={saving} onClick={() => void reconcile()}>
-          Consultar tarefas antes de tentar novamente
+        <button type="button" className="text-button" disabled={saving || isReconciling} onClick={() => void reconcile()}>
+          {isReconciling ? 'Consultando tarefas…' : 'Consultar tarefas antes de tentar novamente'}
         </button>
       )}
       <div className="create-demand-form-actions">

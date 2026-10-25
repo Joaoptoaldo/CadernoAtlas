@@ -1,4 +1,4 @@
-import { useRef, useState, type FormEvent } from 'react'
+import { useRef, useState } from 'react'
 
 export interface CreateDemandTaskRequest {
   titulo: string
@@ -42,7 +42,7 @@ export default function CreateDemandTaskForm({
   const submissionInProgressRef = useRef(false)
   const controlsDisabled = disabled || isSubmitting || isReconciling
 
-  async function handleSubmit(event: FormEvent<HTMLFormElement>): Promise<void> {
+  async function handleSubmit(event: React.FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault()
     if (submissionInProgressRef.current || controlsDisabled || (outcomeUnknown && !reconciliationComplete)) return
 
@@ -82,7 +82,7 @@ export default function CreateDemandTaskForm({
       onCreated()
     } catch (error: unknown) {
       const status = getHttpStatus(error)
-      if (status === null || status >= 500) {
+      if (status === null || status === 408 || status === 429 || status >= 500) {
         setOutcomeUnknown(true)
         setFormError('Não foi possível confirmar se a tarefa foi criada. Consulte a lista antes de decidir se tentará novamente.')
       } else if (status === 404) {

@@ -24,13 +24,17 @@ export default function AvailabilityPanel({
   onRetry,
   todayIso,
   onCreate,
+  onReconcile,
   isCreating,
   isConfirming,
   isUpdatingDemand,
   isCreatingTask,
   isUpdatingTask,
+  isDeletingTask,
+  outcomeUnknown,
+  onOutcomeUnknownChange,
 }: AvailabilityPanelProps) {
-  const taskMutationInProgress = isCreatingTask || isUpdatingTask
+  const taskMutationInProgress = isCreatingTask || isUpdatingTask || isDeletingTask
   const [isFormOpen, setIsFormOpen] = useState(false)
   const weekStart = toIsoDate(monday)
   const weekEnd = toIsoDate(shiftDays(monday, 6))
@@ -68,9 +72,9 @@ export default function AvailabilityPanel({
         type="button"
         aria-expanded={isFormOpen}
         aria-controls={isFormOpen ? 'create-availability-form' : undefined}
-        disabled={isCreating || isConfirming || isUpdatingDemand || taskMutationInProgress}
+        disabled={isCreating || isConfirming || isUpdatingDemand || taskMutationInProgress || outcomeUnknown}
         onClick={() => {
-          if (isCreating || isConfirming || isUpdatingDemand || taskMutationInProgress) return
+          if (isCreating || isConfirming || isUpdatingDemand || taskMutationInProgress || outcomeUnknown) return
           setIsFormOpen((open) => !open)
         }}
       >
@@ -85,7 +89,10 @@ export default function AvailabilityPanel({
           todayIso={todayIso}
           onCreate={onCreate}
           onCancel={() => setIsFormOpen(false)}
+          onReconcile={onReconcile}
           disabled={isConfirming || isUpdatingDemand || taskMutationInProgress}
+          outcomeUnknown={outcomeUnknown}
+          onOutcomeUnknownChange={onOutcomeUnknownChange}
         />
       )}
 

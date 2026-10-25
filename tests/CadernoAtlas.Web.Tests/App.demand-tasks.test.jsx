@@ -462,6 +462,34 @@ describe('Tarefas de demandas', () => {
   })
 
 
+  it.each([
+    [408, 'Não foi possível confirmar se a tarefa foi criada. Consulte a lista antes de decidir se tentará novamente.'],
+    [429, 'Não foi possível confirmar se a tarefa foi criada. Consulte a lista antes de decidir se tentará novamente.'],
+  ])('trata HTTP %i na criação de tarefa como resultado incerto', async (status, message) => {
+    const fetchMock = setupFetch({ taskCreateResponse: { status, data: { detail: 'Falha temporária.' } } })
+    renderApp()
+    fireEvent.click(screen.getByRole('button', { name: /Gerar pr/ }))
+    expect(await screen.findByText('Revisar anatomia')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Demandas acadêmicas' }))
+    await screen.findByText('Demanda gerenciada ativa')
+    fireEvent.click(screen.getByRole('button', { name: 'Ver tarefas de Demanda gerenciada ativa' }))
+    await screen.findByText('Nenhuma tarefa cadastrada para esta demanda.')
+    fireEvent.click(screen.getByRole('button', { name: 'Nova tarefa' }))
+    fireEvent.change(screen.getByLabelText('Título da tarefa'), { target: { value: `Tarefa com resposta ${status}` } })
+    fireEvent.click(screen.getByRole('button', { name: 'Salvar tarefa' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(message)
+    expect(screen.getByRole('button', { name: 'Salvar tarefa' })).toBeDisabled()
+    expect(fetchMock.getTaskPostRequests()).toBe(1)
+    fireEvent.click(screen.getByRole('button', { name: 'Planejamento semanal' }))
+    expect(screen.queryByRole('button', { name: 'Confirmar planejamento' })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Demandas acadêmicas' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Consultar tarefas antes de tentar novamente' }))
+    expect(await screen.findByText(/Consulta concluída\. Revise a lista/)).toBeInTheDocument()
+    expect(fetchMock.getTaskPostRequests()).toBe(1)
+  })
+
+
   it('não confunde POST 201 com falha quando a consulta posterior falha', async () => {
     const fetchMock = setupFetch({
       taskResponseQueues: { 1: [null, { status: 503, data: { detail: 'Falha ao atualizar a lista.' } }] },
@@ -644,7 +672,8 @@ describe('Tarefas de demandas', () => {
     expect(fetchMock.getTaskPutRequests()).toBe(1)
     fireEvent.click(screen.getByRole('button', { name: 'Consultar tarefas antes de tentar novamente' }))
     await waitFor(() => expect(fetchMock.getTaskRequests(1)).toBe(2))
-    expect(screen.getByRole('button', { name: 'Salvar tarefa' })).toBeEnabled()
+    // Após reconciliação, o formulário de edição é fechado e a lista mostra o estado reconciliado
+    expect(screen.queryByRole('button', { name: 'Salvar tarefa' })).not.toBeInTheDocument()
     expect(fetchMock.getTaskPutRequests()).toBe(1)
   })
 
@@ -663,6 +692,32 @@ describe('Tarefas de demandas', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Salvar tarefa' }))
 
     expect(await screen.findByRole('alert')).toHaveTextContent('Não foi possível confirmar se a tarefa foi atualizada')
+    expect(screen.getByRole('button', { name: 'Salvar tarefa' })).toBeDisabled()
+    expect(fetchMock.getTaskPutRequests()).toBe(1)
+    fireEvent.click(screen.getByRole('button', { name: 'Consultar tarefas antes de tentar novamente' }))
+    await waitFor(() => expect(fetchMock.getTaskRequests(1)).toBe(2))
+    expect(fetchMock.getTaskPutRequests()).toBe(1)
+  })
+
+
+  it.each([
+    [408, 'Não foi possível confirmar se a tarefa foi atualizada. Consulte a lista antes de decidir se tentará novamente.'],
+    [429, 'Não foi possível confirmar se a tarefa foi atualizada. Consulte a lista antes de decidir se tentará novamente.'],
+  ])('trata HTTP %i na edição de tarefa como resultado incerto', async (status, message) => {
+    const task = { id: 7, demandaAcademicaId: 1, titulo: 'Tarefa atual', descricao: null, ordem: 0, esforcoEstimadoMinutos: null, situacao: 0 }
+    const fetchMock = setupFetch({
+      tasksByDemand: { 1: [task] },
+      taskUpdateResponse: { status, data: { detail: 'Falha temporária ao atualizar.' } },
+    })
+    renderApp()
+    fireEvent.click(screen.getByRole('button', { name: 'Demandas acadêmicas' }))
+    await screen.findByText('Demanda gerenciada ativa')
+    fireEvent.click(screen.getByRole('button', { name: 'Ver tarefas de Demanda gerenciada ativa' }))
+    await screen.findByRole('heading', { name: 'Tarefa atual', level: 4 })
+    fireEvent.click(screen.getByRole('button', { name: 'Editar tarefa' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Salvar tarefa' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(message)
     expect(screen.getByRole('button', { name: 'Salvar tarefa' })).toBeDisabled()
     expect(fetchMock.getTaskPutRequests()).toBe(1)
     fireEvent.click(screen.getByRole('button', { name: 'Consultar tarefas antes de tentar novamente' }))
