@@ -1,5 +1,5 @@
-﻿import { describe, expect, it } from 'vitest'
-import { fireEvent, screen, within } from '@testing-library/react'
+import { describe, expect, it } from 'vitest'
+import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { renderApp } from './helpers/renderApp.jsx'
 import { setupFetch, getCurrentMondayIso, toIsoDate } from './helpers/fetchMocks.js'
 
@@ -163,15 +163,18 @@ describe('Disponibilidades de estudo', () => {
     const submitAvailabilityButton = screen.getByRole('button', { name: 'Salvar horário' })
     submitAvailabilityButton.disabled = false
     fireEvent.click(submitAvailabilityButton)
+
+    // Aguarda o erro ser renderizado
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Aguarde a operação em andamento antes de cadastrar uma disponibilidade.',
+    )
+    expect(fetchMock.getAvailabilityPostRequests()).toBe(0)
+    expect(fetchMock.getConfirmationPostRequests()).toBe(1)
+
     const toggleAvailabilityForm = screen.getByRole('button', { name: 'Fechar formulário' })
     toggleAvailabilityForm.disabled = false
     fireEvent.click(toggleAvailabilityForm)
     expect(screen.getByRole('heading', { name: 'Novo horário de estudo' })).toBeInTheDocument()
-    expect(fetchMock.getAvailabilityPostRequests()).toBe(0)
-    expect(fetchMock.getConfirmationPostRequests()).toBe(1)
-    expect(await screen.findByRole('alert')).toHaveTextContent(
-      'Aguarde a confirmação do planejamento antes de cadastrar uma disponibilidade.',
-    )
 
     releaseConfirmation()
 
@@ -246,7 +249,9 @@ describe('Disponibilidades de estudo', () => {
   it.each([
     [409, 'Já existe uma disponibilidade sobreposta.'],
     [400, 'A data informada é inválida.'],
-    [500, 'Falha temporária ao salvar o horário.'],
+    [408, 'Não foi possível confirmar se a disponibilidade foi cadastrada. Consulte a lista antes de decidir se tentará novamente.'],
+    [429, 'Não foi possível confirmar se a disponibilidade foi cadastrada. Consulte a lista antes de decidir se tentará novamente.'],
+    [500, 'Não foi possível confirmar se a disponibilidade foi cadastrada. Consulte a lista antes de decidir se tentará novamente.'],
   ])('preserva os campos e informa erro HTTP %i ao cadastrar disponibilidade', async (status, detail) => {
     setupFetch({ availabilityPostResponse: { status, data: { detail } } })
     renderApp()
@@ -308,4 +313,255 @@ describe('Disponibilidades de estudo', () => {
   })
 
 
+  describe('Reconciliação de resultado incerto (HTTP 500)', () => {
+    it('aguarda a conclusão do GET de reconciliação antes de fechar o formulário', async () => {
+      let resolveReconcileGet
+      const reconcileGetGate = new Promise((resolve) => { resolveReconcileGet = resolve })
+      const fetchMock = setupFetch({
+        availabilityPostResponse: { status: 500, data: { detail: 'Falha temporária.' } },
+        availabilityFailures: 0,
+        availabilityGetGate: reconcileGetGate,
+      })
+      renderApp()
+
+      fireEvent.click(screen.getByRole('button', { name: 'Novo horário' }))
+      fireEvent.change(screen.getByLabelText('Data'), { target: { value: getCurrentMondayIso() } })
+      fireEvent.change(screen.getByLabelText('Horário inicial'), { target: { value: '10:00' } })
+      fireEvent.change(screen.getByLabelText('Horário final'), { target: { value: '12:00' } })
+      fireEvent.click(screen.getByRole('button', { name: 'Salvar horário' }))
+
+      // Verifica estado de resultado incerto
+      expect(await screen.findByRole('alert')).toHaveTextContent('Não foi possível confirmar se a disponibilidade foi cadastrada')
+      expect(screen.getByRole('heading', { name: 'Novo horário de estudo' })).toBeInTheDocument()
+
+      // Clica em reconciliar
+      fireEvent.click(screen.getByRole('button', { name: 'Consultar horários antes de tentar novamente' }))
+
+      // Verifica que formulário permanece aberto enquanto GET pendente
+      expect(screen.getByRole('heading', { name: 'Novo horário de estudo' })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Consultando horários…' })).toBeInTheDocument()
+
+      // Libera o GET com dados (a lista original tem 09:00–11:00)
+      resolveReconcileGet()
+
+      // Verifica que formulário fecha e lista atualizada aparece (com o horário original 09:00–11:00)
+      expect(await screen.findByText('09:00–11:00')).toBeInTheDocument()
+      expect(screen.queryByRole('heading', { name: 'Novo horário de estudo' })).not.toBeInTheDocument()
+      expect(fetchMock.getAvailabilityPostRequests()).toBe(1)
+    })
+
+
+    it('mantém formulário aberto e mostra erro quando reconciliação falha', async () => {
+      const reconcileGetError = new TypeError('Failed to fetch')
+      const fetchMock = setupFetch({
+        availabilityPostResponse: { status: 500, data: { detail: 'Falha temporária.' } },
+        availabilityGetGate: Promise.reject(reconcileGetError),
+      })
+      renderApp()
+
+      fireEvent.click(screen.getByRole('button', { name: 'Novo horário' }))
+      fireEvent.change(screen.getByLabelText('Data'), { target: { value: getCurrentMondayIso() } })
+      fireEvent.change(screen.getByLabelText('Horário inicial'), { target: { value: '10:00' } })
+      fireEvent.change(screen.getByLabelText('Horário final'), { target: { value: '12:00' } })
+      fireEvent.click(screen.getByRole('button', { name: 'Salvar horário' }))
+
+      // Primeiro erro: resultado incerto no POST
+      expect(await screen.findByText((content) => content.includes('Não foi possível confirmar se a disponibilidade foi cadastrada'))).toBeInTheDocument()
+
+      // Tenta reconciliar
+      fireEvent.click(screen.getByRole('button', { name: 'Consultar horários antes de tentar novamente' }))
+
+      // Verifica que formulário permanece aberto com mensagem de erro da reconciliação (form-error)
+      // O erro é definido assincronamente após o onReconcile falhar
+      // Primeiro verifica se existe algum alerta com o texto esperado
+      const alerts = await screen.findAllByRole('alert')
+      const formError = alerts.find(a => a.textContent.includes('Failed to fetch'))
+      expect(formError).toBeDefined()
+      expect(screen.getByRole('heading', { name: 'Novo horário de estudo' })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Consultar horários antes de tentar novamente' })).toBeInTheDocument()
+      expect(fetchMock.getAvailabilityPostRequests()).toBe(1)
+
+      // Botão permanece habilitado para nova tentativa de reconciliação
+      expect(screen.getByRole('button', { name: 'Consultar horários antes de tentar novamente' })).not.toBeDisabled()
+    })
+
+    it('impede fechar formulário e trocar de semana enquanto resultado incerto', async () => {
+      const fetchMock = setupFetch({
+        availabilityPostResponse: { status: 500, data: { detail: 'Falha temporária.' } },
+      })
+      renderApp()
+
+      fireEvent.click(screen.getByRole('button', { name: 'Novo horário' }))
+      fireEvent.change(screen.getByLabelText('Data'), { target: { value: getCurrentMondayIso() } })
+      fireEvent.change(screen.getByLabelText('Horário inicial'), { target: { value: '10:00' } })
+      fireEvent.change(screen.getByLabelText('Horário final'), { target: { value: '12:00' } })
+      fireEvent.click(screen.getByRole('button', { name: 'Salvar horário' }))
+
+      expect(await screen.findByRole('alert')).toHaveTextContent('Não foi possível confirmar se a disponibilidade foi cadastrada')
+
+      // Tenta fechar pelo botão Cancelar - deve estar desabilitado
+      const cancelButton = screen.getByRole('button', { name: 'Cancelar' })
+      expect(cancelButton).toBeDisabled()
+
+      // Tenta trocar de semana - deve estar desabilitado
+      const nextWeekButton = screen.getByRole('button', { name: 'Próxima semana' })
+      expect(nextWeekButton).toBeDisabled()
+
+      const prevWeekButton = screen.getByRole('button', { name: 'Semana anterior' })
+      expect(prevWeekButton).toBeDisabled()
+
+      const currentWeekButton = screen.getByRole('button', { name: 'Semana atual' })
+      expect(currentWeekButton).toBeDisabled()
+
+      // Botão atualizar dados também desabilitado
+      const refreshButton = screen.getByRole('button', { name: 'Atualizar dados' })
+      expect(refreshButton).toBeDisabled()
+
+      // Botão nova demanda também desabilitado
+      const newDemandButton = screen.getByRole('button', { name: 'Nova demanda' })
+      expect(newDemandButton).toBeDisabled()
+
+      // POST não deve ser reenviado
+      expect(fetchMock.getAvailabilityPostRequests()).toBe(1)
+    })
+
+
+    it('não reenvia POST automaticamente após reconciliação bem-sucedida', async () => {
+      let resolveReconcileGet
+      const reconcileGetGate = new Promise((resolve) => { resolveReconcileGet = resolve })
+      const fetchMock = setupFetch({
+        availabilityPostResponse: { status: 500, data: { detail: 'Falha temporária.' } },
+        availabilityFailures: 0,
+        availabilityGetGate: reconcileGetGate,
+      })
+      renderApp()
+
+      fireEvent.click(screen.getByRole('button', { name: 'Novo horário' }))
+      fireEvent.change(screen.getByLabelText('Data'), { target: { value: getCurrentMondayIso() } })
+      fireEvent.change(screen.getByLabelText('Horário inicial'), { target: { value: '10:00' } })
+      fireEvent.change(screen.getByLabelText('Horário final'), { target: { value: '12:00' } })
+      fireEvent.click(screen.getByRole('button', { name: 'Salvar horário' }))
+
+      expect(await screen.findByRole('alert')).toHaveTextContent('Não foi possível confirmar se a disponibilidade foi cadastrada')
+      expect(fetchMock.getAvailabilityPostRequests()).toBe(1)
+
+      // Aciona reconciliação
+      fireEvent.click(screen.getByRole('button', { name: 'Consultar horários antes de tentar novamente' }))
+
+      // Formulário deve permanecer aberto enquanto GET pendente
+      expect(screen.getByRole('heading', { name: 'Novo horário de estudo' })).toBeInTheDocument()
+
+      // Libera GET
+      resolveReconcileGet()
+
+      // Aguarda reconciliação completar e formulário fechar
+      expect(await screen.findByText('09:00–11:00')).toBeInTheDocument()
+      expect(screen.queryByRole('heading', { name: 'Novo horário de estudo' })).not.toBeInTheDocument()
+
+      // POST não foi reenviado
+      expect(fetchMock.getAvailabilityPostRequests()).toBe(1)
+
+      // Estado incerto global deve ter sido liberado - botões habilitados
+      const nextWeekButton = screen.getByRole('button', { name: 'Próxima semana' })
+      expect(nextWeekButton).toBeEnabled()
+      const newDemandButton = screen.getByRole('button', { name: 'Nova demanda' })
+      expect(newDemandButton).toBeEnabled()
+    })
+
+
+    it('não considera bloqueio por lock como reconciliação bem-sucedida', async () => {
+      let releaseConfirmation
+      const confirmationGate = new Promise((resolve) => { releaseConfirmation = resolve })
+      setupFetch({ confirmationGate })
+      renderApp()
+
+      fireEvent.click(screen.getByRole('button', { name: /Gerar pr/ }))
+      expect(await screen.findByText('Revisar anatomia')).toBeInTheDocument()
+
+      // Abre formulário de disponibilidade ANTES de iniciar a confirmação
+      fireEvent.click(screen.getByRole('button', { name: 'Novo horário' }))
+      fireEvent.change(screen.getByLabelText('Data'), { target: { value: getCurrentMondayIso() } })
+      fireEvent.change(screen.getByLabelText('Horário inicial'), { target: { value: '10:00' } })
+      fireEvent.change(screen.getByLabelText('Horário final'), { target: { value: '12:00' } })
+
+      // Inicia confirmação para criar o lock
+      fireEvent.click(screen.getByRole('button', { name: 'Confirmar planejamento' }))
+      expect(await screen.findByRole('button', { name: 'Confirmando…' })).toBeDisabled()
+
+      const submitAvailabilityButton = screen.getByRole('button', { name: 'Salvar horário' })
+      submitAvailabilityButton.disabled = false
+      fireEvent.click(submitAvailabilityButton)
+
+      // POST resulta em erro de concorrência (lock ativo)
+      expect(await screen.findByRole('alert')).toHaveTextContent('Aguarde a operação em andamento antes de cadastrar uma disponibilidade.')
+
+      // Formulário deve permanecer aberto (não fechou)
+      expect(screen.getByRole('heading', { name: 'Novo horário de estudo' })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Salvar horário' })).toBeInTheDocument()
+
+      // O botão de reconciliação NÃO aparece para erros de lock local
+      // pois outcomeUnknown não é definido para erros de concorrência local
+      expect(screen.queryByRole('button', { name: 'Consultar horários antes de tentar novamente' })).not.toBeInTheDocument()
+
+      releaseConfirmation()
+    })
+
+
+    it('bloqueia reconciliação quando criação de demanda está em andamento', async () => {
+      // Configurar mock para permitir controlar tanto o POST de disponibilidade quanto o de demanda
+      let releaseDemandCreate
+      const demandCreateGate = new Promise((resolve) => { releaseDemandCreate = resolve })
+      const fetchMock = setupFetch({
+        availabilityPostResponse: { status: 500, data: { detail: 'Falha temporária.' } },
+        createGate: demandCreateGate,
+      })
+      renderApp()
+
+      // 1. Iniciar criação de demanda (lock ativo)
+      fireEvent.click(screen.getByRole('button', { name: 'Nova demanda' }))
+      fireEvent.change(screen.getByLabelText('Título'), { target: { value: 'Demanda concorrente' } })
+      fireEvent.change(screen.getByLabelText('Tipo'), { target: { value: '0' } })
+      fireEvent.change(screen.getByLabelText('Importância'), { target: { value: '2' } })
+      fireEvent.click(screen.getByRole('button', { name: 'Salvar demanda' }))
+
+      // A criação de demanda está pendente (lock ativo)
+      expect(screen.getByRole('button', { name: 'Salvando...' })).toBeInTheDocument()
+
+      // 2. Tentar criar disponibilidade enquanto demanda sendo criada
+      fireEvent.click(screen.getByRole('button', { name: 'Novo horário' }))
+      fireEvent.change(screen.getByLabelText('Data'), { target: { value: getCurrentMondayIso() } })
+      fireEvent.change(screen.getByLabelText('Horário inicial'), { target: { value: '10:00' } })
+      fireEvent.change(screen.getByLabelText('Horário final'), { target: { value: '12:00' } })
+      fireEvent.click(screen.getByRole('button', { name: 'Salvar horário' }))
+
+      // POST de disponibilidade deve falhar com erro de lock
+      expect(await screen.findByRole('alert')).toHaveTextContent('Aguarde a operação em andamento antes de cadastrar uma disponibilidade.')
+
+      // Formulário de disponibilidade permanece aberto
+      expect(screen.getByRole('heading', { name: 'Novo horário de estudo' })).toBeInTheDocument()
+
+      // 3. Liberar o lock de demanda
+      releaseDemandCreate()
+      await screen.findByRole('alert')
+
+      // Fechar formulário de demanda se ainda aberto
+      const closeDemandButton = screen.queryByRole('button', { name: 'Cancelar' })
+      if (closeDemandButton && !closeDemandButton.disabled) {
+        fireEvent.click(closeDemandButton)
+      }
+
+      // 4. Criar disponibilidade com erro 500 -> outcomeUnknown
+      fireEvent.click(screen.getByRole('button', { name: 'Novo horário' }))
+      fireEvent.change(screen.getByLabelText('Data'), { target: { value: getCurrentMondayIso() } })
+      fireEvent.change(screen.getByLabelText('Horário inicial'), { target: { value: '10:00' } })
+      fireEvent.change(screen.getByLabelText('Horário final'), { target: { value: '12:00' } })
+      fireEvent.click(screen.getByRole('button', { name: 'Salvar horário' }))
+
+      // POST de disponibilidade resulta em erro 500 -> outcomeUnknown
+      expect(await screen.findByRole('alert')).toHaveTextContent('Não foi possível confirmar se a disponibilidade foi cadastrada')
+
+      // 5. Verificar que o POST não foi reenviado
+      expect(fetchMock.getAvailabilityPostRequests()).toBe(1)
+    })
+  })
 })

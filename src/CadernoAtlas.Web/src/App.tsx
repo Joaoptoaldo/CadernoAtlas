@@ -7,6 +7,7 @@ import StatusMessage from './components/ui/StatusMessage'
 import {
   apiGet,
   apiPost,
+  isHttpError,
 } from './apiClient'
 
 import CreateDemandForm from './features/demands/CreateDemandForm'
@@ -36,6 +37,11 @@ function getErrorMessage(error: unknown, fallback: string): string {
   return error instanceof Error && error.message ? error.message : fallback
 }
 
+function shouldInvalidatePreviewOnError(error: unknown): boolean {
+  if (!isHttpError(error)) return true
+  return error.status === 404 || error.status === 408 || error.status === 409 || error.status === 429 || error.status >= 500
+}
+
 function loadDemandTasks(demandId: number, signal: AbortSignal): Promise<DemandTask[]> {
   return apiGet<DemandTask[]>(`/api/demandas-academicas/${demandId}/tarefas`, signal)
 }
@@ -62,6 +68,7 @@ function App() {
   const [availabilityReloadToken, setAvailabilityReloadToken] = useState(0)
   const [isDemandFormOpen, setIsDemandFormOpen] = useState(false)
   const [isCreatingAvailability, setIsCreatingAvailability] = useState(false)
+  const [availabilityOutcomeUnknown, setAvailabilityOutcomeUnknown] = useState(false)
 
   // Week navigation state is owned by App and shared with the navigation hook.
   // Keeping one source of truth ensures the panels and API query use the same week.
@@ -102,6 +109,7 @@ function App() {
   const {
     changeWeek,
     selectCurrentWeek,
+    refreshAvailabilityNow,
   } = useWeekNavigation({
     monday,
     setMonday,
@@ -179,24 +187,25 @@ function App() {
     setAllDemandsReloadToken((value) => value + 1)
   }
 
-  function refreshAvailability(): void {
-    if (concurrencyLocks.confirmationInProgressRef.current || concurrencyLocks.demandUpdateInProgressRef.current || concurrencyLocks.taskMutationInProgressRef.current) return
-
-    clearPreview()
-    setAvailabilityState((previous) => ({
-      ...previous,
-      status: 'loading',
-      error: null,
-    }))
-    setAvailabilityReloadToken((value) => value + 1)
+  async function refreshAvailability(): Promise<void> {
+    try {
+      await refreshAvailabilityNow()
+    } catch (error) {
+      // Se for erro de lock, re-throw para o formulário tratar
+      // Evita rejection não tratado se for erro de lock já esperado
+      if (error instanceof Error && error.message.includes('em andamento')) {
+        return
+      }
+      throw error
+    }
   }
 
   async function createAvailability(request: CreateAvailabilityRequest): Promise<void> {
     if (concurrencyLocks.availabilityCreationInProgressRef.current) {
       throw new Error('Já existe um cadastro de disponibilidade em andamento.')
     }
-    if (concurrencyLocks.confirmationInProgressRef.current || concurrencyLocks.demandUpdateInProgressRef.current || concurrencyLocks.taskMutationInProgressRef.current) {
-      throw new Error('Aguarde a confirmação do planejamento antes de cadastrar uma disponibilidade.')
+    if (concurrencyLocks.confirmationInProgressRef.current || concurrencyLocks.demandUpdateInProgressRef.current || concurrencyLocks.demandCreationInProgressRef.current || concurrencyLocks.taskMutationInProgressRef.current) {
+      throw new Error('Aguarde a operação em andamento antes de cadastrar uma disponibilidade.')
     }
 
     concurrencyLocks.setAvailabilityCreationInProgress(true)
@@ -210,6 +219,16 @@ function App() {
       clearPreview()
       setAvailabilityState((previous) => ({ ...previous, status: 'loading', error: null }))
       setAvailabilityReloadToken((value) => value + 1)
+      setAvailabilityOutcomeUnknown(false)
+    } catch (error: unknown) {
+      if (shouldInvalidatePreviewOnError(error)) {
+        invalidatePreview()
+      }
+      // Classificar erros 408, 429, 5xx, rede como outcomeUnknown
+      if (!isHttpError(error) || error.status === 408 || error.status === 429 || error.status >= 500) {
+        setAvailabilityOutcomeUnknown(true)
+      }
+      throw error
     } finally {
       concurrencyLocks.setAvailabilityCreationInProgress(false)
       setIsCreatingAvailability(false)
@@ -223,7 +242,7 @@ function App() {
     setAvailabilityReloadToken((value) => value + 1)
   }
 
-  const isTaskMutationInProgress = isCreatingTask || isUpdatingTask
+  const isTaskMutationInProgress = isCreatingTask || isUpdatingTask || isDeletingTask
 
   return (
     <div className="app-shell">
@@ -269,7 +288,7 @@ function App() {
               <p className="page-subtitle">Organize suas demandas em uma semana possível.</p>
             </div>
             <div className="page-heading-actions">
-              <button className="button button-secondary refresh-button" onClick={refreshAll} disabled={isCreatingDemand || isConfirming || isCreatingAvailability || isUpdatingDemand || isTaskMutationInProgress}>
+              <button className="button button-secondary refresh-button" onClick={refreshAll} disabled={isCreatingDemand || isConfirming || isCreatingAvailability || isUpdatingDemand || isTaskMutationInProgress || availabilityOutcomeUnknown}>
                 <Icon name="refresh" size={16} />
                 <span>Atualizar dados</span>
               </button>
@@ -289,11 +308,11 @@ function App() {
               </div>
             </div>
             <div className="week-controls">
-              <button className="icon-button" disabled={isConfirming || isCreatingAvailability || isUpdatingDemand || isTaskMutationInProgress} onClick={() => changeWeek(-7)} aria-label="Semana anterior" title="Semana anterior">
+              <button className="icon-button" disabled={isConfirming || isCreatingAvailability || isUpdatingDemand || isTaskMutationInProgress || availabilityOutcomeUnknown} onClick={() => changeWeek(-7)} aria-label="Semana anterior" title="Semana anterior">
                 <Icon name="chevronLeft" size={18} />
               </button>
-              <button className="button button-week" disabled={isConfirming || isCreatingAvailability || isUpdatingDemand || isTaskMutationInProgress} onClick={selectCurrentWeek}>Semana atual</button>
-              <button className="icon-button" disabled={isConfirming || isCreatingAvailability || isUpdatingDemand || isTaskMutationInProgress} onClick={() => changeWeek(7)} aria-label="Próxima semana" title="Próxima semana">
+              <button className="button button-week" disabled={isConfirming || isCreatingAvailability || isUpdatingDemand || isTaskMutationInProgress || availabilityOutcomeUnknown} onClick={selectCurrentWeek}>Semana atual</button>
+              <button className="icon-button" disabled={isConfirming || isCreatingAvailability || isUpdatingDemand || isTaskMutationInProgress || availabilityOutcomeUnknown} onClick={() => changeWeek(7)} aria-label="Próxima semana" title="Próxima semana">
                 <Icon name="chevronRight" size={18} />
               </button>
             </div>
@@ -332,7 +351,7 @@ function App() {
                     type="button"
                     aria-expanded={isDemandFormOpen}
                     aria-controls={isDemandFormOpen ? 'create-demand-form' : undefined}
-                    disabled={isUpdatingDemand || isTaskMutationInProgress}
+                    disabled={isUpdatingDemand || isTaskMutationInProgress || availabilityOutcomeUnknown}
                     onClick={() => setIsDemandFormOpen(true)}
                   >
                     Nova demanda
@@ -382,7 +401,7 @@ function App() {
             </section>
 
               <div className="right-column">
-                <AvailabilityPanel state={availabilityState} monday={monday} onRetry={refreshAvailability} todayIso={todayIso} onCreate={createAvailability} isCreating={isCreatingAvailability} isConfirming={isConfirming} isUpdatingDemand={isUpdatingDemand} isCreatingTask={isCreatingTask} isUpdatingTask={isUpdatingTask || isDeletingTask} />
+                <AvailabilityPanel state={availabilityState} monday={monday} onRetry={refreshAvailability} todayIso={todayIso} onCreate={createAvailability} onReconcile={refreshAvailability} isCreating={isCreatingAvailability} isConfirming={isConfirming} isUpdatingDemand={isUpdatingDemand} isCreatingTask={isCreatingTask} isUpdatingTask={isUpdatingTask} isDeletingTask={isDeletingTask} outcomeUnknown={availabilityOutcomeUnknown} onOutcomeUnknownChange={setAvailabilityOutcomeUnknown} />
 
                 <PlanningPreview
                   previewState={previewState}
@@ -392,7 +411,8 @@ function App() {
                   isCreatingAvailability={isCreatingAvailability}
                   isUpdatingDemand={isUpdatingDemand}
                   isCreatingTask={isCreatingTask}
-                  isUpdatingTask={isUpdatingTask || isDeletingTask}
+                  isUpdatingTask={isUpdatingTask}
+                  isDeletingTask={isDeletingTask}
                   clearPreview={clearPreview}
                   confirmPreview={confirmPreview}
                   generatePreview={generatePreview}

@@ -118,7 +118,7 @@ export function usePlanningWorkflow(options: UsePlanningWorkflowOptions): UsePla
       onRefreshAllDataOnly()
     } catch (error: unknown) {
       const isConflict = isHttpError(error) && error.status === 409
-      const outcomeUnknown = !isHttpError(error) || error.status >= 500
+      const outcomeUnknown = !isHttpError(error) || error.status === 408 || error.status === 429 || error.status >= 500
 
       if (isConflict) {
         setPreviewState({

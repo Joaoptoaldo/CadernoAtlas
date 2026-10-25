@@ -103,6 +103,8 @@ export function setupFetch({
     },
   },
   availabilityCreateGate,
+  availabilityGetGate,
+  availabilityGetError,
   tasksByDemand = {},
   taskResponses = {},
   taskResponseQueues = {},
@@ -149,7 +151,8 @@ export function setupFetch({
   let remainingDemandFailures = demandFailures
   let remainingAllDemandFailures = allDemandFailures
   let remainingUpdateFailures = updateFailures
-  let remainingAvailabilityFailures = availabilityFailures
+  let remainingAvailabilityGetFailures = availabilityFailures
+  let remainingAvailabilityGetError = availabilityGetError
   let currentDemands = demands
   let currentAllDemands = allDemands
   let createdDemand = false
@@ -211,12 +214,20 @@ export function setupFetch({
 
     if (path.startsWith('/api/disponibilidades-estudo?')) {
       availabilityRequests += 1
-      if (remainingAvailabilityFailures > 0) {
-        remainingAvailabilityFailures -= 1
+      if (remainingAvailabilityGetFailures > 0) {
+        remainingAvailabilityGetFailures -= 1
         return jsonResponse(
           { detail: 'Falha temporária ao carregar horários' },
           503,
         )
+      }
+      if (availabilityGetGate) {
+        await availabilityGetGate
+      }
+      if (remainingAvailabilityGetError) {
+        const errorToThrow = remainingAvailabilityGetError
+        remainingAvailabilityGetError = null
+        throw errorToThrow
       }
       return jsonResponse(currentAvailability)
     }

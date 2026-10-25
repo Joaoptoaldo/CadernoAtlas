@@ -500,6 +500,75 @@ describe('Planejamento semanal e acessibilidade', () => {
   })
 
 
+  it.each([
+    [408, 'Não foi possível verificar se o planejamento foi salvo. Gere uma nova prévia antes de confirmar novamente.'],
+    [429, 'Não foi possível verificar se o planejamento foi salvo. Gere uma nova prévia antes de confirmar novamente.'],
+  ])('exige uma nova prévia quando a confirmação retorna HTTP %i', async (status, message) => {
+    const fetchMock = setupFetch({
+      postResponse: {
+        status,
+        data: {
+          detail: 'Falha temporária ao salvar o planejamento.',
+        },
+      },
+    })
+
+    renderApp()
+
+    fireEvent.click(
+      screen.getByRole('button', { name: /Gerar pr/ }),
+    )
+
+    expect(
+      await screen.findByText('Revisar anatomia'),
+    ).toBeInTheDocument()
+
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Confirmar planejamento' }),
+    )
+
+    const alert = await screen.findByRole('alert')
+
+    expect(alert).toHaveTextContent(message)
+
+    expect(
+      screen.queryByRole('button', { name: 'Confirmar planejamento' }),
+    ).not.toBeInTheDocument()
+
+    expect(
+      screen.getByRole('button', { name: 'Tentar novamente' }),
+    ).toBeInTheDocument()
+
+    expect(
+      screen.queryByText('Planejamento confirmado'),
+    ).not.toBeInTheDocument()
+
+    const confirmationRequests = () =>
+      fetchMock.mock.calls.filter(
+        ([url, options]) =>
+          String(url) === '/api/planejamento-semanal/confirmar' &&
+          options?.method === 'POST',
+      )
+
+    expect(confirmationRequests()).toHaveLength(1)
+
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Tentar novamente' }),
+    )
+
+    expect(
+      await screen.findByText('Revisar anatomia'),
+    ).toBeInTheDocument()
+
+    const previewRequests = fetchMock.mock.calls.filter(([url]) =>
+      String(url).startsWith('/api/planejamento-semanal/previa?'),
+    )
+
+    expect(previewRequests).toHaveLength(2)
+    expect(confirmationRequests()).toHaveLength(1)
+  })
+
+
   it('impede confirmação duplicada enquanto a requisição está pendente', async () => {
     let releaseConfirmation
     const confirmationGate = new Promise((resolve) => {
