@@ -184,14 +184,18 @@ describe('Demandas acadêmicas', () => {
     fireEvent.change(screen.getByLabelText('Título'), { target: { value: 'Título mantido após erro' } })
     fireEvent.click(screen.getByRole('button', { name: 'Salvar alterações' }))
 
-    expect(await screen.findByRole('alert')).toHaveTextContent('Falha temporária ao salvar a demanda.')
+    expect(await screen.findByRole('alert')).toHaveTextContent('Não foi possível confirmar se a demanda foi atualizada. Consulte a lista antes de decidir se tentará novamente.')
     expect(screen.getByLabelText('Título')).toHaveValue('Título mantido após erro')
-    expect(screen.getByRole('button', { name: 'Salvar alterações' })).toBeEnabled()
+    // Botão de reconciliação deve estar presente
+    expect(screen.getByRole('button', { name: 'Consultar demandas antes de tentar novamente' })).toBeInTheDocument()
+    // Botão de salvar deve estar desabilitado até reconciliação
+    expect(screen.getByRole('button', { name: 'Salvar alterações' })).toBeDisabled()
     expect(fetchMock.getDemandPutRequests()).toBe(1)
 
-    fireEvent.click(screen.getByRole('button', { name: 'Salvar alterações' }))
-    expect(await managementPanel.findByText('Título mantido após erro')).toBeInTheDocument()
-    expect(fetchMock.getDemandPutRequests()).toBe(2)
+    // Após reconciliação bem-sucedida, o formulário deve fechar
+    fireEvent.click(screen.getByRole('button', { name: 'Consultar demandas antes de tentar novamente' }))
+    await managementPanel.findByText('Demanda gerenciada ativa')
+    expect(fetchMock.getDemandPutRequests()).toBe(1)
   })
 
 
@@ -471,6 +475,5 @@ describe('Demandas acadêmicas', () => {
     releaseCreate()
     expect(await screen.findByRole('heading', { name: 'Trabalho de Fisiologia' })).toBeInTheDocument()
   })
-
-
+  
 })

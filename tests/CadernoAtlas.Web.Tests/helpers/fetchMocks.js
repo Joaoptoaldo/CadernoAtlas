@@ -147,9 +147,13 @@ export function setupFetch({
   },
   confirmationGate,
   previewOverrides = {},
+  allDemandGate,
+  allDemandReconcileGate,
+  allDemandReconcileFailures = 0,
 } = {}) {
   let remainingDemandFailures = demandFailures
   let remainingAllDemandFailures = allDemandFailures
+  let remainingAllDemandReconcileFailures = allDemandReconcileFailures
   let remainingUpdateFailures = updateFailures
   let remainingAvailabilityGetFailures = availabilityFailures
   let remainingAvailabilityGetError = availabilityGetError
@@ -187,8 +191,20 @@ export function setupFetch({
 
     if (path === '/api/demandas-academicas' && (init.method === 'GET' || !init.method)) {
       allDemandRequests += 1
-      if (remainingAllDemandFailures > 0) {
+      // Wait for reconcile gate on subsequent calls (reconciliation), not initial load
+      if (allDemandReconcileGate && allDemandRequests > 1) {
+        await allDemandReconcileGate
+      }
+      // Apply failures for initial load
+      if (remainingAllDemandFailures > 0 && allDemandRequests === 1) {
         remainingAllDemandFailures -= 1
+        return jsonResponse({ detail: 'Falha temporária na lista completa.' }, 503)
+      }
+      // Apply failures for reconciliation calls
+      // Fail on first request if reconcile failures configured without gate (test doesn't load demands tab first)
+      // Or on subsequent requests when gate is used
+      if (remainingAllDemandReconcileFailures > 0 && (allDemandRequests > 1 || !allDemandReconcileGate)) {
+        remainingAllDemandReconcileFailures -= 1
         return jsonResponse({ detail: 'Falha temporária na lista completa.' }, 503)
       }
       return jsonResponse(currentAllDemands)
@@ -367,6 +383,10 @@ export function setupFetch({
     if (path === '/api/demandas-academicas' && init.method === 'POST') {
       demandPostRequests += 1
       if (createGate) await createGate
+      // Se createResponse tem um error (Error object), lançar para simular falha de rede
+      if (createResponse && createResponse.error instanceof Error) {
+        throw createResponse.error
+      }
       if (createResponse.status >= 200 && createResponse.status < 300) {
         createdDemand = true
       }
@@ -376,6 +396,10 @@ export function setupFetch({
     if (path.startsWith('/api/demandas-academicas/') && init.method === 'PUT') {
       demandPutRequests += 1
       if (updateGate) await updateGate
+      // Se updateResponse tem um error (Error object), lançar para simular falha de rede
+      if (updateResponse && updateResponse.error instanceof Error) {
+        throw updateResponse.error
+      }
       if (remainingUpdateFailures > 0) {
         remainingUpdateFailures -= 1
         return jsonResponse(updateFailureResponse.data, updateFailureResponse.status)
