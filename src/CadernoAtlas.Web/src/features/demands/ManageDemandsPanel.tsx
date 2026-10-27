@@ -1,4 +1,4 @@
-import { useMemo, useState, type FormEvent } from 'react'
+import { useMemo, useRef, useState, type FormEvent } from 'react'
 import StatusMessage from '../../components/ui/StatusMessage'
 import ManageDemandTasks, { type DemandTask, type UpdateDemandTaskRequest } from './ManageDemandTasks'
 import type { CreateDemandTaskRequest } from './CreateDemandTaskForm'
@@ -43,13 +43,16 @@ interface ManageDemandsPanelProps {
   isUpdatingTask: boolean
   isDeletingTask: boolean
   onDeleteTask: (demandId: number, taskId: number) => Promise<void>
+  onReconcileDemands: () => Promise<void>
+  demandOutcomeUnknown: boolean
+  onDemandOutcomeUnknownChange: (value: boolean) => void
 }
 
 const typeLabels = ['Prova', 'Trabalho', 'APG', 'TCC', 'Outro']
 const importanceLabels = ['Baixa', 'Média', 'Alta']
 const statusLabels = ['Pendente', 'Em andamento', 'Concluída', 'Cancelada']
 
-export default function ManageDemandsPanel({ state, onRetry, onUpdate, onLoadTasks, onCreateTask, onUpdateTask, onDeleteTask, isUpdatingDemand, isCreatingTask, isUpdatingTask, isDeletingTask }: ManageDemandsPanelProps) {
+export default function ManageDemandsPanel({ state, onRetry, onUpdate, onLoadTasks, onCreateTask, onUpdateTask, onDeleteTask, isUpdatingDemand, isCreatingTask, isUpdatingTask, isDeletingTask, onReconcileDemands, demandOutcomeUnknown, onDemandOutcomeUnknownChange }: ManageDemandsPanelProps) {
   const taskMutationInProgress = isCreatingTask || isUpdatingTask || isDeletingTask
   const [statusFilter, setStatusFilter] = useState('')
   const [typeFilter, setTypeFilter] = useState('')
@@ -60,6 +63,11 @@ export default function ManageDemandsPanel({ state, onRetry, onUpdate, onLoadTas
   const [formError, setFormError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [expandedTaskDemandId, setExpandedTaskDemandId] = useState<number | null>(null)
+  const [outcomeUnknown, setOutcomeUnknown] = useState(demandOutcomeUnknown)
+  const [isReconciling, setIsReconciling] = useState(false)
+  const [reconciliationComplete, setReconciliationComplete] = useState(false)
+  const savingRef = useRef(false)
+  const controlsDisabled = saving || isUpdatingDemand || isReconciling
 
   const filteredDemands = useMemo(() => (state.data ?? []).filter((demand) => (
     (statusFilter === '' || demand.situacao === Number(statusFilter)) &&
@@ -67,6 +75,15 @@ export default function ManageDemandsPanel({ state, onRetry, onUpdate, onLoadTas
     (importanceFilter === '' || demand.importancia === Number(importanceFilter)) &&
     (deadlineFilter === '' || (demand.prazo !== null && demand.prazo <= deadlineFilter))
   )), [state.data, statusFilter, typeFilter, importanceFilter, deadlineFilter])
+
+  function getHttpStatus(error: unknown): number | null {
+    if (typeof error !== 'object' || error === null || !('status' in error)) return null
+    return typeof error.status === 'number' ? error.status : null
+  }
+
+  function getApiMessage(error: unknown, fallback: string): string {
+    return error instanceof Error && error.message ? error.message : fallback
+  }
 
   function beginEdit(demand: AcademicDemandRecord): void {
     setExpandedTaskDemandId(null)
@@ -81,26 +98,60 @@ export default function ManageDemandsPanel({ state, onRetry, onUpdate, onLoadTas
       situacao: demand.situacao,
     })
     setFormError(null)
+    setOutcomeUnknown(false)
+    setReconciliationComplete(false)
   }
 
   async function submitEdit(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault()
-    if (editingId === null || form === null || saving || isUpdatingDemand) return
+    if (editingId === null || form === null || savingRef.current || controlsDisabled || (outcomeUnknown && !reconciliationComplete)) return
     const payload = { ...form, titulo: form.titulo.trim(), descricao: form.descricao?.trim() || null }
     if (payload.titulo.length < 2) {
       setFormError('O título deve ter pelo menos 2 caracteres.')
       return
     }
+    savingRef.current = true
     setSaving(true)
     setFormError(null)
+    setOutcomeUnknown(false)
+    setReconciliationComplete(false)
     try {
       await onUpdate(editingId, payload)
       setEditingId(null)
       setForm(null)
+      onDemandOutcomeUnknownChange(false)
     } catch (error: unknown) {
-      setFormError(error instanceof Error ? error.message : 'Não foi possível atualizar a demanda. Tente novamente.')
+      const status = getHttpStatus(error)
+      if (status === null || status === 408 || status === 429 || status >= 500) {
+        setOutcomeUnknown(true)
+        onDemandOutcomeUnknownChange(true)
+        setFormError('Não foi possível confirmar se a demanda foi atualizada. Consulte a lista antes de decidir se tentará novamente.')
+      } else {
+        setFormError(getApiMessage(error, 'Não foi possível atualizar a demanda. Tente novamente.'))
+      }
     } finally {
+      savingRef.current = false
       setSaving(false)
+    }
+  }
+
+  async function reconcileOutcome(): Promise<void> {
+    if (isReconciling) return
+    setIsReconciling(true)
+    setFormError(null)
+    try {
+      await onReconcileDemands()
+      // Reconciliação bem-sucedida: liberar estado incerto, fechar formulário
+      setOutcomeUnknown(false)
+      setReconciliationComplete(false)
+      onDemandOutcomeUnknownChange(false)
+      setEditingId(null)
+      setForm(null)
+    } catch (reconcileError) {
+      // Falha na reconciliação: manter estado incerto, formulário aberto, mostrar erro
+      setFormError(getApiMessage(reconcileError, 'Não foi possível consultar as demandas. Tente novamente.'))
+    } finally {
+      setIsReconciling(false)
     }
   }
 
@@ -156,9 +207,21 @@ export default function ManageDemandsPanel({ state, onRetry, onUpdate, onLoadTas
                 <label className="form-field">Situação<select aria-label="Situação da demanda" disabled={saving || isUpdatingDemand} value={form.situacao} onChange={(event) => setForm({ ...form, situacao: Number(event.target.value) })}>{statusLabels.map((label, index) => <option value={index} key={label}>{label}</option>)}</select></label>
               </div>
               {formError && <p role="alert" className="form-error">{formError}</p>}
+              {outcomeUnknown && (
+                <div className="task-uncertain-guidance">
+                  <p>A consulta reduz a incerteza, mas não garante que uma requisição anterior ainda em processamento não seja concluída depois.</p>
+                  {!reconciliationComplete ? (
+                    <button className="text-button" type="button" disabled={controlsDisabled} onClick={() => void reconcileOutcome()}>
+                      {isReconciling ? 'Consultando demandas…' : 'Consultar demandas antes de tentar novamente'}
+                    </button>
+                  ) : (
+                    <p role="status">Consulta concluída. Revise a lista antes de decidir se tentará novamente.</p>
+                  )}
+                </div>
+              )}
               <div className="create-demand-form-actions">
-                <button className="button button-secondary" type="button" disabled={saving || isUpdatingDemand} onClick={() => { setEditingId(null); setForm(null) }}>Cancelar</button>
-                <button className="button button-primary" type="submit" disabled={saving || isUpdatingDemand}>{saving || isUpdatingDemand ? 'Salvando…' : 'Salvar alterações'}</button>
+                <button className="button button-secondary" type="button" disabled={controlsDisabled || outcomeUnknown} onClick={() => { setEditingId(null); setForm(null); setOutcomeUnknown(false); setReconciliationComplete(false); onDemandOutcomeUnknownChange(false); }}>Cancelar</button>
+                <button className="button button-primary" type="submit" disabled={controlsDisabled || (outcomeUnknown && !reconciliationComplete)}>{saving || isUpdatingDemand ? 'Salvando…' : 'Salvar alterações'}</button>
               </div>
             </form>
           ) : (

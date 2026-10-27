@@ -559,66 +559,100 @@ public sealed class PostgreSqlPlanejamentoSemanalTests(
         var idExecucao = Guid.NewGuid().ToString("N");
         var prefixoTitulo = $"Demanda concorrência {idExecucao}";
 
-        int demandaId;
-        int disponibilidadeId;
-        using (var scope = factory.Services.CreateScope())
+        int demandaId = 0;
+        int disponibilidadeId = 0;
+        HashSet<int> tarefasEsperadas = [];
+
+        // Limpa resíduos de execuções anteriores que possam afetar a prévia (mesma semana fixa)
+        await using (var dbContextCleanup = fixture.CreateDbContext())
         {
-            var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-            var demanda = new DemandaAcademica
+            var demandasResiduais = await dbContextCleanup.DemandasAcademicas
+                .Where(d => d.Titulo.StartsWith("Demanda concorrência "))
+                .ToListAsync();
+            if (demandasResiduais.Count > 0)
             {
-                Titulo = prefixoTitulo,
-                EsforcoEstimadoMinutos = 60,
-                Importancia = ImportanciaDemandaAcademica.Media,
-                Prazo = InicioSemana.AddDays(-1),
-                Situacao = SituacaoDemandaAcademica.Pendente
-            };
-            dbContext.DemandasAcademicas.Add(demanda);
-            var disponibilidade = new DisponibilidadeEstudo
-            {
-                Data = InicioSemana,
-                HoraInicio = new TimeOnly(9, 0),
-                HoraFim = new TimeOnly(12, 0)
-            };
-            dbContext.DisponibilidadesEstudo.Add(disponibilidade);
-            await dbContext.SaveChangesAsync();
-            demandaId = demanda.Id;
-            disponibilidadeId = disponibilidade.Id;
+                var residuaisIds = demandasResiduais.Select(d => d.Id).ToList();
+
+                var sessoesResiduais = await dbContextCleanup.SessoesEstudo
+                    .Where(s => residuaisIds.Contains(s.DemandaAcademicaId.Value))
+                    .ToListAsync();
+                if (sessoesResiduais.Count > 0)
+                {
+                    dbContextCleanup.SessoesEstudo.RemoveRange(sessoesResiduais);
+                }
+
+                var tarefasResiduais = await dbContextCleanup.TarefasDemanda
+                    .Where(t => residuaisIds.Contains(t.DemandaAcademicaId))
+                    .ToListAsync();
+                if (tarefasResiduais.Count > 0)
+                {
+                    dbContextCleanup.TarefasDemanda.RemoveRange(tarefasResiduais);
+                }
+
+                dbContextCleanup.DemandasAcademicas.RemoveRange(demandasResiduais);
+                await dbContextCleanup.SaveChangesAsync();
+            }
         }
-
-        // Verifica apenas os dados criados por esta execução.
-        await using (var dbContextDebug = fixture.CreateDbContext())
-        {
-            var demandasCount = await dbContextDebug.DemandasAcademicas
-                .Where(d => d.Id == demandaId)
-                .CountAsync();
-            var sessoesCount = await dbContextDebug.SessoesEstudo
-                .Where(s => s.DemandaAcademicaId == demandaId)
-                .CountAsync();
-            var disponibilidadesCount = await dbContextDebug.DisponibilidadesEstudo
-                .Where(d => d.Id == disponibilidadeId)
-                .CountAsync();
-
-            Assert.Equal(1, demandasCount);
-            Assert.Equal(0, sessoesCount);
-            Assert.Equal(1, disponibilidadesCount);
-        }
-
-        // Obtém uma única prévia válida
-        var previa = await ObterPreviaValidaAsync(client);
-
-        var alocacaoDaExecucao = Assert.Single(
-            previa.Alocacoes,
-            a => a.DemandaAcademicaId == demandaId);
-
-        var tarefasEsperadas = previa.Alocacoes
-            .Where(a =>
-                a.DemandaAcademicaId == demandaId &&
-                a.TarefaDemandaId.HasValue)
-            .Select(a => a.TarefaDemandaId!.Value)
-            .ToHashSet();
 
         try
         {
+            // Cria demanda e disponibilidade dentro do try para garantir limpeza mesmo se falhar
+            using (var scope = factory.Services.CreateScope())
+            {
+                var dbContextScope = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+                var demanda = new DemandaAcademica
+                {
+                    Titulo = prefixoTitulo,
+                    EsforcoEstimadoMinutos = 60,
+                    Importancia = ImportanciaDemandaAcademica.Media,
+                    Prazo = InicioSemana.AddDays(-1),
+                    Situacao = SituacaoDemandaAcademica.Pendente
+                };
+                dbContextScope.DemandasAcademicas.Add(demanda);
+                var disponibilidade = new DisponibilidadeEstudo
+                {
+                    Data = InicioSemana,
+                    HoraInicio = new TimeOnly(9, 0),
+                    HoraFim = new TimeOnly(12, 0)
+                };
+                dbContextScope.DisponibilidadesEstudo.Add(disponibilidade);
+                await dbContextScope.SaveChangesAsync();
+                demandaId = demanda.Id;
+                disponibilidadeId = disponibilidade.Id;
+            }
+
+            // Verifica apenas os dados criados por esta execução.
+            await using (var dbContextDebug = fixture.CreateDbContext())
+            {
+                var demandasCount = await dbContextDebug.DemandasAcademicas
+                    .Where(d => d.Id == demandaId)
+                    .CountAsync();
+                var sessoesCount = await dbContextDebug.SessoesEstudo
+                    .Where(s => s.DemandaAcademicaId == demandaId)
+                    .CountAsync();
+                var disponibilidadesCount = await dbContextDebug.DisponibilidadesEstudo
+                    .Where(d => d.Id == disponibilidadeId)
+                    .CountAsync();
+
+                Assert.Equal(1, demandasCount);
+                Assert.Equal(0, sessoesCount);
+                Assert.Equal(1, disponibilidadesCount);
+            }
+
+            // Obtém uma única prévia válida
+            var previa = await ObterPreviaValidaAsync(client);
+
+            var alocacaoDaExecucao = Assert.Single(
+                previa.Alocacoes,
+                a => a.DemandaAcademicaId == demandaId);
+
+            tarefasEsperadas = previa.Alocacoes
+                .Where(a =>
+                    a.DemandaAcademicaId == demandaId &&
+                    a.TarefaDemandaId.HasValue)
+                .Select(a => a.TarefaDemandaId!.Value)
+                .ToHashSet();
+
             // Rendezvous com timeout para sincronizar o início das duas requisições.
             // Usa CountdownEvent: cada task sinaliza chegada (Signal) e aguarda (Wait) com timeout.
             using var rendezvous = new CountdownEvent(2);
@@ -694,34 +728,53 @@ public sealed class PostgreSqlPlanejamentoSemanalTests(
         {
             await using var dbContext = fixture.CreateDbContext();
 
-            var sessoes = await dbContext.SessoesEstudo
-                .Where(s =>
-                    s.DemandaAcademicaId == demandaId ||
-                    (s.TarefaDemandaId.HasValue &&
-                     tarefasEsperadas.Contains(s.TarefaDemandaId.Value)))
+            // Obtém IDs das tarefas da demanda para limpar sessões vinculadas a elas
+            var tarefaIds = await dbContext.TarefasDemanda
+                .Where(t => t.DemandaAcademicaId == demandaId)
+                .Select(t => t.Id)
                 .ToListAsync();
-            dbContext.SessoesEstudo.RemoveRange(sessoes);
 
+            // Limpa sessões vinculadas à demanda OU às suas tarefas
+            var sessoes = await dbContext.SessoesEstudo
+                .Where(s => s.DemandaAcademicaId == demandaId ||
+                           (s.TarefaDemandaId.HasValue && tarefaIds.Contains(s.TarefaDemandaId.Value)))
+                .ToListAsync();
+            if (sessoes.Count > 0)
+            {
+                dbContext.SessoesEstudo.RemoveRange(sessoes);
+            }
+
+            // Limpa tarefas da demanda (mesmo se tarefasEsperadas estiver vazio)
             var tarefas = await dbContext.TarefasDemanda
                 .Where(t => t.DemandaAcademicaId == demandaId)
                 .ToListAsync();
-            dbContext.TarefasDemanda.RemoveRange(tarefas);
-
-            var demanda = await dbContext.DemandasAcademicas
-                .Where(d => d.Id == demandaId)
-                .FirstOrDefaultAsync();
-            if (demanda is not null)
+            if (tarefas.Count > 0)
             {
-                dbContext.DemandasAcademicas.Remove(demanda);
+                dbContext.TarefasDemanda.RemoveRange(tarefas);
             }
 
-            // Remove a disponibilidade criada (por Data/Hora exata, pois não tem ID único)
-            var disponibilidade = await dbContext.DisponibilidadesEstudo
-                .Where(d => d.Id == disponibilidadeId)
-                .FirstOrDefaultAsync();
-            if (disponibilidade is not null)
+            // Limpa a demanda
+            if (demandaId > 0)
             {
-                dbContext.DisponibilidadesEstudo.Remove(disponibilidade);
+                var demanda = await dbContext.DemandasAcademicas
+                    .Where(d => d.Id == demandaId)
+                    .FirstOrDefaultAsync();
+                if (demanda is not null)
+                {
+                    dbContext.DemandasAcademicas.Remove(demanda);
+                }
+            }
+
+            // Limpa a disponibilidade
+            if (disponibilidadeId > 0)
+            {
+                var disponibilidade = await dbContext.DisponibilidadesEstudo
+                    .Where(d => d.Id == disponibilidadeId)
+                    .FirstOrDefaultAsync();
+                if (disponibilidade is not null)
+                {
+                    dbContext.DisponibilidadesEstudo.Remove(disponibilidade);
+                }
             }
 
             await dbContext.SaveChangesAsync();

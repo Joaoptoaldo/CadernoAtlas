@@ -160,10 +160,12 @@ Tarefas representam etapas menores e executáveis necessárias para o cumpriment
 | `DELETE` | `/api/demandas-academicas/{demandaId}/tarefas/{tarefaId}` | Excluir uma tarefa vinculada à demanda. |
 
 ### Regras de Negócio
-- **Demanda Concluída Bloqueada:** Não é permitido adicionar novas tarefas em uma demanda cuja situação seja `Concluida` (`409 Conflict`).
-- **Bloqueio de Reabertura:** Não é permitido alterar a situação de uma tarefa para `Pendente` ou `EmAndamento` caso a demanda pai esteja `Concluida` (`409 Conflict`). A demanda deve ser reaberta primeiro.
+- **Demanda Finalizada Bloqueada:** Não é permitido adicionar novas tarefas em uma demanda cuja situação seja `Concluida` ou `Cancelada` (`409 Conflict`).
+- **Bloqueio de Alterações:** Não é permitido editar ou excluir tarefas vinculadas a uma demanda cuja situação seja `Concluida` ou `Cancelada` (`409 Conflict`). A demanda deve ser reaberta primeiro.
 - **Sequenciamento Automático:** Ao criar uma tarefa, o sistema calcula automaticamente o campo `Ordem` como o próximo valor incremental disponível (`ultimaOrdem + 1`).
 - **Reposicionamento:** Ao atualizar `Ordem` via `PUT`, a posição solicitada é limitada ao intervalo válido de `0` a `N - 1`, onde `N` é a quantidade de tarefas da demanda. A tarefa é movida para essa posição e todas as tarefas da demanda são renumeradas continuamente de `0` a `N - 1`. A resposta contém a ordem efetiva persistida.
+- **Normalização após Exclusão:** Ao excluir uma tarefa via `DELETE`, as tarefas restantes da demanda são renumeradas continuamente de `0` a `N - 1` em uma única transação atômica, mantendo a ordenação determinística por `Ordem` e `Id`.
+- **Desvinculação de Sessões de Estudo:** Ao excluir uma tarefa, as sessões de estudo vinculadas a essa tarefa (`TarefaDemandaId`) são preservadas e têm seu vínculo removido (`TarefaDemandaId = NULL`), graças à configuração `OnDelete(DeleteBehavior.SetNull)` no relacionamento.
 - **Valores de Situação:** `Pendente`, `EmAndamento`, `Concluida`.
 - **Esforço estimado:** `esforcoEstimadoMinutos` é opcional, mas quando informado deve ser um inteiro maior que zero. A resposta inclui o mesmo campo; ele pode ser `null` para tarefas sem estimativa.
 
@@ -214,7 +216,7 @@ Tarefas representam etapas menores e executáveis necessárias para o cumpriment
 - `204 NoContent`: Tarefa excluída com sucesso.
 - `400 Bad Request`: Dados inválidos (ex.: título menor que 2 caracteres ou situação inválida).
 - `404 NotFound`: Demanda pai ou tarefa não encontrada.
-- `409 Conflict`: Operação rejeitada porque a demanda pai está com situação `Concluida`.
+- `409 Conflict`: Operação rejeitada porque a demanda pai está com situação `Concluida` ou `Cancelada`.
 
 ---
 

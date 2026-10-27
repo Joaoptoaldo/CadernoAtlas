@@ -432,7 +432,7 @@ public sealed class PostgreSqlTarefasDemandaTests(
 
         var problema = await response.Content.ReadFromJsonAsync<ProblemDetails>();
         Assert.NotNull(problema);
-        Assert.Equal("A demanda está concluída.", problema.Title);
+        Assert.Equal("A demanda não permite alterações.", problema.Title);
     }
 
     [Fact]
@@ -476,7 +476,7 @@ public sealed class PostgreSqlTarefasDemandaTests(
 
         var problema = await response.Content.ReadFromJsonAsync<ProblemDetails>();
         Assert.NotNull(problema);
-        Assert.Equal("A demanda está concluída.", problema.Title);
+        Assert.Equal("A demanda não permite alterações.", problema.Title);
     }
 
     [Fact]
@@ -577,6 +577,137 @@ public sealed class PostgreSqlTarefasDemandaTests(
         var recuperada = await consulta.Content.ReadFromJsonAsync<TarefaDemandaResponse>();
         Assert.NotNull(recuperada);
         Assert.Equal(45, recuperada.EsforcoEstimadoMinutos);
+    }
+
+    [Fact]
+    public async Task DeleteTarefa_NormalizaOrdemDasTarefasRestantes()
+    {
+        using var factory = new PostgreSqlWebApplicationFactory(fixture.ConnectionString);
+        using var client = factory.CreateClient();
+
+        var demandaId = await CriarDemandaAsync(client, TituloUnico("Demanda exclusão ordem"));
+
+        var rota = $"/api/demandas-academicas/{demandaId}/tarefas";
+
+        var t1 = await (await client.PostAsJsonAsync(rota, new CriarTarefaDemandaRequest { Titulo = "Tarefa 1" })).Content.ReadFromJsonAsync<TarefaDemandaResponse>();
+        var t2 = await (await client.PostAsJsonAsync(rota, new CriarTarefaDemandaRequest { Titulo = "Tarefa 2" })).Content.ReadFromJsonAsync<TarefaDemandaResponse>();
+        var t3 = await (await client.PostAsJsonAsync(rota, new CriarTarefaDemandaRequest { Titulo = "Tarefa 3" })).Content.ReadFromJsonAsync<TarefaDemandaResponse>();
+
+        Assert.NotNull(t1);
+        Assert.NotNull(t2);
+        Assert.NotNull(t3);
+
+        var exclusao = await client.DeleteAsync($"{rota}/{t2.Id}");
+        Assert.Equal(HttpStatusCode.NoContent, exclusao.StatusCode);
+
+        var tarefasRestantes = await (await client.GetAsync(rota)).Content.ReadFromJsonAsync<List<TarefaDemandaResponse>>();
+        Assert.NotNull(tarefasRestantes);
+        Assert.Equal(2, tarefasRestantes.Count);
+        Assert.Equal(0, tarefasRestantes[0].Ordem);
+        Assert.Equal(1, tarefasRestantes[1].Ordem);
+        Assert.Equal(t1.Id, tarefasRestantes[0].Id);
+        Assert.Equal(t3.Id, tarefasRestantes[1].Id);
+    }
+
+    [Fact]
+    public async Task DeleteTarefa_DemandaConcluida_RetornaConflict()
+    {
+        using var factory = new PostgreSqlWebApplicationFactory(fixture.ConnectionString);
+        using var client = factory.CreateClient();
+
+        var demandaId = await CriarDemandaAsync(client, TituloUnico("Demanda concluída"));
+
+        var criacao = await client.PostAsJsonAsync($"/api/demandas-academicas/{demandaId}/tarefas",
+            new CriarTarefaDemandaRequest { Titulo = "Tarefa para exclusão" });
+        var criada = await criacao.Content.ReadFromJsonAsync<TarefaDemandaResponse>();
+        Assert.NotNull(criada);
+
+        // Primeiro conclui a tarefa
+        var atualizacaoTarefa = await client.PutAsJsonAsync($"/api/demandas-academicas/{demandaId}/tarefas/{criada.Id}",
+            new AtualizarTarefaDemandaRequest
+            {
+                Titulo = criada.Titulo,
+                Ordem = criada.Ordem,
+                Situacao = SituacaoTarefaDemanda.Concluida
+            });
+        Assert.Equal(HttpStatusCode.OK, atualizacaoTarefa.StatusCode);
+
+        // Depois conclui a demanda
+        var atualizacaoDemanda = await client.PutAsJsonAsync($"/api/demandas-academicas/{demandaId}",
+            new AtualizarDemandaAcademicaRequest
+            {
+                Titulo = TituloUnico("Demanda concluída"),
+                Situacao = SituacaoDemandaAcademica.Concluida
+            });
+        Assert.Equal(HttpStatusCode.OK, atualizacaoDemanda.StatusCode);
+
+        var exclusao = await client.DeleteAsync($"/api/demandas-academicas/{demandaId}/tarefas/{criada.Id}");
+        Assert.Equal(HttpStatusCode.Conflict, exclusao.StatusCode);
+
+        var consulta = await client.GetAsync($"/api/demandas-academicas/{demandaId}/tarefas/{criada.Id}");
+        Assert.Equal(HttpStatusCode.OK, consulta.StatusCode);
+    }
+
+    [Fact]
+    public async Task DeleteTarefa_DemandaCancelada_RetornaConflict()
+    {
+        using var factory = new PostgreSqlWebApplicationFactory(fixture.ConnectionString);
+        using var client = factory.CreateClient();
+
+        var demandaId = await CriarDemandaAsync(client, TituloUnico("Demanda cancelada"));
+
+        var criacao = await client.PostAsJsonAsync($"/api/demandas-academicas/{demandaId}/tarefas",
+            new CriarTarefaDemandaRequest { Titulo = "Tarefa para exclusão" });
+        var criada = await criacao.Content.ReadFromJsonAsync<TarefaDemandaResponse>();
+        Assert.NotNull(criada);
+
+        var atualizacaoDemanda = await client.PutAsJsonAsync($"/api/demandas-academicas/{demandaId}",
+            new AtualizarDemandaAcademicaRequest
+            {
+                Titulo = TituloUnico("Demanda cancelada"),
+                Situacao = SituacaoDemandaAcademica.Cancelada
+            });
+        Assert.Equal(HttpStatusCode.OK, atualizacaoDemanda.StatusCode);
+
+        var exclusao = await client.DeleteAsync($"/api/demandas-academicas/{demandaId}/tarefas/{criada.Id}");
+        Assert.Equal(HttpStatusCode.Conflict, exclusao.StatusCode);
+
+        var consulta = await client.GetAsync($"/api/demandas-academicas/{demandaId}/tarefas/{criada.Id}");
+        Assert.Equal(HttpStatusCode.OK, consulta.StatusCode);
+    }
+
+    [Fact]
+    public async Task DeleteTarefa_Rejeicao_NaoPersisteAlteracoes()
+    {
+        using var factory = new PostgreSqlWebApplicationFactory(fixture.ConnectionString);
+        using var client = factory.CreateClient();
+
+        var demandaId = await CriarDemandaAsync(client, TituloUnico("Demanda cancelada"));
+
+        var criacao = await client.PostAsJsonAsync($"/api/demandas-academicas/{demandaId}/tarefas",
+            new CriarTarefaDemandaRequest { Titulo = "Tarefa existente" });
+        var criada = await criacao.Content.ReadFromJsonAsync<TarefaDemandaResponse>();
+        Assert.NotNull(criada);
+
+        var atualizacaoDemanda = await client.PutAsJsonAsync($"/api/demandas-academicas/{demandaId}",
+            new AtualizarDemandaAcademicaRequest
+            {
+                Titulo = TituloUnico("Demanda cancelada"),
+                Situacao = SituacaoDemandaAcademica.Cancelada
+            });
+        Assert.Equal(HttpStatusCode.OK, atualizacaoDemanda.StatusCode);
+
+        var exclusao = await client.DeleteAsync($"/api/demandas-academicas/{demandaId}/tarefas/{criada.Id}");
+        Assert.Equal(HttpStatusCode.Conflict, exclusao.StatusCode);
+
+        var consulta = await client.GetAsync($"/api/demandas-academicas/{demandaId}/tarefas/{criada.Id}");
+        Assert.Equal(HttpStatusCode.OK, consulta.StatusCode);
+
+        var tarefa = await consulta.Content.ReadFromJsonAsync<TarefaDemandaResponse>();
+        Assert.NotNull(tarefa);
+        Assert.Equal(criada.Id, tarefa.Id);
+        Assert.Equal(criada.Titulo, tarefa.Titulo);
+        Assert.Equal(criada.Ordem, tarefa.Ordem);
     }
 
     private static string? ObterSqlState(Exception excecao)

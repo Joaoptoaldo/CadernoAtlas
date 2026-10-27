@@ -11,7 +11,7 @@ import {
 } from './apiClient'
 
 import CreateDemandForm from './features/demands/CreateDemandForm'
-import ManageDemandsPanel from './features/demands/ManageDemandsPanel'
+import ManageDemandsPanel, { type AcademicDemandRecord } from './features/demands/ManageDemandsPanel'
 import type { DemandTask } from './features/demands/ManageDemandTasks'
 import DemandCard from './features/demands/DemandCard'
 import AvailabilityPanel from './features/availability/AvailabilityPanel'
@@ -69,14 +69,11 @@ function App() {
   const [isDemandFormOpen, setIsDemandFormOpen] = useState(false)
   const [isCreatingAvailability, setIsCreatingAvailability] = useState(false)
   const [availabilityOutcomeUnknown, setAvailabilityOutcomeUnknown] = useState(false)
-
-  // Week navigation state is owned by App and shared with the navigation hook.
-  // Keeping one source of truth ensures the panels and API query use the same week.
-  // Navigation callbacks still invalidate the current planning preview.
+  const [creationOutcomeUnknown, setCreationOutcomeUnknown] = useState(false)
+  const [editingOutcomeUnknown, setEditingOutcomeUnknown] = useState(false)
   const [monday, setMonday] = useState(getInitialWeek)
   const [todayIso] = useState(() => toIsoDate(new Date()))
   const mondayIso = toIsoDate(monday)
-
   const concurrencyLocks = useConcurrencyLocks()
 
   const {
@@ -242,6 +239,36 @@ function App() {
     setAvailabilityReloadToken((value) => value + 1)
   }
 
+  async function reconcileCreation(): Promise<void> {
+    clearPreview()
+    setDemandState((prev) => ({ ...prev, status: 'loading', error: null }))
+
+    try {
+      const data = await apiGet<AcademicDemandRecord[]>('/api/demandas-academicas')
+      setDemandState({ status: 'success', data, error: null })
+      setDemandReloadToken((v) => v + 1)
+    } catch (error) {
+      const message = getErrorMessage(error, 'Não foi possível consultar as demandas. Tente novamente.')
+      setDemandState((prev) => ({ ...prev, status: 'error', error: message }))
+      throw error
+    }
+  }
+
+  async function reconcileEditing(): Promise<void> {
+    clearPreview()
+    setAllDemandsState((prev) => ({ ...prev, status: 'loading', error: null }))
+
+    try {
+      const data = await apiGet<AcademicDemandRecord[]>('/api/demandas-academicas')
+      setAllDemandsState({ status: 'success', data, error: null })
+      setAllDemandsReloadToken((v) => v + 1)
+    } catch (error) {
+      const message = getErrorMessage(error, 'Não foi possível consultar as demandas. Tente novamente.')
+      setAllDemandsState((prev) => ({ ...prev, status: 'error', error: message }))
+      throw error
+    }
+  }
+
   const isTaskMutationInProgress = isCreatingTask || isUpdatingTask || isDeletingTask
 
   return (
@@ -288,7 +315,7 @@ function App() {
               <p className="page-subtitle">Organize suas demandas em uma semana possível.</p>
             </div>
             <div className="page-heading-actions">
-              <button className="button button-secondary refresh-button" onClick={refreshAll} disabled={isCreatingDemand || isConfirming || isCreatingAvailability || isUpdatingDemand || isTaskMutationInProgress || availabilityOutcomeUnknown}>
+              <button className="button button-secondary refresh-button" onClick={refreshAll} disabled={isCreatingDemand || isConfirming || isCreatingAvailability || isUpdatingDemand || isTaskMutationInProgress || availabilityOutcomeUnknown || creationOutcomeUnknown || editingOutcomeUnknown}>
                 <Icon name="refresh" size={16} />
                 <span>Atualizar dados</span>
               </button>
@@ -308,11 +335,11 @@ function App() {
               </div>
             </div>
             <div className="week-controls">
-              <button className="icon-button" disabled={isConfirming || isCreatingAvailability || isUpdatingDemand || isTaskMutationInProgress || availabilityOutcomeUnknown} onClick={() => changeWeek(-7)} aria-label="Semana anterior" title="Semana anterior">
+              <button className="icon-button" disabled={isConfirming || isCreatingAvailability || isUpdatingDemand || isTaskMutationInProgress || availabilityOutcomeUnknown || creationOutcomeUnknown || editingOutcomeUnknown} onClick={() => changeWeek(-7)} aria-label="Semana anterior" title="Semana anterior">
                 <Icon name="chevronLeft" size={18} />
               </button>
-              <button className="button button-week" disabled={isConfirming || isCreatingAvailability || isUpdatingDemand || isTaskMutationInProgress || availabilityOutcomeUnknown} onClick={selectCurrentWeek}>Semana atual</button>
-              <button className="icon-button" disabled={isConfirming || isCreatingAvailability || isUpdatingDemand || isTaskMutationInProgress || availabilityOutcomeUnknown} onClick={() => changeWeek(7)} aria-label="Próxima semana" title="Próxima semana">
+              <button className="button button-week" disabled={isConfirming || isCreatingAvailability || isUpdatingDemand || isTaskMutationInProgress || availabilityOutcomeUnknown || creationOutcomeUnknown || editingOutcomeUnknown} onClick={selectCurrentWeek}>Semana atual</button>
+              <button className="icon-button" disabled={isConfirming || isCreatingAvailability || isUpdatingDemand || isTaskMutationInProgress || availabilityOutcomeUnknown || creationOutcomeUnknown || editingOutcomeUnknown} onClick={() => changeWeek(7)} aria-label="Próxima semana" title="Próxima semana">
                 <Icon name="chevronRight" size={18} />
               </button>
             </div>
@@ -351,7 +378,7 @@ function App() {
                     type="button"
                     aria-expanded={isDemandFormOpen}
                     aria-controls={isDemandFormOpen ? 'create-demand-form' : undefined}
-                    disabled={isUpdatingDemand || isTaskMutationInProgress || availabilityOutcomeUnknown}
+                    disabled={isUpdatingDemand || isTaskMutationInProgress || availabilityOutcomeUnknown || creationOutcomeUnknown}
                     onClick={() => setIsDemandFormOpen(true)}
                   >
                     Nova demanda
@@ -363,7 +390,10 @@ function App() {
                 <CreateDemandForm
                   onCreate={createDemand}
                   onCancel={() => setIsDemandFormOpen(false)}
+                  onReconcile={reconcileCreation}
+                  onOutcomeUnknownChange={setCreationOutcomeUnknown}
                   disabled={isUpdatingDemand || isTaskMutationInProgress}
+                  outcomeUnknown={creationOutcomeUnknown}
                 />
               )}
 
@@ -433,7 +463,7 @@ function App() {
                   <p className="page-subtitle">Consulte, filtre e atualize suas demandas.</p>
                 </div>
               </section>
-              <ManageDemandsPanel state={allDemandsState} onRetry={refreshAllDemands} onUpdate={updateDemand} onLoadTasks={loadDemandTasks} isUpdatingDemand={isUpdatingDemand} onCreateTask={createDemandTask} isCreatingTask={isCreatingTask} isUpdatingTask={isUpdatingTask || isDeletingTask} onUpdateTask={updateDemandTask} isDeletingTask={isDeletingTask} onDeleteTask={deleteDemandTask} />
+              <ManageDemandsPanel state={allDemandsState} onRetry={refreshAllDemands} onUpdate={updateDemand} onLoadTasks={loadDemandTasks} isUpdatingDemand={isUpdatingDemand} onCreateTask={createDemandTask} isCreatingTask={isCreatingTask} isUpdatingTask={isUpdatingTask || isDeletingTask} onUpdateTask={updateDemandTask} isDeletingTask={isDeletingTask} onDeleteTask={deleteDemandTask} onReconcileDemands={reconcileEditing} demandOutcomeUnknown={editingOutcomeUnknown} onDemandOutcomeUnknownChange={setEditingOutcomeUnknown} />
               <footer className="page-footer">
                 <span>Demandas organizadas para uma rotina real.</span>
                 <span>CadernoAtlas <span className="footer-separator">·</span> Demandas acadêmicas</span>
