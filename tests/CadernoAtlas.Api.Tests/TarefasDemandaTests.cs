@@ -233,6 +233,244 @@ public class TarefasDemandaTests
     }
 
     [Fact]
+    public async Task DeleteTarefa_NormalizaOrdemDasTarefasRestantes()
+    {
+        using var factory = new CustomWebApplicationFactory();
+        await factory.InicializarBancoAsync();
+        using var client = factory.CreateClient();
+
+        var demanda = await CriarDemandaAsync(client);
+        var rota = $"/api/demandas-academicas/{demanda.Id}/tarefas";
+
+        var tarefa1 = await (await client.PostAsJsonAsync(rota, new CriarTarefaDemandaRequest { Titulo = "Tarefa 1" })).Content.ReadFromJsonAsync<TarefaDemandaResponse>();
+        var tarefa2 = await (await client.PostAsJsonAsync(rota, new CriarTarefaDemandaRequest { Titulo = "Tarefa 2" })).Content.ReadFromJsonAsync<TarefaDemandaResponse>();
+        var tarefa3 = await (await client.PostAsJsonAsync(rota, new CriarTarefaDemandaRequest { Titulo = "Tarefa 3" })).Content.ReadFromJsonAsync<TarefaDemandaResponse>();
+
+        Assert.NotNull(tarefa1);
+        Assert.NotNull(tarefa2);
+        Assert.NotNull(tarefa3);
+
+        var exclusao = await client.DeleteAsync($"{rota}/{tarefa2.Id}");
+        Assert.Equal(HttpStatusCode.NoContent, exclusao.StatusCode);
+
+        var tarefasRestantes = await (await client.GetAsync(rota)).Content.ReadFromJsonAsync<List<TarefaDemandaResponse>>();
+        Assert.NotNull(tarefasRestantes);
+        Assert.Equal(2, tarefasRestantes.Count);
+        Assert.Equal(0, tarefasRestantes[0].Ordem);
+        Assert.Equal(1, tarefasRestantes[1].Ordem);
+        Assert.Equal(tarefa1.Id, tarefasRestantes[0].Id);
+        Assert.Equal(tarefa3.Id, tarefasRestantes[1].Id);
+    }
+
+    [Fact]
+    public async Task PostTarefa_DemandaCancelada_RetornaConflict()
+    {
+        using var factory = new CustomWebApplicationFactory();
+        await factory.InicializarBancoAsync();
+        using var client = factory.CreateClient();
+
+        var demanda = await CriarDemandaAsync(client);
+
+        var cancelamento = await client.PutAsJsonAsync(
+            $"/api/demandas-academicas/{demanda.Id}",
+            new AtualizarDemandaAcademicaRequest
+            {
+                Titulo = demanda.Titulo,
+                Situacao = SituacaoDemandaAcademica.Cancelada
+            });
+
+        Assert.Equal(HttpStatusCode.OK, cancelamento.StatusCode);
+
+        var response = await client.PostAsJsonAsync(
+            $"/api/demandas-academicas/{demanda.Id}/tarefas",
+            new CriarTarefaDemandaRequest
+            {
+                Titulo = "Nova tarefa"
+            });
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task PutTarefa_DemandaCancelada_RetornaConflict()
+    {
+        using var factory = new CustomWebApplicationFactory();
+        await factory.InicializarBancoAsync();
+        using var client = factory.CreateClient();
+
+        var demanda = await CriarDemandaAsync(client);
+        var rota = $"/api/demandas-academicas/{demanda.Id}/tarefas";
+
+        var criacao = await client.PostAsJsonAsync(
+            rota,
+            new CriarTarefaDemandaRequest { Titulo = "Tarefa existente" });
+        var criada = await criacao.Content.ReadFromJsonAsync<TarefaDemandaResponse>();
+        Assert.NotNull(criada);
+
+        await client.PutAsJsonAsync(
+            $"/api/demandas-academicas/{demanda.Id}",
+            new AtualizarDemandaAcademicaRequest
+            {
+                Titulo = demanda.Titulo,
+                Situacao = SituacaoDemandaAcademica.Cancelada
+            });
+
+        var response = await client.PutAsJsonAsync(
+            $"{rota}/{criada.Id}",
+            new AtualizarTarefaDemandaRequest
+            {
+                Titulo = criada.Titulo,
+                Ordem = criada.Ordem,
+                Situacao = SituacaoTarefaDemanda.Pendente
+            });
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task DeleteTarefa_DemandaCancelada_RetornaConflict()
+    {
+        using var factory = new CustomWebApplicationFactory();
+        await factory.InicializarBancoAsync();
+        using var client = factory.CreateClient();
+
+        var demanda = await CriarDemandaAsync(client);
+        var rota = $"/api/demandas-academicas/{demanda.Id}/tarefas";
+
+        var criacao = await client.PostAsJsonAsync(
+            rota,
+            new CriarTarefaDemandaRequest { Titulo = "Tarefa para exclusão" });
+        var criada = await criacao.Content.ReadFromJsonAsync<TarefaDemandaResponse>();
+        Assert.NotNull(criada);
+
+        await client.PutAsJsonAsync(
+            $"/api/demandas-academicas/{demanda.Id}",
+            new AtualizarDemandaAcademicaRequest
+            {
+                Titulo = demanda.Titulo,
+                Situacao = SituacaoDemandaAcademica.Cancelada
+            });
+
+        var exclusao = await client.DeleteAsync($"{rota}/{criada.Id}");
+        Assert.Equal(HttpStatusCode.Conflict, exclusao.StatusCode);
+
+        var consulta = await client.GetAsync($"{rota}/{criada.Id}");
+        Assert.Equal(HttpStatusCode.OK, consulta.StatusCode);
+    }
+
+    [Fact]
+    public async Task PostTarefa_DemandaEmAndamento_Permitida()
+    {
+        using var factory = new CustomWebApplicationFactory();
+        await factory.InicializarBancoAsync();
+        using var client = factory.CreateClient();
+
+        var demanda = await CriarDemandaAsync(client);
+
+        await client.PutAsJsonAsync(
+            $"/api/demandas-academicas/{demanda.Id}",
+            new AtualizarDemandaAcademicaRequest
+            {
+                Titulo = demanda.Titulo,
+                Situacao = SituacaoDemandaAcademica.EmAndamento
+            });
+
+        var response = await client.PostAsJsonAsync(
+            $"/api/demandas-academicas/{demanda.Id}/tarefas",
+            new CriarTarefaDemandaRequest { Titulo = "Nova tarefa" });
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task PutTarefa_DemandaEmAndamento_Permitida()
+    {
+        using var factory = new CustomWebApplicationFactory();
+        await factory.InicializarBancoAsync();
+        using var client = factory.CreateClient();
+
+        var demanda = await CriarDemandaAsync(client);
+        var rota = $"/api/demandas-academicas/{demanda.Id}/tarefas";
+
+        var criacao = await client.PostAsJsonAsync(rota, new CriarTarefaDemandaRequest { Titulo = "Tarefa" });
+        var criada = await criacao.Content.ReadFromJsonAsync<TarefaDemandaResponse>();
+        Assert.NotNull(criada);
+
+        await client.PutAsJsonAsync(
+            $"/api/demandas-academicas/{demanda.Id}",
+            new AtualizarDemandaAcademicaRequest
+            {
+                Titulo = demanda.Titulo,
+                Situacao = SituacaoDemandaAcademica.EmAndamento
+            });
+
+        var response = await client.PutAsJsonAsync(
+            $"{rota}/{criada.Id}",
+            new AtualizarTarefaDemandaRequest
+            {
+                Titulo = criada.Titulo,
+                Ordem = criada.Ordem,
+                Situacao = SituacaoTarefaDemanda.Concluida
+            });
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task DeleteTarefa_DemandaEmAndamento_Permitida()
+    {
+        using var factory = new CustomWebApplicationFactory();
+        await factory.InicializarBancoAsync();
+        using var client = factory.CreateClient();
+
+        var demanda = await CriarDemandaAsync(client);
+        var rota = $"/api/demandas-academicas/{demanda.Id}/tarefas";
+
+        var criacao = await client.PostAsJsonAsync(rota, new CriarTarefaDemandaRequest { Titulo = "Tarefa" });
+        var criada = await criacao.Content.ReadFromJsonAsync<TarefaDemandaResponse>();
+        Assert.NotNull(criada);
+
+        await client.PutAsJsonAsync(
+            $"/api/demandas-academicas/{demanda.Id}",
+            new AtualizarDemandaAcademicaRequest
+            {
+                Titulo = demanda.Titulo,
+                Situacao = SituacaoDemandaAcademica.EmAndamento
+            });
+
+        var exclusao = await client.DeleteAsync($"{rota}/{criada.Id}");
+        Assert.Equal(HttpStatusCode.NoContent, exclusao.StatusCode);
+    }
+
+    [Fact]
+    public async Task PostTarefa_Rejeitada_DemandaConcluida_NaoPersisteAlteracoes()
+    {
+        using var factory = new CustomWebApplicationFactory();
+        await factory.InicializarBancoAsync();
+        using var client = factory.CreateClient();
+
+        var demanda = await CriarDemandaAsync(client);
+
+        await client.PutAsJsonAsync(
+            $"/api/demandas-academicas/{demanda.Id}",
+            new AtualizarDemandaAcademicaRequest
+            {
+                Titulo = demanda.Titulo,
+                Situacao = SituacaoDemandaAcademica.Concluida
+            });
+
+        var response = await client.PostAsJsonAsync(
+            $"/api/demandas-academicas/{demanda.Id}/tarefas",
+            new CriarTarefaDemandaRequest { Titulo = "Tarefa não permitida" });
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+
+        var tarefas = await (await client.GetAsync($"/api/demandas-academicas/{demanda.Id}/tarefas")).Content.ReadFromJsonAsync<List<TarefaDemandaResponse>>();
+        Assert.NotNull(tarefas);
+        Assert.Empty(tarefas);
+    }
+
+    [Fact]
     public async Task PostTarefa_ComTituloInvalido_RetornaBadRequest()
     {
         using var factory = new CustomWebApplicationFactory();

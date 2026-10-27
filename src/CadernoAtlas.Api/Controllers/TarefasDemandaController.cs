@@ -98,11 +98,12 @@ public sealed class TarefasDemandaController : ControllerBase
             return NotFound();
         }
 
-        if (situacaoDemanda == SituacaoDemandaAcademica.Concluida)
+        if (situacaoDemanda == SituacaoDemandaAcademica.Concluida
+            || situacaoDemanda == SituacaoDemandaAcademica.Cancelada)
         {
             return Conflict(new ProblemDetails
             {
-                Title = "A demanda está concluída.",
+                Title = "A demanda não permite alterações.",
                 Detail = "Reabra a demanda antes de adicionar novas tarefas.",
                 Status = StatusCodes.Status409Conflict
             });
@@ -153,20 +154,23 @@ public sealed class TarefasDemandaController : ControllerBase
             return NotFound();
         }
 
-        var demandaConcluida = await _dbContext.DemandasAcademicas
-            .AnyAsync(
-                demanda =>
-                    demanda.Id == demandaId
-                    && demanda.Situacao == SituacaoDemandaAcademica.Concluida,
-                cancellationToken);
+        var situacaoDemanda = await _dbContext.DemandasAcademicas
+            .Where(demanda => demanda.Id == demandaId)
+            .Select(demanda => (SituacaoDemandaAcademica?)demanda.Situacao)
+            .FirstOrDefaultAsync(cancellationToken);
 
-        if (demandaConcluida
-            && request.Situacao != SituacaoTarefaDemanda.Concluida)
+        if (situacaoDemanda is null)
+        {
+            return NotFound();
+        }
+
+        if (situacaoDemanda == SituacaoDemandaAcademica.Concluida
+            || situacaoDemanda == SituacaoDemandaAcademica.Cancelada)
         {
             return Conflict(new ProblemDetails
             {
-                Title = "A demanda está concluída.",
-                Detail = "Reabra a demanda antes de reabrir uma tarefa.",
+                Title = "A demanda não permite alterações.",
+                Detail = "Reabra a demanda antes de alterar tarefas.",
                 Status = StatusCodes.Status409Conflict
             });
         }
@@ -211,9 +215,44 @@ public sealed class TarefasDemandaController : ControllerBase
             return NotFound();
         }
 
+        var situacaoDemanda = await _dbContext.DemandasAcademicas
+            .Where(demanda => demanda.Id == demandaId)
+            .Select(demanda => (SituacaoDemandaAcademica?)demanda.Situacao)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (situacaoDemanda is null)
+        {
+            return NotFound();
+        }
+
+        if (situacaoDemanda == SituacaoDemandaAcademica.Concluida
+            || situacaoDemanda == SituacaoDemandaAcademica.Cancelada)
+        {
+            return Conflict(new ProblemDetails
+            {
+                Title = "A demanda não permite alterações.",
+                Detail = "Reabra a demanda antes de excluir tarefas.",
+                Status = StatusCodes.Status409Conflict
+            });
+        }
+
+        await using var transacao = await _dbContext.Database.BeginTransactionAsync(cancellationToken);
+
+        var tarefasRestantes = await _dbContext.TarefasDemanda
+            .Where(t => t.DemandaAcademicaId == demandaId && t.Id != tarefaId)
+            .OrderBy(t => t.Ordem)
+            .ThenBy(t => t.Id)
+            .ToListAsync(cancellationToken);
+
         _dbContext.TarefasDemanda.Remove(tarefa);
 
+        for (var indice = 0; indice < tarefasRestantes.Count; indice++)
+        {
+            tarefasRestantes[indice].Ordem = indice;
+        }
+
         await _dbContext.SaveChangesAsync(cancellationToken);
+        await transacao.CommitAsync(cancellationToken);
 
         return NoContent();
     }
