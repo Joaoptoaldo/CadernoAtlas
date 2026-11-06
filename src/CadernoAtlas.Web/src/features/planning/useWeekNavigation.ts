@@ -10,7 +10,7 @@ interface UseWeekNavigationOptions {
   setMonday: React.Dispatch<React.SetStateAction<Date>>
   concurrencyLocks: Pick<
     ConcurrencyLocks,
-    'confirmationInProgressRef' | 'demandUpdateInProgressRef' | 'demandCreationInProgressRef' | 'taskMutationInProgressRef'
+    'confirmationInProgressRef' | 'demandUpdateInProgressRef' | 'demandCreationInProgressRef' | 'taskMutationInProgressRef' | 'dataMutationInProgressRef'
   >
   clearPreview: () => void
   setAvailabilityState: React.Dispatch<React.SetStateAction<LoadState<Availability[]>>>
@@ -117,7 +117,7 @@ export function useWeekNavigation(options: UseWeekNavigationOptions): UseWeekNav
   }, [mondayIso, sundayIso, availabilityReloadToken, setAvailabilityState, getErrorMessage])
 
   const changeWeek = useCallback((days: number) => {
-    if (concurrencyLocks.confirmationInProgressRef.current || concurrencyLocks.demandUpdateInProgressRef.current || concurrencyLocks.taskMutationInProgressRef.current) return
+    if (concurrencyLocks.dataMutationInProgressRef.current) return
 
     clearPreview()
     setAvailabilityState((previous) => ({ ...previous, status: 'loading', error: null }))
@@ -125,7 +125,7 @@ export function useWeekNavigation(options: UseWeekNavigationOptions): UseWeekNav
   }, [concurrencyLocks, clearPreview, setAvailabilityState, setMonday])
 
   const selectCurrentWeek = useCallback(() => {
-    if (concurrencyLocks.confirmationInProgressRef.current || concurrencyLocks.demandUpdateInProgressRef.current || concurrencyLocks.taskMutationInProgressRef.current) return
+    if (concurrencyLocks.dataMutationInProgressRef.current) return
 
     const currentWeek = getInitialWeek()
     if (toIsoDate(currentWeek) === mondayIso) return
@@ -135,7 +135,7 @@ export function useWeekNavigation(options: UseWeekNavigationOptions): UseWeekNav
   }, [concurrencyLocks, clearPreview, mondayIso, setAvailabilityState, setMonday])
 
   const refreshAvailabilityNow = useCallback(async () => {
-    if (concurrencyLocks.confirmationInProgressRef.current || concurrencyLocks.demandUpdateInProgressRef.current || concurrencyLocks.demandCreationInProgressRef.current || concurrencyLocks.taskMutationInProgressRef.current) {
+    if (concurrencyLocks.dataMutationInProgressRef.current) {
       throw new Error('Reconciliação bloqueada por outra operação em andamento.')
     }
     clearPreview()

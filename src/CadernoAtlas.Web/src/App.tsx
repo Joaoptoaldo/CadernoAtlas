@@ -11,7 +11,7 @@ import {
 } from './apiClient'
 
 import CreateDemandForm from './features/demands/CreateDemandForm'
-import ManageDemandsPanel, { type AcademicDemandRecord } from './features/demands/ManageDemandsPanel'
+import ManageDemandsPanel from './features/demands/ManageDemandsPanel'
 import type { DemandTask } from './features/demands/ManageDemandTasks'
 import DemandCard from './features/demands/DemandCard'
 import AvailabilityPanel from './features/availability/AvailabilityPanel'
@@ -22,6 +22,10 @@ import { useDemandMutations } from './features/demands/useDemandMutations'
 import { useDemandList } from './features/demands/useDemandList'
 import { useConcurrencyLocks } from './features/shared/useConcurrencyLocks'
 import { getInitialWeek, toIsoDate, useWeekNavigation } from './features/planning/useWeekNavigation'
+import { useStudySessions } from './features/study-sessions/useStudySessions'
+import StudySessionsPanel from './features/study-sessions/StudySessionsPanel'
+import { useStudySessionMutations } from './features/study-sessions/useStudySessionMutations'
+import type { StudySession, StudySessionDemand, StudySessionRequest, StudySessionTask, StudySessionTransition } from './features/study-sessions/studySessionTypes'
 
 import {
   formatMinutes,
@@ -63,7 +67,7 @@ function LoadingLines({ count = 3 }: LoadingLinesProps) {
 }
 
 function App() {
-  const [activeSection, setActiveSection] = useState<'planning' | 'demands'>('planning')
+  const [activeSection, setActiveSection] = useState<'planning' | 'demands' | 'study-sessions'>('planning')
   const [availabilityState, setAvailabilityState] = useState<LoadState<Availability[]>>({ status: 'loading', data: null, error: null })
   const [availabilityReloadToken, setAvailabilityReloadToken] = useState(0)
   const [isDemandFormOpen, setIsDemandFormOpen] = useState(false)
@@ -82,7 +86,7 @@ function App() {
     setDemandState,
     setAllDemandsState,
     setDemandReloadToken,
-    setAllDemandsReloadToken,
+    reconcileAllDemands,
   } = useDemandList({
     apiGet,
     getErrorMessage,
@@ -100,6 +104,9 @@ function App() {
     mondayIso,
     concurrencyLocks,
     onRefreshAllDataOnly: refreshAllDataOnly,
+    onRefreshStudySessions: async () => {
+      await reconcileStudySessions()
+    },
     getErrorMessage,
   })
 
@@ -131,12 +138,27 @@ function App() {
   } = useDemandMutations({
     concurrencyLocks,
     invalidatePreview,
-    clearPreview,
     refreshAllDemands,
+    reconcileAllDemands,
     setDemandState,
     setAllDemandsState,
     setDemandReloadToken,
-    setAllDemandsReloadToken,
+  })
+
+  const {
+    sessionsState,
+    setSessionsReloadToken,
+    reconcileStudySessions,
+  } = useStudySessions({
+    apiGet,
+    getErrorMessage,
+  })
+  const { createSession, updateSession, transitionSession, isMutating: isStudySessionMutating } = useStudySessionMutations({
+    refresh: async () => {
+      await reconcileStudySessions()
+    },
+    invalidatePreview,
+    concurrencyLocks,
   })
 
   const activeDemandCount = (demandState.data ?? []).length
@@ -154,12 +176,13 @@ function App() {
       concurrencyLocks.availabilityCreationInProgressRef.current ||
       concurrencyLocks.confirmationInProgressRef.current ||
       concurrencyLocks.demandUpdateInProgressRef.current ||
-      concurrencyLocks.taskMutationInProgressRef.current
+      concurrencyLocks.taskMutationInProgressRef.current ||
+      concurrencyLocks.studySessionMutationInProgressRef.current
     ) {
       return
     }
 
-    clearPreview()
+    invalidatePreview()
     setDemandState((previous) => ({ ...previous, status: 'loading', error: null }))
     setAvailabilityState((previous) => ({ ...previous, status: 'loading', error: null }))
     setDemandReloadToken((value) => value + 1)
@@ -167,7 +190,7 @@ function App() {
   }
 
   function refreshDemands(): void {
-    if (concurrencyLocks.confirmationInProgressRef.current || concurrencyLocks.demandUpdateInProgressRef.current || concurrencyLocks.taskMutationInProgressRef.current) return
+    if (concurrencyLocks.dataMutationInProgressRef.current) return
 
     clearPreview()
     setDemandState((previous) => ({
@@ -178,10 +201,9 @@ function App() {
     setDemandReloadToken((value) => value + 1)
   }
 
-  function refreshAllDemands(): void {
-    if (concurrencyLocks.demandUpdateInProgressRef.current || concurrencyLocks.taskMutationInProgressRef.current || concurrencyLocks.confirmationInProgressRef.current) return
-    setAllDemandsState((previous) => ({ ...previous, status: 'loading', error: null }))
-    setAllDemandsReloadToken((value) => value + 1)
+  async function refreshAllDemands(): Promise<void> {
+    if (concurrencyLocks.dataMutationInProgressRef.current && !concurrencyLocks.demandCreationInProgressRef.current && !concurrencyLocks.demandUpdateInProgressRef.current) return
+    await reconcileAllDemands()
   }
 
   async function refreshAvailability(): Promise<void> {
@@ -201,11 +223,12 @@ function App() {
     if (concurrencyLocks.availabilityCreationInProgressRef.current) {
       throw new Error('Já existe um cadastro de disponibilidade em andamento.')
     }
-    if (concurrencyLocks.confirmationInProgressRef.current || concurrencyLocks.demandUpdateInProgressRef.current || concurrencyLocks.demandCreationInProgressRef.current || concurrencyLocks.taskMutationInProgressRef.current) {
+    if (concurrencyLocks.dataMutationInProgressRef.current) {
       throw new Error('Aguarde a operação em andamento antes de cadastrar uma disponibilidade.')
     }
 
     concurrencyLocks.setAvailabilityCreationInProgress(true)
+    concurrencyLocks.setDataMutationInProgress(true)
     setIsCreatingAvailability(true)
 
     try {
@@ -213,7 +236,7 @@ function App() {
         '/api/disponibilidades-estudo',
         request,
       )
-      clearPreview()
+      invalidatePreview()
       setAvailabilityState((previous) => ({ ...previous, status: 'loading', error: null }))
       setAvailabilityReloadToken((value) => value + 1)
       setAvailabilityOutcomeUnknown(false)
@@ -228,6 +251,7 @@ function App() {
       throw error
     } finally {
       concurrencyLocks.setAvailabilityCreationInProgress(false)
+      concurrencyLocks.setDataMutationInProgress(false)
       setIsCreatingAvailability(false)
     }
   }
@@ -241,32 +265,31 @@ function App() {
 
   async function reconcileCreation(): Promise<void> {
     clearPreview()
-    setDemandState((prev) => ({ ...prev, status: 'loading', error: null }))
-
-    try {
-      const data = await apiGet<AcademicDemandRecord[]>('/api/demandas-academicas')
-      setDemandState({ status: 'success', data, error: null })
-      setDemandReloadToken((v) => v + 1)
-    } catch (error) {
-      const message = getErrorMessage(error, 'Não foi possível consultar as demandas. Tente novamente.')
-      setDemandState((prev) => ({ ...prev, status: 'error', error: message }))
-      throw error
-    }
+    await reconcileAllDemands()
+    setDemandReloadToken((v) => v + 1)
   }
 
   async function reconcileEditing(): Promise<void> {
     clearPreview()
-    setAllDemandsState((prev) => ({ ...prev, status: 'loading', error: null }))
+    await reconcileAllDemands()
+    setDemandReloadToken((v) => v + 1)
+  }
 
-    try {
-      const data = await apiGet<AcademicDemandRecord[]>('/api/demandas-academicas')
-      setAllDemandsState({ status: 'success', data, error: null })
-      setAllDemandsReloadToken((v) => v + 1)
-    } catch (error) {
-      const message = getErrorMessage(error, 'Não foi possível consultar as demandas. Tente novamente.')
-      setAllDemandsState((prev) => ({ ...prev, status: 'error', error: message }))
-      throw error
-    }
+  async function reconcileSessionCreation(): Promise<void> {
+    await reconcileStudySessions()
+  }
+
+  async function reconcileSessionEditing(): Promise<void> {
+    await reconcileStudySessions()
+  }
+
+  const studySessionDemands: StudySessionDemand[] = (allDemandsState.data ?? []).map((demand) => ({
+    id: demand.id,
+    titulo: demand.titulo,
+  }))
+
+  function loadStudySessionTasks(demandId: number, signal: AbortSignal): Promise<StudySessionTask[]> {
+    return loadDemandTasks(demandId, signal)
   }
 
   const isTaskMutationInProgress = isCreatingTask || isUpdatingTask || isDeletingTask
@@ -290,6 +313,10 @@ function App() {
             <Icon name="book" size={18} />
             <span>Demandas acadêmicas</span>
           </button>
+          <button className={`nav-item nav-item-button ${activeSection === 'study-sessions' ? 'nav-item-active' : ''}`} type="button" aria-current={activeSection === 'study-sessions' ? 'page' : undefined} onClick={() => setActiveSection('study-sessions')} aria-label="Sessões de estudo">
+            <Icon name="clock" size={18} />
+            <span>Sessões de estudo</span>
+          </button>
         </nav>
 
         <div className="sidebar-bottom">
@@ -302,7 +329,7 @@ function App() {
 
       <main className="main-area" id="planejamento" tabIndex={-1}>
         <header className="topbar">
-          <span className="breadcrumb">{activeSection === 'planning' ? <>Planejamento <span>/</span> Visão semanal</> : <>Demandas acadêmicas <span>/</span> Gestão</>}</span>
+          <span className="breadcrumb">{activeSection === 'planning' ? <>Planejamento <span>/</span> Visão semanal</> : activeSection === 'demands' ? <>Demandas acadêmicas <span>/</span> Gestão</> : <>Sessões de estudo <span>/</span> Consulta</>}</span>
           <div className="topbar-status"><span className="status-dot" /> Dados da API</div>
         </header>
 
@@ -443,6 +470,7 @@ function App() {
                   isCreatingTask={isCreatingTask}
                   isUpdatingTask={isUpdatingTask}
                   isDeletingTask={isDeletingTask}
+                  isStudySessionMutating={isStudySessionMutating}
                   clearPreview={clearPreview}
                   confirmPreview={confirmPreview}
                   generatePreview={generatePreview}
@@ -467,6 +495,43 @@ function App() {
               <footer className="page-footer">
                 <span>Demandas organizadas para uma rotina real.</span>
                 <span>CadernoAtlas <span className="footer-separator">·</span> Demandas acadêmicas</span>
+              </footer>
+            </div>
+            <div hidden={activeSection !== 'study-sessions'}>
+              <section className="page-heading">
+                <div>
+                  <p className="eyebrow">SEU ESPAÇO DE ESTUDO</p>
+                  <h1>Sessões de estudo</h1>
+                  <p className="page-subtitle">Consulte as sessões planejadas, em andamento, concluídas ou canceladas.</p>
+                </div>
+              </section>
+              {activeSection === 'study-sessions' && (
+                <StudySessionsPanel
+                  state={sessionsState}
+                  onRetry={() => setSessionsReloadToken((v) => v + 1)}
+                  demands={studySessionDemands}
+                  onLoadTasks={loadStudySessionTasks}
+                  onCreate={async (request: StudySessionRequest) => {
+                    await createSession(request)
+                    setCreationOutcomeUnknown(false)
+                  }}
+                  onReconcile={reconcileSessionCreation}
+                  creationOutcomeUnknown={creationOutcomeUnknown}
+                  onCreationOutcomeUnknownChange={setCreationOutcomeUnknown}
+                  onUpdate={async (id: number, request: StudySessionRequest) => {
+                    await updateSession(id, request)
+                    setEditingOutcomeUnknown(false)
+                  }}
+                  onReconcileEdit={reconcileSessionEditing}
+                  onEditOutcomeUnknownChange={setEditingOutcomeUnknown}
+                  onTransition={(id: number, transition: StudySessionTransition): Promise<StudySession> => transitionSession(id, transition)}
+                  isTransitioning={isStudySessionMutating}
+                  getErrorMessage={getErrorMessage}
+                />
+              )}
+              <footer className="page-footer">
+                <span>Sessões organizadas para uma rotina real.</span>
+                <span>CadernoAtlas <span className="footer-separator">·</span> Sessões de estudo</span>
               </footer>
             </div>
           </div>

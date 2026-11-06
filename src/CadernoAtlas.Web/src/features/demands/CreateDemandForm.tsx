@@ -1,4 +1,5 @@
 import { useRef, useState, type FormEvent } from 'react'
+import { isMutationSyncError } from '../shared/mutationOutcome'
 
 export type DemandType = 0 | 1 | 2 | 3 | 4
 export type DemandImportance = 0 | 1 | 2
@@ -39,6 +40,7 @@ export default function CreateDemandForm({
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [isReconciling, setIsReconciling] = useState(false)
   const [outcomeUnknown, setOutcomeUnknown] = useState(initialOutcomeUnknown)
+  const [synchronizationFailed, setSynchronizationFailed] = useState(false)
   const submissionInProgressRef = useRef(false)
   const controlsDisabled = disabled || isSubmitting || isReconciling
 
@@ -88,6 +90,7 @@ export default function CreateDemandForm({
     submissionInProgressRef.current = true
     setError(null)
     setIsSubmitting(true)
+    setSynchronizationFailed(false)
     onOutcomeUnknownChange(false)
     setOutcomeUnknown(false)
 
@@ -105,7 +108,10 @@ export default function CreateDemandForm({
       // Se for erro de concorrência local (Error sem status), mostrar a mensagem original
       const isLocalConcurrencyError = status === null && submissionError instanceof Error &&
         (submissionError.message.includes('em andamento') || submissionError.message.includes('Aguarde'))
-      if (isLocalConcurrencyError) {
+      if (isMutationSyncError(submissionError)) {
+        setSynchronizationFailed(true)
+        setError(submissionError.message)
+      } else if (isLocalConcurrencyError) {
         setError(getApiMessage(submissionError, 'Não foi possível cadastrar a demanda. Tente novamente.'))
       } else if (status === null || status === 408 || status === 429 || status >= 500) {
         onOutcomeUnknownChange(true)
@@ -123,12 +129,13 @@ export default function CreateDemandForm({
   async function reconcileOutcome(): Promise<void> {
     if (isReconciling) return
     setIsReconciling(true)
-    setError(null)
+
     try {
       await onReconcile()
       // Reconciliação bem-sucedida: liberar estado incerto global e fechar formulário
       onOutcomeUnknownChange(false)
       setOutcomeUnknown(false)
+      setSynchronizationFailed(false)
       onCancel()
     } catch (reconcileError) {
       // Falha na reconciliação: manter estado incerto, formulário aberto, mostrar erro
@@ -231,11 +238,11 @@ export default function CreateDemandForm({
           {error}
         </p>
       )}
-      {outcomeUnknown && (
+      {(outcomeUnknown || synchronizationFailed) && (
         <div className="task-uncertain-guidance">
-          <p>A consulta reduz a incerteza, mas não garante que uma requisição anterior ainda em processamento não seja concluída depois.</p>
+          <p>{synchronizationFailed ? 'A demanda foi criada, mas a lista não pôde ser atualizada. Consulte a lista novamente; não é necessário cadastrá-la outra vez.' : 'A consulta reduz a incerteza, mas não garante que uma requisição anterior ainda em processamento não seja concluída depois.'}</p>
           <button className="text-button" type="button" disabled={controlsDisabled} onClick={() => void reconcileOutcome()}>
-            {isReconciling ? 'Consultando demandas…' : 'Consultar demandas antes de tentar novamente'}
+            {isReconciling ? 'Consultando demandas…' : synchronizationFailed ? 'Atualizar lista de demandas' : 'Consultar demandas antes de tentar novamente'}
           </button>
         </div>
       )}
@@ -244,7 +251,7 @@ export default function CreateDemandForm({
           className="button button-secondary"
           type="button"
           onClick={onCancel}
-          disabled={controlsDisabled || outcomeUnknown}
+          disabled={controlsDisabled || outcomeUnknown || synchronizationFailed}
         >
           Cancelar
         </button>
@@ -252,7 +259,7 @@ export default function CreateDemandForm({
         <button
           className="button button-primary"
           type="submit"
-          disabled={controlsDisabled || (outcomeUnknown && !isReconciling)}
+          disabled={controlsDisabled || outcomeUnknown || synchronizationFailed}
         >
           {isSubmitting ? 'Salvando...' : 'Salvar demanda'}
         </button>

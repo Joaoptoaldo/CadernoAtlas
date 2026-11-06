@@ -18,6 +18,7 @@ interface UseDemandListReturn {
   setAllDemandsState: React.Dispatch<React.SetStateAction<LoadState<AcademicDemandRecord[]>>>
   setDemandReloadToken: React.Dispatch<React.SetStateAction<number>>
   setAllDemandsReloadToken: React.Dispatch<React.SetStateAction<number>>
+  reconcileAllDemands: () => Promise<AcademicDemandRecord[]>
 }
 
 export function useDemandList(options: UseDemandListOptions): UseDemandListReturn {
@@ -82,6 +83,34 @@ export function useDemandList(options: UseDemandListOptions): UseDemandListRetur
     return () => controller.abort()
   }, [apiGet, getErrorMessage])
 
+  const reconcileAllDemands = useCallback(async () => {
+    const controller = new AbortController()
+    const requestId = ++allDemandsRequestIdRef.current
+
+    setAllDemandsState((prev) => ({ ...prev, status: 'loading', error: null }))
+
+    try {
+      const data = await apiGet<AcademicDemandRecord[]>('/api/demandas-academicas', controller.signal)
+      if (requestId !== allDemandsRequestIdRef.current) {
+        throw new Error('Requisição obsoleta')
+      }
+      setAllDemandsState({ status: 'success', data, error: null })
+      return data
+    } catch (error: unknown) {
+      if (error instanceof Error && error.name === 'AbortError') {
+        throw error
+      }
+      if (requestId !== allDemandsRequestIdRef.current) {
+        throw new Error('Requisição obsoleta')
+      }
+      const message = getErrorMessage(error, 'Não foi possível consultar as demandas. Tente novamente.')
+      setAllDemandsState((prev) => ({ ...prev, status: 'error', error: message }))
+      throw error
+    } finally {
+      controller.abort()
+    }
+  }, [apiGet, getErrorMessage])
+
   useEffect(() => {
     return loadPrioritizedDemands()
   }, [demandReloadToken, loadPrioritizedDemands])
@@ -99,5 +128,6 @@ export function useDemandList(options: UseDemandListOptions): UseDemandListRetur
     setAllDemandsState,
     setDemandReloadToken,
     setAllDemandsReloadToken,
+    reconcileAllDemands,
   }
 }

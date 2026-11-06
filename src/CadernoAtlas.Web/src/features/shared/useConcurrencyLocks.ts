@@ -6,11 +6,15 @@ export interface ConcurrencyLocks {
   availabilityCreationInProgressRef: React.MutableRefObject<boolean>
   confirmationInProgressRef: React.MutableRefObject<boolean>
   taskMutationInProgressRef: React.MutableRefObject<boolean>
+  studySessionMutationInProgressRef: React.MutableRefObject<boolean>
+  dataMutationInProgressRef: React.MutableRefObject<boolean>
   setDemandCreationInProgress: (value: boolean) => void
   setDemandUpdateInProgress: (value: boolean) => void
   setAvailabilityCreationInProgress: (value: boolean) => void
   setConfirmationInProgress: (value: boolean) => void
   setTaskMutationInProgress: (value: boolean) => void
+  setStudySessionMutationInProgress: (value: boolean) => void
+  setDataMutationInProgress: (value: boolean) => void
 }
 
 export function useConcurrencyLocks(): ConcurrencyLocks {
@@ -19,6 +23,8 @@ export function useConcurrencyLocks(): ConcurrencyLocks {
   const availabilityCreationInProgressRef = useRef(false)
   const confirmationInProgressRef = useRef(false)
   const taskMutationInProgressRef = useRef(false)
+  const studySessionMutationInProgressRef = useRef(false)
+  const dataMutationInProgressRef = useRef(false)
 
   const setDemandCreationInProgress = useCallback((value: boolean) => {
     demandCreationInProgressRef.current = value
@@ -40,16 +46,28 @@ export function useConcurrencyLocks(): ConcurrencyLocks {
     taskMutationInProgressRef.current = value
   }, [])
 
+  const setStudySessionMutationInProgress = useCallback((value: boolean) => {
+    studySessionMutationInProgressRef.current = value
+  }, [])
+
+  const setDataMutationInProgress = useCallback((value: boolean) => {
+    dataMutationInProgressRef.current = value
+  }, [])
+
   return {
     demandCreationInProgressRef,
     demandUpdateInProgressRef,
     availabilityCreationInProgressRef,
     confirmationInProgressRef,
     taskMutationInProgressRef,
+    studySessionMutationInProgressRef,
+    dataMutationInProgressRef,
     setDemandCreationInProgress,
     setDemandUpdateInProgress,
     setAvailabilityCreationInProgress,
     setConfirmationInProgress,
     setTaskMutationInProgress,
+    setStudySessionMutationInProgress,
+    setDataMutationInProgress,
   }
 }
