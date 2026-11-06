@@ -274,6 +274,21 @@ describe('Planejamento semanal e acessibilidade', () => {
     })
   })
 
+  it('sincroniza as sessões criadas pela confirmação sem repetir a criação no frontend', async () => {
+    const fetchMock = setupFetch({ studySessions: [] })
+    renderApp()
+
+    fireEvent.click(screen.getByRole('button', { name: /Gerar pr/ }))
+    await screen.findByText('Revisar anatomia')
+    fireEvent.click(screen.getByRole('button', { name: 'Confirmar planejamento' }))
+
+    expect(await screen.findByText('Planejamento confirmado')).toBeInTheDocument()
+    expect(fetchMock.getStudySessionPostRequests()).toBe(0)
+    fireEvent.click(screen.getByRole('button', { name: 'Sessões de estudo' }))
+    expect((await screen.findAllByText('Revisar anatomia')).length).toBeGreaterThanOrEqual(2)
+    expect(fetchMock.getStudySessionListRequests()).toBeGreaterThan(1)
+  })
+
 
   it('exige uma nova prévia quando a conexão falha durante a confirmação', async () => {
     const fetchMock = setupFetch()

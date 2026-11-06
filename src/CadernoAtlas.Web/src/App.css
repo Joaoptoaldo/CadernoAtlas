@@ -397,3 +397,239 @@ h1 { margin: 0; color: var(--green-deep); font-size: clamp(26px, 2.5vw, 33px); f
 .task-delete-error {
   margin: 0.75rem 0;
 }
+
+/* Sessões de estudo */
+.study-sessions-panel {
+  display: grid;
+  gap: 16px;
+}
+
+.study-sessions-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.clear-filters-button {
+  align-self: flex-end;
+}
+
+.study-session-card {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+
+.study-session-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.study-session-header h3 {
+  margin: 0;
+  color: var(--green-deep);
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.study-session-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin-top: 6px;
+  color: #6d7d74;
+  font-size: 11px;
+}
+
+.study-session-date,
+.study-session-time,
+.study-session-real-duration {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.study-session-status {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 8px;
+  border-radius: 6px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.study-session-status-planejada {
+  color: #2b6154;
+  background: #e2f0ea;
+}
+
+.study-session-status-emandamento {
+  color: #8c6314;
+  background: #fdf3dc;
+}
+
+.study-session-status-concluida {
+  color: #1e6b45;
+  background: #daf1e4;
+}
+
+.study-session-status-cancelada {
+  color: #8f3d38;
+  background: #fbe6e4;
+}
+
+.study-session-status-desconhecida {
+  color: #616e68;
+  background: #e9ece9;
+}
+
+.study-session-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #5c6e65;
+  font-size: 11px;
+}
+
+.study-session-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.study-session-form {
+  display: grid;
+  gap: 16px;
+  padding: 20px;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+
+.study-session-form-heading h3 {
+  margin: 0;
+  color: var(--green-deep);
+  font-size: 15px;
+}
+
+.study-session-form-heading p,
+.form-help,
+.study-session-edit-notice {
+  color: #6d7d74;
+  font-size: 11px;
+}
+
+.study-session-form-heading p {
+  margin: 5px 0 0;
+}
+
+.study-session-edit-notice {
+  margin-right: auto;
+}
+
+.button-small {
+  min-height: 28px;
+  padding: 0 10px;
+  font-size: 10.5px;
+}
+
+/* Modal de detalhes da sessão */
+.study-session-detail-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(18, 36, 30, 0.45);
+  backdrop-filter: blur(2px);
+}
+
+.study-session-detail-panel {
+  display: grid;
+  width: min(560px, 100%);
+  max-height: 90vh;
+  overflow-y: auto;
+  background: #fff;
+  border-radius: 14px;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.16);
+}
+
+.study-session-detail-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 18px 22px;
+  border-bottom: 1px solid var(--border);
+}
+
+.study-session-detail-header h2 {
+  margin: 0;
+  color: var(--green-deep);
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.study-session-detail-content {
+  padding: 22px;
+}
+
+.study-session-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px 20px;
+  margin: 0;
+}
+
+.detail-row {
+  display: grid;
+  gap: 4px;
+}
+
+.detail-row-full {
+  grid-column: 1 / -1;
+}
+
+.detail-row dt {
+  color: #89958f;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.detail-row dd {
+  margin: 0;
+  color: #35473e;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.study-session-detail-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 22px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+
+.loading-spinner {
+  width: 24px;
+  height: 24px;
+  margin: 20px auto;
+  border: 3px solid #dfeae4;
+  border-top-color: var(--green);
+  border-radius: 50%;
+  animation: planning-spin 0.8s linear infinite;
+}

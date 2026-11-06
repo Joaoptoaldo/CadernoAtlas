@@ -6,6 +6,7 @@ import type { CreateDemandTaskRequest } from './CreateDemandTaskForm'
 import type { UpdateDemandTaskRequest, DemandTask } from './ManageDemandTasks'
 import type { LoadState } from '../shared/loadState'
 import type { ConcurrencyLocks } from '../shared/useConcurrencyLocks'
+import { MutationSyncError } from '../shared/mutationOutcome'
 
 function shouldInvalidatePreviewOnError(error: unknown): boolean {
   // Erro de rede ou resultado incerto pode significar que a mutação foi persistida.
@@ -19,17 +20,16 @@ export interface UseDemandMutationsOptions {
   concurrencyLocks: Pick<
     ConcurrencyLocks,
     'demandCreationInProgressRef' | 'demandUpdateInProgressRef' |
-    'availabilityCreationInProgressRef' | 'confirmationInProgressRef' | 'taskMutationInProgressRef' |
+    'availabilityCreationInProgressRef' | 'confirmationInProgressRef' | 'taskMutationInProgressRef' | 'dataMutationInProgressRef' |
     'setDemandCreationInProgress' | 'setDemandUpdateInProgress' |
-    'setAvailabilityCreationInProgress' | 'setConfirmationInProgress' | 'setTaskMutationInProgress'
+    'setAvailabilityCreationInProgress' | 'setConfirmationInProgress' | 'setTaskMutationInProgress' | 'setDataMutationInProgress'
   >
   invalidatePreview: () => void
-  clearPreview: () => void
-  refreshAllDemands: () => void
+  refreshAllDemands: () => Promise<void>
+  reconcileAllDemands: () => Promise<import('./ManageDemandsPanel').AcademicDemandRecord[]>
   setDemandState: React.Dispatch<React.SetStateAction<LoadState<any>>>
   setAllDemandsState: React.Dispatch<React.SetStateAction<LoadState<any>>>
   setDemandReloadToken: React.Dispatch<React.SetStateAction<number>>
-  setAllDemandsReloadToken: React.Dispatch<React.SetStateAction<number>>
 }
 
 export interface UseDemandMutationsReturn {
@@ -49,12 +49,11 @@ export function useDemandMutations(options: UseDemandMutationsOptions): UseDeman
   const {
     concurrencyLocks,
     invalidatePreview,
-    clearPreview,
     refreshAllDemands,
+    reconcileAllDemands,
     setDemandState,
     setAllDemandsState,
     setDemandReloadToken,
-    setAllDemandsReloadToken,
   } = options
 
   const {
@@ -63,10 +62,14 @@ export function useDemandMutations(options: UseDemandMutationsOptions): UseDeman
     availabilityCreationInProgressRef,
     confirmationInProgressRef,
     taskMutationInProgressRef,
+    dataMutationInProgressRef: providedDataMutationInProgressRef,
     setDemandCreationInProgress,
     setDemandUpdateInProgress,
     setTaskMutationInProgress,
+    setDataMutationInProgress: providedSetDataMutationInProgress,
   } = concurrencyLocks
+  const dataMutationInProgressRef = providedDataMutationInProgressRef ?? { current: false }
+  const setDataMutationInProgress = providedSetDataMutationInProgress ?? (() => {})
 
   const [isCreatingDemand, setIsCreatingDemand] = useState(false)
   const [isUpdatingDemand, setIsUpdatingDemand] = useState(false)
@@ -83,24 +86,33 @@ export function useDemandMutations(options: UseDemandMutationsOptions): UseDeman
       availabilityCreationInProgressRef.current ||
       demandUpdateInProgressRef.current ||
       taskMutationInProgressRef.current
+      || dataMutationInProgressRef.current
     ) {
       throw new Error('Aguarde a operação em andamento antes de cadastrar uma demanda.')
     }
 
     setDemandCreationInProgress(true)
+    setDataMutationInProgress(true)
     setIsCreatingDemand(true)
 
     try {
       await apiPost<unknown, CreateDemandRequest>('/api/demandas-academicas', request)
-      clearPreview()
+      invalidatePreview()
       setDemandState((prev) => ({ ...prev, status: 'loading', error: null }))
       setDemandReloadToken((v) => v + 1)
-      refreshAllDemands()
+      try {
+        await refreshAllDemands()
+      } catch (error: unknown) {
+        throw new MutationSyncError(
+          `A demanda foi criada, mas a lista não pôde ser atualizada. ${error instanceof Error ? error.message : 'Tente atualizar a lista novamente.'}`,
+        )
+      }
     } catch (error: unknown) {
       if (shouldInvalidatePreviewOnError(error)) invalidatePreview()
       throw error
     } finally {
       setDemandCreationInProgress(false)
+      setDataMutationInProgress(false)
       setIsCreatingDemand(false)
     }
   }, [
@@ -109,12 +121,13 @@ export function useDemandMutations(options: UseDemandMutationsOptions): UseDeman
     confirmationInProgressRef,
     demandUpdateInProgressRef,
     taskMutationInProgressRef,
-    clearPreview,
     invalidatePreview,
     setDemandState,
     setDemandReloadToken,
     refreshAllDemands,
     setDemandCreationInProgress,
+    dataMutationInProgressRef,
+    setDataMutationInProgress,
   ])
 
   const updateDemand = useCallback(async (id: number, request: UpdateDemandRequest) => {
@@ -124,24 +137,33 @@ export function useDemandMutations(options: UseDemandMutationsOptions): UseDeman
       availabilityCreationInProgressRef.current ||
       demandUpdateInProgressRef.current ||
       taskMutationInProgressRef.current
+      || dataMutationInProgressRef.current
     ) {
       throw new Error('Aguarde a operação em andamento antes de atualizar uma demanda.')
     }
 
     setDemandUpdateInProgress(true)
+    setDataMutationInProgress(true)
     setIsUpdatingDemand(true)
     try {
       await apiPut<unknown, UpdateDemandRequest>(`/api/demandas-academicas/${id}`, request)
       invalidatePreview()
       setDemandState((prev) => ({ ...prev, status: 'loading', error: null }))
       setDemandReloadToken((v) => v + 1)
-      setAllDemandsState((prev) => ({ ...prev, status: 'loading', error: null }))
-      setAllDemandsReloadToken((v) => v + 1)
+      // Trigger reconciliation for all demands (single GET, no token increment)
+      try {
+        await reconcileAllDemands()
+      } catch (error: unknown) {
+        throw new MutationSyncError(
+          `A demanda foi atualizada, mas a lista não pôde ser atualizada. ${error instanceof Error ? error.message : 'Tente atualizar a lista novamente.'}`,
+        )
+      }
     } catch (error: unknown) {
       if (shouldInvalidatePreviewOnError(error)) invalidatePreview()
       throw error
     } finally {
       setDemandUpdateInProgress(false)
+      setDataMutationInProgress(false)
       setIsUpdatingDemand(false)
     }
   }, [
@@ -154,8 +176,10 @@ export function useDemandMutations(options: UseDemandMutationsOptions): UseDeman
     setDemandState,
     setDemandReloadToken,
     setAllDemandsState,
-    setAllDemandsReloadToken,
+    reconcileAllDemands,
     setDemandUpdateInProgress,
+    dataMutationInProgressRef,
+    setDataMutationInProgress,
   ])
 
   const createDemandTask = useCallback(async (demandId: number, request: CreateDemandTaskRequest) => {
@@ -167,11 +191,13 @@ export function useDemandMutations(options: UseDemandMutationsOptions): UseDeman
       demandCreationInProgressRef.current ||
       demandUpdateInProgressRef.current ||
       availabilityCreationInProgressRef.current
+      || dataMutationInProgressRef.current
     ) {
       throw new Error('Aguarde a operação em andamento antes de cadastrar uma tarefa.')
     }
 
     setTaskMutationInProgress(true)
+    setDataMutationInProgress(true)
     setIsCreatingTask(true)
     try {
       await apiPost<DemandTask, CreateDemandTaskRequest>(`/api/demandas-academicas/${demandId}/tarefas`, request)
@@ -181,6 +207,7 @@ export function useDemandMutations(options: UseDemandMutationsOptions): UseDeman
       throw error
     } finally {
       setTaskMutationInProgress(false)
+      setDataMutationInProgress(false)
       setIsCreatingTask(false)
     }
   }, [
@@ -191,6 +218,8 @@ export function useDemandMutations(options: UseDemandMutationsOptions): UseDeman
     availabilityCreationInProgressRef,
     invalidatePreview,
     setTaskMutationInProgress,
+    dataMutationInProgressRef,
+    setDataMutationInProgress,
   ])
 
   const updateDemandTask = useCallback(async (demandId: number, taskId: number, request: UpdateDemandTaskRequest) => {
@@ -202,11 +231,13 @@ export function useDemandMutations(options: UseDemandMutationsOptions): UseDeman
       demandCreationInProgressRef.current ||
       demandUpdateInProgressRef.current ||
       availabilityCreationInProgressRef.current
+      || dataMutationInProgressRef.current
     ) {
       throw new Error('Aguarde a operação em andamento antes de atualizar uma tarefa.')
     }
 
     setTaskMutationInProgress(true)
+    setDataMutationInProgress(true)
     setIsUpdatingTask(true)
     try {
       const updated = await apiPut<DemandTask, UpdateDemandTaskRequest>(`/api/demandas-academicas/${demandId}/tarefas/${taskId}`, request)
@@ -217,6 +248,7 @@ export function useDemandMutations(options: UseDemandMutationsOptions): UseDeman
       throw error
     } finally {
       setTaskMutationInProgress(false)
+      setDataMutationInProgress(false)
       setIsUpdatingTask(false)
     }
   }, [
@@ -227,6 +259,8 @@ export function useDemandMutations(options: UseDemandMutationsOptions): UseDeman
     availabilityCreationInProgressRef,
     invalidatePreview,
     setTaskMutationInProgress,
+    dataMutationInProgressRef,
+    setDataMutationInProgress,
   ])
 
   const deleteDemandTask = useCallback(async (demandId: number, taskId: number) => {
@@ -238,11 +272,13 @@ export function useDemandMutations(options: UseDemandMutationsOptions): UseDeman
       demandCreationInProgressRef.current ||
       demandUpdateInProgressRef.current ||
       availabilityCreationInProgressRef.current
+      || dataMutationInProgressRef.current
     ) {
       throw new Error('Aguarde a operação em andamento antes de excluir uma tarefa.')
     }
 
     setTaskMutationInProgress(true)
+    setDataMutationInProgress(true)
     setIsDeletingTask(true)
     try {
       await apiDelete(`/api/demandas-academicas/${demandId}/tarefas/${taskId}`)
@@ -252,6 +288,7 @@ export function useDemandMutations(options: UseDemandMutationsOptions): UseDeman
       throw error
     } finally {
       setTaskMutationInProgress(false)
+      setDataMutationInProgress(false)
       setIsDeletingTask(false)
     }
   }, [
@@ -262,6 +299,8 @@ export function useDemandMutations(options: UseDemandMutationsOptions): UseDeman
     availabilityCreationInProgressRef,
     invalidatePreview,
     setTaskMutationInProgress,
+    dataMutationInProgressRef,
+    setDataMutationInProgress,
   ])
 
   return {

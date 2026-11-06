@@ -40,6 +40,23 @@ export const demandFixture = {
   justificativa: 'Demanda prioritária para a semana.',
 }
 
+export const studySessionFixture = {
+  id: 1,
+  titulo: 'Revisão de Biologia Celular',
+  dataPlanejada: '2026-11-10',
+  horaInicioPlanejada: '14:00:00',
+  duracaoPlanejadaMinutos: 90,
+  duracaoRealMinutos: null,
+  situacao: 0,
+  demandaAcademicaId: 1,
+  tarefaDemandaId: null,
+  observacoes: 'Foco na membrana plasmática',
+  criadoEm: '2026-11-01T10:00:00Z',
+  inicioRealEm: null,
+  concluidaEm: null,
+  canceladaEm: null,
+}
+
 export function buildPreview(inicioSemana) {
   return {
     inicioSemana,
@@ -150,7 +167,25 @@ export function setupFetch({
   allDemandGate,
   allDemandReconcileGate,
   allDemandReconcileFailures = 0,
+  studySessions = [studySessionFixture],
+  studySessionDetails = {},
+  studySessionFailures = 0,
+  studySessionReconcileFailures = 0,
+  studySessionCreateResponse = null,
+  studySessionUpdateResponse = null,
+  studySessionCreateNetworkFailures = 0,
+  studySessionUpdateNetworkFailures = 0,
+  studySessionTransitionResponses = {},
+  studySessionTransitionNetworkFailures = {},
+  studySessionReconciliationDetails = {},
+  studySessionTransitionGate,
 } = {}) {
+  let remainingStudySessionFailures = studySessionFailures
+  let remainingStudySessionReconcileFailures = studySessionReconcileFailures
+  let currentStudySessions = studySessions
+  let remainingStudySessionCreateNetworkFailures = studySessionCreateNetworkFailures
+  let remainingStudySessionUpdateNetworkFailures = studySessionUpdateNetworkFailures
+  const remainingStudySessionTransitionNetworkFailures = { ...studySessionTransitionNetworkFailures }
   let remainingDemandFailures = demandFailures
   let remainingAllDemandFailures = allDemandFailures
   let remainingAllDemandReconcileFailures = allDemandReconcileFailures
@@ -168,6 +203,10 @@ export function setupFetch({
   let availabilityRequests = 0
   let availabilityPostRequests = 0
   let confirmationPostRequests = 0
+  let studySessionPostRequests = 0
+  let studySessionPutRequests = 0
+  let studySessionTransitionRequests = 0
+  let studySessionListRequests = 0
   let taskPostRequests = 0
   let taskPutRequests = 0
   let taskDeleteRequests = 0
@@ -203,7 +242,7 @@ export function setupFetch({
       // Apply failures for reconciliation calls
       // Fail on first request if reconcile failures configured without gate (test doesn't load demands tab first)
       // Or on subsequent requests when gate is used
-      if (remainingAllDemandReconcileFailures > 0 && (allDemandRequests > 1 || !allDemandReconcileGate)) {
+      if (remainingAllDemandReconcileFailures > 0 && allDemandRequests > 1) {
         remainingAllDemandReconcileFailures -= 1
         return jsonResponse({ detail: 'Falha temporária na lista completa.' }, 503)
       }
@@ -389,6 +428,7 @@ export function setupFetch({
       }
       if (createResponse.status >= 200 && createResponse.status < 300) {
         createdDemand = true
+        currentAllDemands = [...currentAllDemands, createResponse.data]
       }
       return jsonResponse(createResponse.data, createResponse.status)
     }
@@ -432,7 +472,157 @@ export function setupFetch({
     ) {
       confirmationPostRequests += 1
       if (confirmationGate) await confirmationGate
+      if (postResponse.status >= 200 && postResponse.status < 300) {
+        const requestBody = JSON.parse(init.body)
+        const createdIds = postResponse.data?.sessoesCriadas ?? []
+        currentStudySessions = [
+          ...currentStudySessions,
+          ...requestBody.alocacoes.map((allocation, index) => ({
+            ...allocation,
+            horaInicioPlanejada: allocation.horaInicio,
+            duracaoPlanejadaMinutos: allocation.duracaoPlanejadaMinutos,
+            id: createdIds[index]?.id ?? Math.max(0, ...currentStudySessions.map((session) => session.id)) + index + 1,
+            duracaoRealMinutos: null,
+            situacao: 0,
+            inicioRealEm: null,
+            concluidaEm: null,
+            canceladaEm: null,
+          })),
+        ]
+      }
       return jsonResponse(postResponse.data, postResponse.status)
+    }
+
+    if (path.startsWith('/api/sessoes-estudo')) {
+      const transitionMatch = path.match(/^\/api\/sessoes-estudo\/(\d+)\/(iniciar|concluir|cancelar)$/)
+      if (transitionMatch && init.method === 'POST') {
+        const sessionId = Number(transitionMatch[1])
+        const transition = transitionMatch[2]
+        const transitionKey = `${sessionId}/${transition}`
+        studySessionTransitionRequests += 1
+        if (studySessionTransitionGate) await studySessionTransitionGate
+        if (remainingStudySessionTransitionNetworkFailures[transitionKey] > 0) {
+          remainingStudySessionTransitionNetworkFailures[transitionKey] -= 1
+          throw new TypeError('Failed to fetch')
+        }
+        const existing = currentStudySessions.find((session) => session.id === sessionId)
+        const desiredSituation = transition === 'iniciar' ? 1 : transition === 'concluir' ? 2 : 3
+        const now = '2026-11-06T15:00:00Z'
+        const response = studySessionTransitionResponses[transitionKey] ?? {
+          status: existing ? 200 : 404,
+          data: existing
+            ? {
+              ...existing,
+              situacao: desiredSituation,
+              inicioRealEm: transition === 'iniciar' ? now : existing.inicioRealEm,
+              concluidaEm: transition === 'concluir' ? now : existing.concluidaEm,
+              canceladaEm: transition === 'cancelar' ? now : existing.canceladaEm,
+              duracaoRealMinutos: transition === 'iniciar' ? null : existing.duracaoRealMinutos ?? 0,
+            }
+            : { detail: 'Sessão não encontrada.' },
+        }
+        if (response.status >= 200 && response.status < 300) {
+          currentStudySessions = currentStudySessions.map((session) => session.id === sessionId ? response.data : session)
+        }
+        return jsonResponse(response.data, response.status)
+      }
+
+      if (init.method === 'POST') {
+        studySessionPostRequests += 1
+        if (remainingStudySessionCreateNetworkFailures > 0) {
+          remainingStudySessionCreateNetworkFailures -= 1
+          throw new TypeError('Failed to fetch')
+        }
+        const requestBody = JSON.parse(init.body)
+        const response = studySessionCreateResponse ?? {
+          status: 201,
+          data: {
+            ...requestBody,
+            id: Math.max(0, ...currentStudySessions.map((session) => session.id)) + 1,
+            situacao: 0,
+            duracaoRealMinutos: null,
+            criadoEm: '2026-11-06T12:00:00Z',
+            inicioRealEm: null,
+            concluidaEm: null,
+            canceladaEm: null,
+          },
+        }
+        if (response.status >= 200 && response.status < 300) currentStudySessions = [...currentStudySessions, response.data]
+        return jsonResponse(response.data, response.status)
+      }
+
+      if (init.method === 'PUT') {
+        studySessionPutRequests += 1
+        if (remainingStudySessionUpdateNetworkFailures > 0) {
+          remainingStudySessionUpdateNetworkFailures -= 1
+          throw new TypeError('Failed to fetch')
+        }
+        const sessionId = Number(path.match(/^\/api\/sessoes-estudo\/(\d+)$/)?.[1])
+        const requestBody = JSON.parse(init.body)
+        const existing = currentStudySessions.find((session) => session.id === sessionId)
+        const response = studySessionUpdateResponse ?? {
+          status: existing ? 200 : 404,
+          data: existing ? { ...existing, ...requestBody } : { detail: 'Sessão não encontrada.' },
+        }
+        if (response.status >= 200 && response.status < 300) {
+          currentStudySessions = currentStudySessions.map((session) => session.id === sessionId ? response.data : session)
+        }
+        return jsonResponse(response.data, response.status)
+      }
+
+      if (remainingStudySessionFailures > 0) {
+        remainingStudySessionFailures -= 1
+        return jsonResponse({ title: 'Falha temporária ao carregar sessões.' }, 500)
+      }
+
+      const singleSessionMatch = path.match(/^\/api\/sessoes-estudo\/(\d+)$/)
+      if (singleSessionMatch) {
+        const sessionId = Number(singleSessionMatch[1])
+        const reconciliationDetail = studySessionReconciliationDetails[sessionId]
+        if (reconciliationDetail) {
+          currentStudySessions = currentStudySessions.map((session) => session.id === sessionId ? reconciliationDetail : session)
+          return jsonResponse(reconciliationDetail)
+        }
+        const sessionConfig = studySessionDetails[sessionId]
+        if (sessionConfig && typeof sessionConfig.status === 'number') {
+          return jsonResponse(sessionConfig.data ?? { title: 'Sessão de estudo não encontrada.' }, sessionConfig.status)
+        }
+        const sessionDetail = sessionConfig ?? currentStudySessions.find((s) => s.id === sessionId)
+        if (!sessionDetail) {
+          return jsonResponse({ title: 'Sessão de estudo não encontrada.' }, 404)
+        }
+        return jsonResponse(sessionDetail)
+      }
+
+      const url = new URL(path, 'http://localhost')
+      studySessionListRequests += 1
+      if (remainingStudySessionReconcileFailures > 0 && studySessionListRequests > 1) {
+        remainingStudySessionReconcileFailures -= 1
+        return jsonResponse({ title: 'Falha temporária ao atualizar sessões.' }, 503)
+      }
+      const dataDe = url.searchParams.get('dataDe')
+      const dataAte = url.searchParams.get('dataAte')
+      const situacao = url.searchParams.get('situacao')
+
+      let filtered = [...currentStudySessions]
+      if (dataDe) filtered = filtered.filter((s) => s.dataPlanejada >= dataDe)
+      if (dataAte) filtered = filtered.filter((s) => s.dataPlanejada <= dataAte)
+      if (situacao) {
+        const situacaoMap = {
+          Planejada: 0,
+          EmAndamento: 1,
+          Concluida: 2,
+          Cancelada: 3,
+          '0': 0,
+          '1': 1,
+          '2': 2,
+          '3': 3,
+        }
+        const targetSituacao = situacao in situacaoMap ? situacaoMap[situacao] : Number(situacao)
+        filtered = filtered.filter((s) => s.situacao === targetSituacao)
+      }
+
+      return jsonResponse(filtered)
     }
 
     return jsonResponse({ title: 'Rota de teste não configurada.' }, 404)
@@ -453,5 +643,9 @@ export function setupFetch({
   fetchMock.getTaskPostRequests = () => taskPostRequests
   fetchMock.getTaskPutRequests = () => taskPutRequests
   fetchMock.getTaskDeleteRequests = () => taskDeleteRequests
+  fetchMock.getStudySessionPostRequests = () => studySessionPostRequests
+  fetchMock.getStudySessionPutRequests = () => studySessionPutRequests
+  fetchMock.getStudySessionTransitionRequests = () => studySessionTransitionRequests
+  fetchMock.getStudySessionListRequests = () => studySessionListRequests
   return fetchMock
 }

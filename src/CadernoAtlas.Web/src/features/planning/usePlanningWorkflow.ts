@@ -14,9 +14,10 @@ interface UsePlanningWorkflowOptions {
   mondayIso: string
   concurrencyLocks: Pick<
     ConcurrencyLocks,
-    'confirmationInProgressRef' | 'demandUpdateInProgressRef' | 'demandCreationInProgressRef' | 'availabilityCreationInProgressRef' | 'taskMutationInProgressRef'
+    'confirmationInProgressRef' | 'demandUpdateInProgressRef' | 'demandCreationInProgressRef' | 'availabilityCreationInProgressRef' | 'taskMutationInProgressRef' | 'studySessionMutationInProgressRef' | 'dataMutationInProgressRef' | 'setDataMutationInProgress'
   >
   onRefreshAllDataOnly: () => void
+  onRefreshStudySessions: () => Promise<void>
   getErrorMessage: (error: unknown, fallback: string) => string
 }
 
@@ -35,6 +36,7 @@ export function usePlanningWorkflow(options: UsePlanningWorkflowOptions): UsePla
     mondayIso,
     concurrencyLocks,
     onRefreshAllDataOnly,
+    onRefreshStudySessions,
     getErrorMessage,
   } = options
 
@@ -44,6 +46,9 @@ export function usePlanningWorkflow(options: UsePlanningWorkflowOptions): UsePla
     demandCreationInProgressRef,
     availabilityCreationInProgressRef,
     taskMutationInProgressRef,
+    studySessionMutationInProgressRef,
+    dataMutationInProgressRef,
+    setDataMutationInProgress,
   } = concurrencyLocks
 
   const [previewState, setPreviewState] = useState<PreviewState>({ status: 'idle', data: null, error: null })
@@ -59,9 +64,9 @@ export function usePlanningWorkflow(options: UsePlanningWorkflowOptions): UsePla
   }, [])
 
   const clearPreview = useCallback(() => {
-    if (confirmationInProgressRef.current || demandUpdateInProgressRef.current || taskMutationInProgressRef.current) return
+    if (dataMutationInProgressRef.current) return
     invalidatePreview()
-  }, [confirmationInProgressRef, demandUpdateInProgressRef, taskMutationInProgressRef, invalidatePreview])
+  }, [dataMutationInProgressRef, invalidatePreview])
 
   const generatePreview = useCallback(async () => {
     if (
@@ -69,7 +74,9 @@ export function usePlanningWorkflow(options: UsePlanningWorkflowOptions): UsePla
       availabilityCreationInProgressRef.current ||
       confirmationInProgressRef.current ||
       demandUpdateInProgressRef.current ||
-      taskMutationInProgressRef.current
+      taskMutationInProgressRef.current ||
+      studySessionMutationInProgressRef.current ||
+      dataMutationInProgressRef.current
     ) return
 
     const requestId = ++previewRequestRef.current
@@ -89,7 +96,7 @@ export function usePlanningWorkflow(options: UsePlanningWorkflowOptions): UsePla
         error: getErrorMessage(error, 'Verifique se a API está disponível e tente novamente.'),
       })
     }
-  }, [mondayIso, demandCreationInProgressRef, availabilityCreationInProgressRef, confirmationInProgressRef, demandUpdateInProgressRef, taskMutationInProgressRef, getErrorMessage])
+  }, [mondayIso, demandCreationInProgressRef, availabilityCreationInProgressRef, confirmationInProgressRef, demandUpdateInProgressRef, taskMutationInProgressRef, studySessionMutationInProgressRef, dataMutationInProgressRef, getErrorMessage])
 
   const confirmPreview = useCallback(async () => {
     const proposta = previewState.data
@@ -100,10 +107,12 @@ export function usePlanningWorkflow(options: UsePlanningWorkflowOptions): UsePla
       demandCreationInProgressRef.current ||
       availabilityCreationInProgressRef.current ||
       taskMutationInProgressRef.current ||
+      studySessionMutationInProgressRef.current ||
       (confirmState.status === 'error' && !confirmState.canRetry)
     ) return
 
     confirmationInProgressRef.current = true
+    setDataMutationInProgress(true)
     setConfirmState({ status: 'loading', data: null, error: null })
     try {
       const request: PlanningConfirmationRequest = {
@@ -115,6 +124,11 @@ export function usePlanningWorkflow(options: UsePlanningWorkflowOptions): UsePla
       const result = await apiPost<ConfirmationData, PlanningConfirmationRequest>('/api/planejamento-semanal/confirmar', request)
       setConfirmState({ status: 'success', data: result, error: null })
       setPreviewState({ status: 'confirmed', data: proposta, error: null })
+      try {
+        await onRefreshStudySessions()
+      } catch {
+        // A confirmação já foi aceita; a lista mantém o erro para uma consulta explícita.
+      }
       onRefreshAllDataOnly()
     } catch (error: unknown) {
       const isConflict = isHttpError(error) && error.status === 409
@@ -144,6 +158,11 @@ export function usePlanningWorkflow(options: UsePlanningWorkflowOptions): UsePla
         })
 
         setConfirmState({ status: 'idle', data: null, error: null })
+        try {
+          await onRefreshStudySessions()
+        } catch {
+          // A lista mantém o erro de reconciliação; a confirmação continua incerta.
+        }
         return
       }
 
@@ -155,8 +174,9 @@ export function usePlanningWorkflow(options: UsePlanningWorkflowOptions): UsePla
       })
     } finally {
       confirmationInProgressRef.current = false
+      setDataMutationInProgress(false)
     }
-  }, [previewState.data, confirmState, confirmationInProgressRef, demandUpdateInProgressRef, demandCreationInProgressRef, availabilityCreationInProgressRef, taskMutationInProgressRef, getErrorMessage, onRefreshAllDataOnly])
+  }, [previewState.data, confirmState, confirmationInProgressRef, demandUpdateInProgressRef, demandCreationInProgressRef, availabilityCreationInProgressRef, taskMutationInProgressRef, studySessionMutationInProgressRef, setDataMutationInProgress, getErrorMessage, onRefreshAllDataOnly, onRefreshStudySessions])
 
   return {
     previewState,
