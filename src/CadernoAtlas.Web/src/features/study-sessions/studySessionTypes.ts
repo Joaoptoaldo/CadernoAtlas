@@ -151,11 +151,11 @@ export interface StudySessionsPanelProps {
   demands: StudySessionDemand[]
   onLoadTasks: (demandId: number, signal: AbortSignal) => Promise<StudySessionTask[]>
   onCreate: (request: StudySessionRequest) => Promise<void>
-  onReconcile: () => Promise<void>
+  onReconcile: () => Promise<StudySessionListItem[] | void>
   creationOutcomeUnknown: boolean
   onCreationOutcomeUnknownChange: (value: boolean) => void
   onUpdate: (id: number, request: StudySessionRequest) => Promise<void>
-  onReconcileEdit: () => Promise<void>
+  onReconcileEdit: () => Promise<StudySessionListItem[] | void>
   onEditOutcomeUnknownChange: (value: boolean) => void
   onTransition: (id: number, transition: StudySessionTransition) => Promise<StudySession>
   isTransitioning: boolean

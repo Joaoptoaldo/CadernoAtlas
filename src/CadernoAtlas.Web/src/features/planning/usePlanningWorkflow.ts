@@ -19,6 +19,7 @@ interface UsePlanningWorkflowOptions {
   onRefreshAllDataOnly: () => void
   onRefreshStudySessions: () => Promise<void>
   getErrorMessage: (error: unknown, fallback: string) => string
+  hasUncertainTransitions: () => boolean
 }
 
 interface UsePlanningWorkflowReturn {
@@ -38,6 +39,7 @@ export function usePlanningWorkflow(options: UsePlanningWorkflowOptions): UsePla
     onRefreshAllDataOnly,
     onRefreshStudySessions,
     getErrorMessage,
+    hasUncertainTransitions,
   } = options
 
   const {
@@ -76,7 +78,8 @@ export function usePlanningWorkflow(options: UsePlanningWorkflowOptions): UsePla
       demandUpdateInProgressRef.current ||
       taskMutationInProgressRef.current ||
       studySessionMutationInProgressRef.current ||
-      dataMutationInProgressRef.current
+      dataMutationInProgressRef.current ||
+      hasUncertainTransitions()
     ) return
 
     const requestId = ++previewRequestRef.current
@@ -96,7 +99,7 @@ export function usePlanningWorkflow(options: UsePlanningWorkflowOptions): UsePla
         error: getErrorMessage(error, 'Verifique se a API está disponível e tente novamente.'),
       })
     }
-  }, [mondayIso, demandCreationInProgressRef, availabilityCreationInProgressRef, confirmationInProgressRef, demandUpdateInProgressRef, taskMutationInProgressRef, studySessionMutationInProgressRef, dataMutationInProgressRef, getErrorMessage])
+  }, [mondayIso, demandCreationInProgressRef, availabilityCreationInProgressRef, confirmationInProgressRef, demandUpdateInProgressRef, taskMutationInProgressRef, studySessionMutationInProgressRef, dataMutationInProgressRef, getErrorMessage, hasUncertainTransitions])
 
   const confirmPreview = useCallback(async () => {
     const proposta = previewState.data
@@ -110,6 +113,16 @@ export function usePlanningWorkflow(options: UsePlanningWorkflowOptions): UsePla
       studySessionMutationInProgressRef.current ||
       (confirmState.status === 'error' && !confirmState.canRetry)
     ) return
+
+    if (hasUncertainTransitions()) {
+      setConfirmState({
+        status: 'error',
+        data: null,
+        error: 'Existem transições de sessões de estudo não reconciliadas. Reconcilie as sessões antes de confirmar o planejamento.',
+        canRetry: false,
+      })
+      return
+    }
 
     confirmationInProgressRef.current = true
     setDataMutationInProgress(true)
@@ -176,7 +189,7 @@ export function usePlanningWorkflow(options: UsePlanningWorkflowOptions): UsePla
       confirmationInProgressRef.current = false
       setDataMutationInProgress(false)
     }
-  }, [previewState.data, confirmState, confirmationInProgressRef, demandUpdateInProgressRef, demandCreationInProgressRef, availabilityCreationInProgressRef, taskMutationInProgressRef, studySessionMutationInProgressRef, setDataMutationInProgress, getErrorMessage, onRefreshAllDataOnly, onRefreshStudySessions])
+  }, [previewState.data, confirmState, confirmationInProgressRef, demandUpdateInProgressRef, demandCreationInProgressRef, availabilityCreationInProgressRef, taskMutationInProgressRef, studySessionMutationInProgressRef, setDataMutationInProgress, getErrorMessage, onRefreshAllDataOnly, onRefreshStudySessions, hasUncertainTransitions])
 
   return {
     previewState,

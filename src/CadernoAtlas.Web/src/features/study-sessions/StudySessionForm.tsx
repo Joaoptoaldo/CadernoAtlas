@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
-import { isHttpError } from '../../apiClient'
+import { apiGet, isHttpError } from '../../apiClient'
 import { isMutationSyncError } from '../shared/mutationOutcome'
-import type { StudySessionDemand, StudySessionRequest, StudySessionTask } from './studySessionTypes'
+import type { StudySessionDemand, StudySessionListItem, StudySessionRequest, StudySessionTask } from './studySessionTypes'
 
 interface StudySessionFormProps {
   mode: 'create' | 'edit'
@@ -10,7 +10,7 @@ interface StudySessionFormProps {
   onLoadTasks: (demandId: number, signal: AbortSignal) => Promise<StudySessionTask[]>
   onSubmit: (request: StudySessionRequest) => Promise<void>
   onCancel: () => void
-  onReconcile: () => Promise<void>
+  onReconcile: () => Promise<StudySessionListItem[] | void>
   outcomeUnknown: boolean
   onOutcomeUnknownChange: (value: boolean) => void
 }
@@ -54,6 +54,8 @@ export default function StudySessionForm({
   const [reconciling, setReconciling] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const submitRef = useRef(false)
+  const lastSubmittedRequestRef = useRef<StudySessionRequest | null>(null)
+  const existingSessionIdsRef = useRef<Set<number>>(new Set())
   const tasksRequestRef = useRef(0)
   const controlsDisabled = submitting || reconciling
   const preservedTaskOnly = form.tarefaDemandaId !== null && form.demandaAcademicaId === null
@@ -110,6 +112,22 @@ export default function StudySessionForm({
       return
     }
 
+    // Antes de tentar criar, registrar IDs das sessões existentes para correlação posterior
+    try {
+      const currentList = await apiGet<StudySessionListItem[]>('/api/sessoes-estudo')
+      existingSessionIdsRef.current = new Set(currentList.map((s) => s.id))
+    } catch {
+      // Se não conseguir consultar, mantém conjunto vazio (todas as sessões na lista final serão consideradas novas)
+      existingSessionIdsRef.current = new Set()
+    }
+
+    const submittedData: StudySessionRequest = {
+      ...form,
+      titulo: title,
+      observacoes: form.observacoes?.trim() || null,
+    }
+    lastSubmittedRequestRef.current = submittedData
+
     submitRef.current = true
     setSubmitting(true)
     setError(null)
@@ -117,16 +135,22 @@ export default function StudySessionForm({
     setSynchronizationFailed(false)
     onOutcomeUnknownChange(false)
     try {
-      await onSubmit({ ...form, titulo: title, observacoes: form.observacoes?.trim() || null })
+      await onSubmit(submittedData)
+      // Operação confirmada com sucesso - fechar o formulário
       onCancel()
     } catch (submitError: unknown) {
       const status = isHttpError(submitError) ? submitError.status : null
       if (isMutationSyncError(submitError)) {
+        // Operação confirmada pelo backend, mas falha ao atualizar a lista local
         setSynchronizationFailed(true)
+        setOutcomeUnknown(false)
+        onOutcomeUnknownChange(false)
         setError(submitError.message)
       } else if (status === null || status === 408 || status === 429 || status >= 500) {
+        // Resultado incerto - falha de rede ou timeout
         setOutcomeUnknown(true)
         onOutcomeUnknownChange(true)
+        setSynchronizationFailed(false)
         setError('Não foi possível confirmar o resultado da operação. Consulte a lista antes de decidir se tentará novamente.')
       } else if (status === 404) {
         setError('A sessão ou o vínculo informado não foi encontrado.')
@@ -148,10 +172,65 @@ export default function StudySessionForm({
     setReconciling(true)
     setError(null)
     try {
-      await onReconcile()
-      setOutcomeUnknown(false)
-      setSynchronizationFailed(false)
-      onOutcomeUnknownChange(false)
+      const wasSyncFailed = synchronizationFailed
+      const reconcileResult = await onReconcile()
+
+      if (wasSyncFailed) {
+        // Criação já confirmada pela API; lista foi sincronizada com sucesso.
+        // Fechar formulário para evitar duplicar a sessão com um segundo POST.
+        setOutcomeUnknown(false)
+        setSynchronizationFailed(false)
+        onOutcomeUnknownChange(false)
+        onCancel()
+        return
+      }
+
+      // Resultado realmente incerto: o POST não foi confirmado pela API.
+      // Uma simples resposta 200 da listagem não deve liberar o formulário automaticamente.
+      // Identificar se existe evidência confiável para correlacionar a criação original com uma sessão na lista.
+      let sessionsList: StudySessionListItem[] = []
+      if (Array.isArray(reconcileResult)) {
+        sessionsList = reconcileResult
+      } else {
+        try {
+          sessionsList = await apiGet<StudySessionListItem[]>('/api/sessoes-estudo')
+        } catch {
+          // Se não conseguir consultar a listagem, mantém lista vazia
+        }
+      }
+
+      const submitted = lastSubmittedRequestRef.current
+      const existingIds = existingSessionIdsRef.current
+
+      // Apenas considerar sessões que NÃO existiam antes do POST como evidência potencial
+      const newSessions = sessionsList.filter((session) => !existingIds.has(session.id))
+
+      const correlatedSession = submitted
+        ? newSessions.find((session) => {
+            const sameTitle = session.titulo.trim().toLowerCase() === submitted.titulo.trim().toLowerCase()
+            const sameDate = session.dataPlanejada === submitted.dataPlanejada
+            const sameStartTime = session.horaInicioPlanejada.slice(0, 5) === submitted.horaInicioPlanejada.slice(0, 5)
+            const sameDuration = session.duracaoPlanejadaMinutos === submitted.duracaoPlanejadaMinutos
+            const sameDemand = session.demandaAcademicaId === submitted.demandaAcademicaId
+            const sameTask = session.tarefaDemandaId === submitted.tarefaDemandaId
+            return sameTitle && sameDate && sameStartTime && sameDuration && sameDemand && sameTask
+          })
+        : null
+
+      if (correlatedSession) {
+        // Evidência confiável encontrada na lista: a sessão realmente foi criada no backend.
+        setOutcomeUnknown(false)
+        setSynchronizationFailed(false)
+        onOutcomeUnknownChange(false)
+        onCancel()
+      } else {
+        // Sem evidência suficiente: não foi possível confirmar se a sessão foi criada.
+        // Manter o bloqueio de envio e informar que o resultado ainda não foi esclarecido.
+        setOutcomeUnknown(true)
+        onOutcomeUnknownChange(true)
+        setSynchronizationFailed(false)
+        setError('Não foi possível confirmar a criação da sessão na lista consultada. O resultado continua incerto; não reenvie para evitar duplicidade.')
+      }
     } catch (reconcileError: unknown) {
       setError(getErrorMessage(reconcileError, 'Não foi possível consultar as sessões. Tente novamente.'))
     } finally {
@@ -198,7 +277,7 @@ export default function StudySessionForm({
       {error && <p className="form-error" role="alert">{error}</p>}
       {(outcomeUnknown || synchronizationFailed) && (
         <div className="task-uncertain-guidance">
-          <p>{synchronizationFailed ? 'A operação foi confirmada, mas a lista não pôde ser atualizada. Consulte as sessões para sincronizar os dados; não é necessário reenviar a operação.' : 'O resultado da operação é incerto. Não reenvie automaticamente para evitar alterações duplicadas.'}</p>
+          <p>{synchronizationFailed ? 'A sessão foi criada, mas a lista não pôde ser atualizada. Consulte as sessões para sincronizar os dados; não é necessário reenviar a operação.' : 'O resultado da operação é incerto. Não reenvie automaticamente para evitar alterações duplicadas.'}</p>
           <button className="text-button" type="button" disabled={controlsDisabled} onClick={() => void reconcile()}>
             {reconciling ? 'Consultando sessões…' : synchronizationFailed ? 'Atualizar lista de sessões' : 'Consultar sessões antes de tentar novamente'}
           </button>

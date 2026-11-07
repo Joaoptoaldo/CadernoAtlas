@@ -25,7 +25,8 @@ import { getInitialWeek, toIsoDate, useWeekNavigation } from './features/plannin
 import { useStudySessions } from './features/study-sessions/useStudySessions'
 import StudySessionsPanel from './features/study-sessions/StudySessionsPanel'
 import { useStudySessionMutations } from './features/study-sessions/useStudySessionMutations'
-import type { StudySession, StudySessionDemand, StudySessionRequest, StudySessionTask, StudySessionTransition } from './features/study-sessions/studySessionTypes'
+import { hasAnyUncertainTransition } from './features/study-sessions/useStudySessionUncertainTransitions'
+import type { StudySession, StudySessionDemand, StudySessionListItem, StudySessionRequest, StudySessionTask, StudySessionTransition } from './features/study-sessions/studySessionTypes'
 
 import {
   formatMinutes,
@@ -79,6 +80,7 @@ function App() {
   const [todayIso] = useState(() => toIsoDate(new Date()))
   const mondayIso = toIsoDate(monday)
   const concurrencyLocks = useConcurrencyLocks()
+  const hasUncertainTransitions = () => hasAnyUncertainTransition()
 
   const {
     demandState,
@@ -108,6 +110,7 @@ function App() {
       await reconcileStudySessions()
     },
     getErrorMessage,
+    hasUncertainTransitions,
   })
 
   const {
@@ -275,12 +278,12 @@ function App() {
     setDemandReloadToken((v) => v + 1)
   }
 
-  async function reconcileSessionCreation(): Promise<void> {
-    await reconcileStudySessions()
+  async function reconcileSessionCreation(): Promise<StudySessionListItem[]> {
+    return await reconcileStudySessions()
   }
 
-  async function reconcileSessionEditing(): Promise<void> {
-    await reconcileStudySessions()
+  async function reconcileSessionEditing(): Promise<StudySessionListItem[]> {
+    return await reconcileStudySessions()
   }
 
   const studySessionDemands: StudySessionDemand[] = (allDemandsState.data ?? []).map((demand) => ({
