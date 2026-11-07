@@ -2,6 +2,7 @@ import { useEffect, useState, useRef } from 'react'
 import { apiGet, isHttpError } from '../../apiClient'
 import { isMutationSyncError } from '../shared/mutationOutcome'
 import { useStudySessionUncertainTransitions } from './useStudySessionUncertainTransitions'
+import { useStudySessionUncertainDeletions } from './useStudySessionUncertainDeletions'
 import {
   getSituacaoPresentation,
   type StudySession,
@@ -43,7 +44,7 @@ function formatDateTime(dateTimeStr: string | null): string | null {
   }).format(date)
 }
 
-export default function StudySessionDetail({ sessionId, onClose, demands, onLoadTasks, onUpdate, onReconcile, onEditOutcomeUnknownChange, onTransition, isTransitioning, getErrorMessage }: StudySessionDetailProps) {
+export default function StudySessionDetail({ sessionId, onClose, demands, onLoadTasks, onUpdate, onReconcile, onEditOutcomeUnknownChange, onTransition, onDelete, isTransitioning, isUncertain: isUncertainProp, isDeleteUncertain: isDeleteUncertainProp, getErrorMessage }: StudySessionDetailProps) {
   const [session, setSession] = useState<StudySession | null>(null)
   const [status, setStatus] = useState<'loading' | 'success' | 'error'>('loading')
   const [error, setError] = useState<string | null>(null)
@@ -59,8 +60,12 @@ export default function StudySessionDetail({ sessionId, onClose, demands, onLoad
   const resolveErrorMessage = getErrorMessage ?? defaultGetErrorMessage
 
   // Verificar se há transição incerta persistida para esta sessão
-  const { isUncertain, clearUncertain } = useStudySessionUncertainTransitions()
-  const hasUncertainForSession = isUncertain(sessionId)
+  const { isUncertain: isUncertainHook, clearUncertain } = useStudySessionUncertainTransitions()
+  const hasUncertainForSession = isUncertainHook(sessionId) || isUncertainProp(sessionId)
+
+  // Verificar se há exclusão incerta persistida para esta sessão
+  const { isDeleteUncertain: isDeleteUncertainHook, clearDeleteUncertain } = useStudySessionUncertainDeletions()
+  const hasDeleteUncertainForSession = isDeleteUncertainHook(sessionId) || isDeleteUncertainProp(sessionId)
 
   useEffect(() => {
     const controller = new AbortController()
@@ -183,6 +188,115 @@ export default function StudySessionDetail({ sessionId, onClose, demands, onLoad
         onEditOutcomeUnknownChange(false)
         setSynchronizationFailed(false)
         setTransitionError(transitionFailure instanceof Error ? transitionFailure.message : 'Não foi possível atualizar a situação da sessão.')
+      }
+    } finally {
+      setTransitioning(false)
+    }
+  }
+
+  async function reconcileDelete(): Promise<void> {
+    if (reconciling) return
+    setReconciling(true)
+    setTransitionError(null)
+    try {
+      // Consultar GET /api/sessoes-estudo/{id} para verificar estado atual
+      const individual = await apiGet<StudySession>(`/api/sessoes-estudo/${sessionId}`)
+      // 200: sessão ainda existe
+      setSession(individual)
+      // Bloqueios só são liberados depois que o estado atual é conhecido
+      clearUncertain(sessionId)
+      clearDeleteUncertain(sessionId)
+      setOutcomeUnknown(false)
+      setSynchronizationFailed(false)
+      onEditOutcomeUnknownChange(false)
+      // Se ainda for planejada (situacao === 0), permitir nova tentativa
+      if (individual.situacao !== 0) {
+        setTransitionError('Esta sessão não está mais planejada e não pode ser excluída.')
+      }
+      try {
+        await onReconcile()
+      } catch {
+        // Falha ao atualizar lista não anula a confirmação do estado individual
+      }
+    } catch (reconcileError: unknown) {
+      if (isHttpError(reconcileError) && reconcileError.status === 404) {
+        // 404: exclusão confirmada - sessão não existe mais
+        setSynchronizationFailed(false)
+        setOutcomeUnknown(false)
+        onEditOutcomeUnknownChange(false)
+        clearDeleteUncertain(sessionId)
+        try {
+          await onReconcile()
+        } catch {
+          // Falha ao atualizar lista não anula a confirmação, mas mostra mensagem
+          setSynchronizationFailed(true)
+          setTransitionError('A exclusão foi confirmada, mas a lista não pôde ser atualizada. Atualize a listagem para sincronizar.')
+        }
+        // Fechar modal após sincronização
+        if (!synchronizationFailed) {
+          onClose()
+        }
+        return
+      }
+      // Falha de rede (408, 429, 5xx) ou outros erros: preservar incerteza
+      // Não limpar outcomeUnknown - usuário deve poder tentar reconciliação novamente
+      setTransitionError(resolveErrorMessage(reconcileError, 'Não foi possível consultar a sessão. Tente novamente.'))
+    } finally {
+      setReconciling(false)
+    }
+  }
+
+  async function handleDelete(): Promise<void> {
+    // Verificar se há transição incerta pendente para esta sessão
+    if (hasUncertainForSession) {
+      setTransitionError('Esta sessão possui uma transição não reconciliada. Reconcilie antes de tentar excluir.')
+      return
+    }
+    // Verificar se há exclusão incerta pendente para esta sessão
+    if (hasDeleteUncertainForSession) {
+      setTransitionError('Esta sessão possui uma exclusão não reconciliada. Consulte a sessão antes de tentar novamente.')
+      return
+    }
+
+    if (!window.confirm('Excluir esta sessão de estudo planejada? Esta ação não pode ser desfeita.')) return
+    setTransitioning(true)
+    setTransitionError(null)
+    setOutcomeUnknown(false)
+    setSynchronizationFailed(false)
+    onEditOutcomeUnknownChange(false)
+    try {
+      await onDelete(sessionId)
+      // Sucesso - fechar modal, a lista será atualizada via refresh do hook
+      onClose()
+    } catch (deleteFailure: unknown) {
+      const status = isHttpError(deleteFailure) ? deleteFailure.status : null
+      if (isMutationSyncError(deleteFailure)) {
+        // Operação confirmada, mas falha ao atualizar a lista
+        setSynchronizationFailed(true)
+        setOutcomeUnknown(false)
+        onEditOutcomeUnknownChange(false)
+        setTransitionError(deleteFailure.message)
+      } else if (status === 404) {
+        // 404 definitivo do DELETE: sessão não encontrada - reconciliação explícita
+        // Tentar reconciliação para confirmar exclusão
+        await reconcileDelete()
+      } else if (status === null || status === 408 || status === 429 || status >= 500) {
+        // Resultado incerto - falha de rede ou timeout
+        setOutcomeUnknown(true)
+        onEditOutcomeUnknownChange(true)
+        setSynchronizationFailed(false)
+        setTransitionError('Não foi possível confirmar o resultado da exclusão. Consulte a sessão antes de tentar novamente.')
+      } else if (status === 409) {
+        // 409: sessão não é planejada
+        setOutcomeUnknown(false)
+        onEditOutcomeUnknownChange(false)
+        setSynchronizationFailed(false)
+        setTransitionError(deleteFailure instanceof Error ? deleteFailure.message : 'Não é possível excluir esta sessão.')
+      } else {
+        setOutcomeUnknown(false)
+        onEditOutcomeUnknownChange(false)
+        setSynchronizationFailed(false)
+        setTransitionError(deleteFailure instanceof Error ? deleteFailure.message : 'Não foi possível excluir a sessão.')
       }
     } finally {
       setTransitioning(false)
@@ -327,11 +441,11 @@ export default function StudySessionDetail({ sessionId, onClose, demands, onLoad
               </div>
             )}
           </dl>
-          {(outcomeUnknown || synchronizationFailed || hasUncertainForSession) && (
+          {(outcomeUnknown || synchronizationFailed || hasUncertainForSession || hasDeleteUncertainForSession) && (
             <div className="task-uncertain-guidance">
-              <p>{synchronizationFailed ? 'A operação foi confirmada, mas a lista não pôde ser atualizada. Consulte as sessões para sincronizar os dados; não é necessário reenviar a operação.' : 'O resultado da operação é incerto. Esta sessão possui uma transição não reconciliada. Consulte as sessões antes de tentar novamente para evitar alterações duplicadas.'}</p>
-              <button className="text-button" type="button" disabled={reconciling} onClick={() => void reconcile()}>
-                {reconciling ? 'Consultando sessões…' : synchronizationFailed ? 'Atualizar lista de sessões' : 'Consultar sessões antes de tentar novamente'}
+              <p>{hasDeleteUncertainForSession ? (synchronizationFailed ? 'A exclusão foi confirmada, mas a lista não pôde ser atualizada. Atualize a listagem para sincronizar.' : 'O resultado da exclusão é incerto. Esta sessão possui uma exclusão não reconciliada. Consulte a sessão antes de tentar novamente.') : synchronizationFailed ? 'A operação foi confirmada, mas a lista não pôde ser atualizada. Consulte as sessões para sincronizar os dados; não é necessário reenviar a operação.' : 'O resultado da operação é incerto. Esta sessão possui uma transição não reconciliada. Consulte as sessões antes de tentar novamente para evitar alterações duplicadas.'}</p>
+              <button className="text-button" type="button" disabled={reconciling} onClick={() => void (hasDeleteUncertainForSession ? reconcileDelete() : reconcile())}>
+                {reconciling ? 'Consultando sessão…' : synchronizationFailed ? 'Atualizar lista de sessões' : hasDeleteUncertainForSession ? 'Consultar sessão antes de tentar novamente' : 'Consultar sessões antes de tentar novamente'}
               </button>
             </div>
           )}
@@ -340,6 +454,7 @@ export default function StudySessionDetail({ sessionId, onClose, demands, onLoad
             {session.situacao === 1 && <button className="button button-primary" type="button" disabled={transitioning || isTransitioning || outcomeUnknown || synchronizationFailed || hasUncertainForSession} onClick={() => void handleTransition('concluir')}>{transitioning ? 'Concluindo…' : 'Concluir sessão'}</button>}
             {(session.situacao === 0 || session.situacao === 1) && <button className="button button-secondary" type="button" disabled={transitioning || isTransitioning || outcomeUnknown || synchronizationFailed || hasUncertainForSession} onClick={() => void handleTransition('cancelar')}>Cancelar sessão</button>}
             {session.situacao === 0 && <button className="button button-secondary" type="button" disabled={transitioning || isTransitioning || outcomeUnknown || synchronizationFailed || hasUncertainForSession} onClick={() => setEditing(true)}>Editar sessão</button>}
+            {session.situacao === 0 && <button className="button button-secondary button-danger" type="button" disabled={transitioning || isTransitioning || outcomeUnknown || synchronizationFailed || hasUncertainForSession || hasDeleteUncertainForSession} onClick={handleDelete}>Excluir sessão</button>}
             {session.situacao !== 0 && <span className="study-session-edit-notice">Sessões {getSituacaoPresentation(session.situacao).label.toLowerCase()} não podem ser editadas.</span>}
             {transitionError && <p className="form-error" role="alert">{transitionError}</p>}
             <button className="button button-secondary" onClick={onClose}>Fechar</button>

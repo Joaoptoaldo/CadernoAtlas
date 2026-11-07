@@ -173,14 +173,17 @@ export function setupFetch({
   studySessionReconcileFailures = 0,
   studySessionCreateResponse = null,
   studySessionUpdateResponse = null,
+  studySessionDeleteResponse = null,
   studySessionCreateNetworkFailures = 0,
   studySessionUpdateNetworkFailures = 0,
+  studySessionDeleteNetworkFailures = 0,
   studySessionTransitionResponses = {},
   studySessionTransitionNetworkFailures = {},
   studySessionReconciliationDetails = {},
   studySessionDetailsQueues = {},
   studySessionListQueues = {},
   studySessionTransitionGate,
+  studySessionDeleteGate,
 } = {}) {
   const remainingStudySessionDetailsQueues = new Map(
     Object.entries(studySessionDetailsQueues).map(([id, queue]) => [Number(id), [...queue]])
@@ -193,6 +196,7 @@ export function setupFetch({
   let currentStudySessions = studySessions
   let remainingStudySessionCreateNetworkFailures = studySessionCreateNetworkFailures
   let remainingStudySessionUpdateNetworkFailures = studySessionUpdateNetworkFailures
+  let remainingStudySessionDeleteNetworkFailures = studySessionDeleteNetworkFailures
   const remainingStudySessionTransitionNetworkFailures = { ...studySessionTransitionNetworkFailures }
   let remainingDemandFailures = demandFailures
   let remainingAllDemandFailures = allDemandFailures
@@ -213,6 +217,7 @@ export function setupFetch({
   let confirmationPostRequests = 0
   let studySessionPostRequests = 0
   let studySessionPutRequests = 0
+  let studySessionDeleteRequests = 0
   let studySessionTransitionRequests = 0
   let studySessionListRequests = 0
   let taskPostRequests = 0
@@ -578,6 +583,24 @@ export function setupFetch({
         return jsonResponse(response.data, response.status)
       }
 
+      if (init.method === 'DELETE') {
+        const sessionId = Number(path.match(/^\/api\/sessoes-estudo\/(\d+)$/)?.[1])
+        studySessionDeleteRequests += 1
+        if (studySessionDeleteGate) await studySessionDeleteGate
+        if (remainingStudySessionDeleteNetworkFailures > 0) {
+          remainingStudySessionDeleteNetworkFailures -= 1
+          throw new TypeError('Failed to fetch')
+        }
+        const existing = currentStudySessions.find((session) => session.id === sessionId)
+        const response = studySessionDeleteResponse ?? (existing
+          ? { status: 204, data: null }
+          : { status: 404, data: { detail: 'Sessão de estudo não encontrada.' } })
+        if (response.status >= 200 && response.status < 300 && existing) {
+          currentStudySessions = currentStudySessions.filter((session) => session.id !== sessionId)
+        }
+        return jsonResponse(response.data, response.status)
+      }
+
       if (remainingStudySessionFailures > 0) {
         remainingStudySessionFailures -= 1
         return jsonResponse({ title: 'Falha temporária ao carregar sessões.' }, 500)
@@ -680,6 +703,7 @@ export function setupFetch({
   fetchMock.getTaskDeleteRequests = () => taskDeleteRequests
   fetchMock.getStudySessionPostRequests = () => studySessionPostRequests
   fetchMock.getStudySessionPutRequests = () => studySessionPutRequests
+  fetchMock.getStudySessionDeleteRequests = () => studySessionDeleteRequests
   fetchMock.getStudySessionTransitionRequests = () => studySessionTransitionRequests
   fetchMock.getStudySessionListRequests = () => studySessionListRequests
   return fetchMock

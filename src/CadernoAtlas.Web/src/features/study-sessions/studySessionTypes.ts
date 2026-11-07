@@ -158,7 +158,10 @@ export interface StudySessionsPanelProps {
   onReconcileEdit: () => Promise<StudySessionListItem[] | void>
   onEditOutcomeUnknownChange: (value: boolean) => void
   onTransition: (id: number, transition: StudySessionTransition) => Promise<StudySession>
+  onDelete: (id: number) => Promise<void>
   isTransitioning: boolean
+  isUncertain: (id: number) => boolean
+  isDeleteUncertain: (id: number) => boolean
   getErrorMessage?: (error: unknown, fallback: string) => string
 }
 
@@ -171,6 +174,10 @@ export interface StudySessionDetailProps {
   onReconcile: () => Promise<void>
   onEditOutcomeUnknownChange: (value: boolean) => void
   onTransition: (id: number, transition: StudySessionTransition) => Promise<StudySession>
+  onDelete: (id: number) => Promise<void>
   isTransitioning: boolean
+  isUncertain: (id: number) => boolean
+  isDeleteUncertain: (id: number) => boolean
+  onReconcileDelete: () => Promise<void>
   getErrorMessage?: (error: unknown, fallback: string) => string
 }

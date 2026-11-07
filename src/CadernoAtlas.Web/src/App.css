@@ -251,6 +251,8 @@ h1 { margin: 0; color: var(--green-deep); font-size: clamp(26px, 2.5vw, 33px); f
 .page-heading-actions { display: flex; align-items: center; gap: 8px; }
 .button-primary { color: #fff; background: var(--green); border-color: var(--green); box-shadow: 0 2px 5px rgba(34, 98, 83, .12); }
 .button-primary:hover:not(:disabled) { background: #23675d; border-color: #23675d; }
+.button-danger { color: #fff; background: #b46051; border-color: #b46051; box-shadow: 0 2px 5px rgba(180, 96, 81, .12); }
+.button-danger:hover:not(:disabled) { background: #9a5144; border-color: #9a5144; }
 .button:disabled, .icon-button:disabled { cursor: not-allowed; opacity: .6; }
 .generate-preview-button { margin-bottom: 3px; }
 .planning-panel { background: #edf5f1; border-color: #deebe3; }

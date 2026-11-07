@@ -1,9 +1,10 @@
 import { useRef, useState } from 'react'
-import { apiGet, apiPost, apiPut, HttpError, isHttpError } from '../../apiClient'
+import { apiGet, apiPost, apiPut, apiDelete, HttpError, isHttpError } from '../../apiClient'
 import type { StudySession, StudySessionRequest, StudySessionTransition } from './studySessionTypes'
 import type { ConcurrencyLocks } from '../shared/useConcurrencyLocks'
 import { MutationSyncError } from '../shared/mutationOutcome'
 import { useStudySessionUncertainTransitions } from './useStudySessionUncertainTransitions'
+import { useStudySessionUncertainDeletions } from './useStudySessionUncertainDeletions'
 
 interface UseStudySessionMutationsOptions {
   refresh: () => Promise<void>
@@ -18,6 +19,8 @@ export function useStudySessionMutations({ refresh, invalidatePreview, concurren
 
   // Registro persistente de transições incertas
   const { registerUncertain, clearUncertain, isUncertain } = useStudySessionUncertainTransitions()
+  // Registro persistente de exclusões incertas
+  const { registerDeleteUncertain, clearDeleteUncertain, isDeleteUncertain } = useStudySessionUncertainDeletions()
 
   async function createSession(request: StudySessionRequest): Promise<void> {
     if (mutationRef.current || dataMutationInProgressRef.current) throw new Error('Aguarde a operação de planejamento ou sessão de estudo em andamento.')
@@ -139,5 +142,47 @@ export function useStudySessionMutations({ refresh, invalidatePreview, concurren
     }
   }
 
-  return { isMutating, createSession, updateSession, transitionSession, isUncertain }
+  async function deleteSession(id: number): Promise<void> {
+    // Verificar se há transição incerta pendente para esta sessão
+    if (isUncertain(id)) {
+      throw new Error('Esta sessão possui uma transição não reconciliada. Reconcilie antes de tentar excluir.')
+    }
+    // Verificar se há exclusão incerta pendente para esta sessão
+    if (isDeleteUncertain(id)) {
+      throw new Error('Esta sessão possui uma exclusão não reconciliada. Reconcilie antes de tentar excluir novamente.')
+    }
+    if (mutationRef.current || dataMutationInProgressRef.current) throw new Error('Aguarde a operação de planejamento ou sessão de estudo em andamento.')
+    mutationRef.current = true
+    setStudySessionMutationInProgress(true)
+    setDataMutationInProgress(true)
+    setIsMutating(true)
+    try {
+      await apiDelete(`/api/sessoes-estudo/${id}`)
+      invalidatePreview()
+      try {
+        await refresh()
+      } catch (error: unknown) {
+        throw new MutationSyncError(`A sessão foi excluída, mas a lista não pôde ser atualizada. ${error instanceof Error ? error.message : 'Tente atualizar a lista novamente.'}`)
+      }
+      // Sucesso total - limpar qualquer registro de incerteza para esta sessão
+      clearUncertain(id)
+      clearDeleteUncertain(id)
+    } catch (error: unknown) {
+      if (error instanceof MutationSyncError) throw error
+      // Para DELETE, registramos incerteza de exclusão apenas para erros de rede.
+      // Isso evita reenvio automático e permite reconciliação explícita via GET.
+      if (!isHttpError(error) || error.status === 408 || error.status === 429 || error.status >= 500) {
+        invalidatePreview()
+        registerDeleteUncertain(id)
+      }
+      throw error
+    } finally {
+      mutationRef.current = false
+      setStudySessionMutationInProgress(false)
+      setDataMutationInProgress(false)
+      setIsMutating(false)
+    }
+  }
+
+  return { isMutating, createSession, updateSession, transitionSession, deleteSession, isUncertain, isDeleteUncertain, registerDeleteUncertain, clearDeleteUncertain }
 }

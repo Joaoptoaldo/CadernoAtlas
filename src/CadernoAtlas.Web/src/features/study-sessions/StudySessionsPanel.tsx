@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import StatusMessage from '../../components/ui/StatusMessage'
 import StudySessionForm from './StudySessionForm'
 import StudySessionDetail from './StudySessionDetail'
+import { isMutationSyncError } from '../shared/mutationOutcome'
 import {
   getSituacaoPresentation,
   matchesSituacaoFilter,
@@ -41,7 +42,10 @@ export default function StudySessionsPanel({
   onReconcileEdit,
   onEditOutcomeUnknownChange,
   onTransition,
+  onDelete,
   isTransitioning,
+  isUncertain,
+  isDeleteUncertain,
   getErrorMessage,
 }: StudySessionsPanelProps) {
   const [dataDeFilter, setDataDeFilter] = useState('')
@@ -51,6 +55,7 @@ export default function StudySessionsPanel({
   const [isCreating, setIsCreating] = useState(false)
   const [transitioningSessionId, setTransitioningSessionId] = useState<number | null>(null)
   const [transitionError, setTransitionError] = useState<string | null>(null)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
 
   const filteredSessions = useMemo(() => {
     if (!state.data) return []
@@ -244,6 +249,26 @@ export default function StudySessionsPanel({
                   <button type="button" className="button button-secondary button-small" disabled={isTransitioning || transitioningSessionId !== null} onClick={() => void handleTransition(session.id, 'cancelar')}>
                     Cancelar
                   </button>
+                  <button
+                    type="button"
+                    className="button button-secondary button-small button-danger"
+                    disabled={isTransitioning || transitioningSessionId !== null || isUncertain(session.id) || isDeleteUncertain(session.id)}
+                    onClick={async () => {
+                      if (!window.confirm('Excluir esta sessão de estudo planejada? Esta ação não pode ser desfeita.')) return
+                      setDeleteError(null)
+                      try {
+                        await onDelete(session.id)
+                      } catch (error: unknown) {
+                        if (isMutationSyncError(error)) {
+                          setDeleteError(`A exclusão foi confirmada, mas a lista não pôde ser atualizada. ${error.message}`)
+                        } else if (error instanceof Error) {
+                          setDeleteError(error.message)
+                        }
+                      }
+                    }}
+                  >
+                    Excluir
+                  </button>
                 </>
               )}
               {session.situacao === 1 && (
@@ -258,6 +283,7 @@ export default function StudySessionsPanel({
               )}
             </div>
             {transitionError && transitioningSessionId === null && <p className="form-error" role="alert">{transitionError}</p>}
+            {deleteError && <p className="form-error" role="alert">{deleteError}</p>}
           </article>
         )
       })}
@@ -273,7 +299,11 @@ export default function StudySessionsPanel({
           onReconcile={async () => { await onReconcileEdit(); }}
           onEditOutcomeUnknownChange={onEditOutcomeUnknownChange}
           onTransition={onTransition}
+          onDelete={onDelete}
           isTransitioning={isTransitioning}
+          isUncertain={isUncertain}
+          isDeleteUncertain={isDeleteUncertain}
+          onReconcileDelete={async () => { await onReconcile(); }}
           getErrorMessage={getErrorMessage}
         />
       )}
