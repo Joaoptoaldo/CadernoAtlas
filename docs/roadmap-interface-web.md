@@ -76,8 +76,10 @@ uma lista carregada sob demanda; a interface consulta, cria e edita tarefas
 incompatíveis são bloqueadas. A prévia é invalidada após atualizações
 confirmadas ou quando o resultado de uma mutação pode ser incerto. Exclusão (`DELETE`) está disponível para demandas ativas, com confirmação explícita e recarga da lista após sucesso. Erros de resultado incerto exigem consulta da lista antes de tentar novamente. Sessões vinculadas continuam existindo, mas perdem o vínculo com a tarefa excluída.
 
+**Implementada — gestão de sessões de estudo:** a interface lista sessões com filtros por situação e período, consulta detalhes, cria e edita sessões planejadas, inicia, conclui e cancela respeitando as situações permitidas pela API, e exclui somente sessões planejadas. Concorrência entre mutações é bloqueada; resultados incertos (falha de rede, timeout, 5xx) registram incerteza persistente e exigem reconciliação via consulta individual (GET) antes de nova tentativa; exclusão confirmada com falha na atualização da lista gera `MutationSyncError` sem repetir o DELETE.
+
 **Parcial — qualidade de interface:** o código possui navegação entre
-planejamento e demandas, link para pular ao conteúdo principal, estados
+planejamento, demandas e sessões, link para pular ao conteúdo principal, estados
 semânticos de status/alerta e formulários com validações básicas. Ainda falta
 validar completamente teclado, foco, responsividade e comportamento em um
 navegador real.
@@ -87,11 +89,14 @@ navegador real.
 Os testes de interface estão organizados em
 [`App.availability.test.jsx`](../tests/CadernoAtlas.Web.Tests/App.availability.test.jsx),
 [`App.demands.test.jsx`](../tests/CadernoAtlas.Web.Tests/App.demands.test.jsx),
-[`App.demand-tasks.test.jsx`](../tests/CadernoAtlas.Web.Tests/App.demand-tasks.test.jsx)
-e [`App.planning.test.jsx`](../tests/CadernoAtlas.Web.Tests/App.planning.test.jsx),
+[`App.demand-tasks.test.jsx`](../tests/CadernoAtlas.Web.Tests/App.demand-tasks.test.jsx),
+[`App.planning.test.jsx`](../tests/CadernoAtlas.Web.Tests/App.planning.test.jsx)
+e [`StudySessions.test.jsx`](../tests/CadernoAtlas.Web.Tests/StudySessions.test.jsx),
 com infraestrutura compartilhada em
 [`helpers/`](../tests/CadernoAtlas.Web.Tests/helpers/). Eles cobrem os fluxos
-separados de disponibilidade, demandas, tarefas e planejamento. São
+separados de disponibilidade, demandas, tarefas, planejamento e sessões de estudo
+(listagem, filtros, criação, edição, transições de situação, exclusão de planejadas,
+concorrência, resultados incertos e reconciliação via GET individual). São
 evidências de comportamento da implementação, não uma afirmação de que todos
 os critérios deste roadmap já foram atendidos.
 
@@ -119,7 +124,7 @@ endpoints. Os contratos detalhados devem ser consultados em
 | Demandas acadêmicas: listar priorizadas, listar com filtros, criar e atualizar | **Implementada** para os fluxos atualmente expostos | Confirmar contra a API real e fechar as lacunas de erro, acessibilidade e validação visual | Usuário consulta, filtra, cria e edita uma demanda sem perder o contexto; respostas e erros do contrato são apresentados corretamente | API de demandas; fluxo de planejamento para invalidar prévias |
 | Tarefas vinculadas a demandas | **Implementada** | Validar ponta a ponta contra API real; confirmar consistência da ordenação após exclusão e efeitos sobre vínculo das sessões | Consulta, criação, edição e exclusão de tarefas são utilizáveis; erros de resultado incerto exigem reconciliação antes de reenvio; sessões vinculadas continuam existindo mas perdem o vínculo com a tarefa excluída | Demanda selecionada; contratos de tarefas; regras de conclusão da demanda; vínculo com sessões |
 | Disponibilidades de estudo: listar e criar | **Implementada** para a fatia semanal | Validar conflitos e recuperação contra a API real; decidir se edição/exclusão serão necessárias quando a API não as oferece | Usuário consulta e cria intervalos na semana, entende vazio, erro e conflito `409`, sem intervalo fora da semana | API de disponibilidades; seletor de semana |
-| Sessões de estudo: listar, criar, editar, iniciar, concluir, cancelar e excluir | **Parcial**: sessões são exibidas indiretamente na confirmação do planejamento, sem gerenciamento próprio | Definir a necessidade de uma agenda/histórico e implementar as operações de usuário escolhidas; não inventar telas para endpoints sem decisão | Sessões relevantes podem ser consultadas e, se incluídas no escopo, alteradas conforme os estados permitidos pela API | Contratos e regras de ciclo de vida de sessões; confirmação do planejamento |
+| Sessões de estudo: listar, criar, editar, iniciar, concluir, cancelar e excluir | **Implementada** para as operações atualmente disponíveis: listagem com filtros, consulta de detalhes, criação/edição de planejadas, iniciar/concluir/cancelar respeitando estados, exclusão apenas de planejadas; concorrência bloqueada, incerteza persistente e reconciliação via GET individual; validação integrada ponta a ponta ainda pendente | Validar contra a API real o ciclo completo de estados, reconciliação de exclusão e bloqueio de concorrência; confirmar consistência de situações e ações habilitadas | Usuário consulta, filtra, cria, edita e altera situação de sessões; exclusão permitida somente quando `situacao === 0`; `400`, `404`, `409`, `5xx`, rede e concorrência tratados; `MutationSyncError` evita reenvio de exclusão confirmada | Contratos e regras de ciclo de vida de sessões; confirmação do planejamento |
 | Planejamento semanal: prévia e confirmação | **Implementada** na primeira fatia local | Validar ponta a ponta com API real e concluir revisão de UX, acessibilidade e estados raros | Prévia não persiste; confirmação usa a proposta original; conflito ou erro não reapresenta sucesso nem reenvia payload obsoleto | Demandas, disponibilidades, sessões existentes e decisões do ADR |
 | Concursos públicos | **Não iniciada** | Decidir se a vertical de concursos fará parte da interface concluída e, se fizer, implementar CRUD | Usuário consegue realizar as operações incluídas no escopo, com estados vazio, erro e validação | Decisão de escopo; endpoints de concursos |
 | Disciplinas de edital | **Não iniciada** | Avaliar como fluxo dependente de concurso e implementar ou justificar exclusão | Disciplinas são gerenciáveis dentro de um concurso quando incluídas | Concursos; contratos de disciplinas |
@@ -347,10 +352,18 @@ todos os itens forem marcados com evidência:
 - [`ManageDemandsPanel.tsx`](../src/CadernoAtlas.Web/src/features/demands/ManageDemandsPanel.tsx)
 - [`CreateDemandForm.tsx`](../src/CadernoAtlas.Web/src/features/demands/CreateDemandForm.tsx)
 - [`CreateAvailabilityForm.tsx`](../src/CadernoAtlas.Web/src/features/availability/CreateAvailabilityForm.tsx)
+- [`StudySessionsPanel.tsx`](../src/CadernoAtlas.Web/src/features/study-sessions/StudySessionsPanel.tsx)
+- [`StudySessionDetail.tsx`](../src/CadernoAtlas.Web/src/features/study-sessions/StudySessionDetail.tsx)
+- [`StudySessionForm.tsx`](../src/CadernoAtlas.Web/src/features/study-sessions/StudySessionForm.tsx)
+- [`studySessionTypes.ts`](../src/CadernoAtlas.Web/src/features/study-sessions/studySessionTypes.ts)
+- [`useStudySessionMutations.ts`](../src/CadernoAtlas.Web/src/features/study-sessions/useStudySessionMutations.ts)
+- [`useStudySessionUncertainTransitions.ts`](../src/CadernoAtlas.Web/src/features/study-sessions/useStudySessionUncertainTransitions.ts)
+- [`useStudySessionUncertainDeletions.ts`](../src/CadernoAtlas.Web/src/features/study-sessions/useStudySessionUncertainDeletions.ts)
 - [`App.availability.test.jsx`](../tests/CadernoAtlas.Web.Tests/App.availability.test.jsx)
 - [`App.demands.test.jsx`](../tests/CadernoAtlas.Web.Tests/App.demands.test.jsx)
 - [`App.demand-tasks.test.jsx`](../tests/CadernoAtlas.Web.Tests/App.demand-tasks.test.jsx)
 - [`App.planning.test.jsx`](../tests/CadernoAtlas.Web.Tests/App.planning.test.jsx)
+- [`StudySessions.test.jsx`](../tests/CadernoAtlas.Web.Tests/StudySessions.test.jsx)
 - [`helpers/`](../tests/CadernoAtlas.Web.Tests/helpers/)
 
 ### API e decisões

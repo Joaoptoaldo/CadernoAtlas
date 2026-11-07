@@ -156,7 +156,7 @@ function App() {
     apiGet,
     getErrorMessage,
   })
-  const { createSession, updateSession, transitionSession, isMutating: isStudySessionMutating } = useStudySessionMutations({
+  const { createSession, updateSession, transitionSession, deleteSession, isMutating: isStudySessionMutating, isUncertain, isDeleteUncertain } = useStudySessionMutations({
     refresh: async () => {
       await reconcileStudySessions()
     },
@@ -323,9 +323,6 @@ function App() {
         </nav>
 
         <div className="sidebar-bottom">
-          <div className="sidebar-note-mark"><Icon name="check" size={17} /></div>
-          <p>Uma semana possível.</p>
-          <span>Seu planejamento deve caber na sua rotina, não o contrário.</span>
           <div className="sidebar-version">CADERNOATLAS <span>·</span> MVP</div>
         </div>
       </aside>
@@ -482,7 +479,6 @@ function App() {
             </div>
 
             <footer className="page-footer">
-              <span>Feito para uma rotina real, não para uma agenda perfeita.</span>
               <span>CadernoAtlas <span className="footer-separator">·</span> Planejamento semanal</span>
             </footer>
             </div>
@@ -528,7 +524,10 @@ function App() {
                   onReconcileEdit={reconcileSessionEditing}
                   onEditOutcomeUnknownChange={setEditingOutcomeUnknown}
                   onTransition={(id: number, transition: StudySessionTransition): Promise<StudySession> => transitionSession(id, transition)}
+                  onDelete={deleteSession}
                   isTransitioning={isStudySessionMutating}
+                  isUncertain={isUncertain}
+                  isDeleteUncertain={isDeleteUncertain}
                   getErrorMessage={getErrorMessage}
                 />
               )}
