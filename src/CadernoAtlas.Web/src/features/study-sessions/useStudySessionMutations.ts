@@ -3,6 +3,7 @@ import { apiGet, apiPost, apiPut, HttpError, isHttpError } from '../../apiClient
 import type { StudySession, StudySessionRequest, StudySessionTransition } from './studySessionTypes'
 import type { ConcurrencyLocks } from '../shared/useConcurrencyLocks'
 import { MutationSyncError } from '../shared/mutationOutcome'
+import { useStudySessionUncertainTransitions } from './useStudySessionUncertainTransitions'
 
 interface UseStudySessionMutationsOptions {
   refresh: () => Promise<void>
@@ -14,6 +15,9 @@ export function useStudySessionMutations({ refresh, invalidatePreview, concurren
   const [isMutating, setIsMutating] = useState(false)
   const mutationRef = useRef(false)
   const { dataMutationInProgressRef, setStudySessionMutationInProgress, setDataMutationInProgress } = concurrencyLocks
+
+  // Registro persistente de transições incertas
+  const { registerUncertain, clearUncertain, isUncertain } = useStudySessionUncertainTransitions()
 
   async function createSession(request: StudySessionRequest): Promise<void> {
     if (mutationRef.current || dataMutationInProgressRef.current) throw new Error('Aguarde a operação de planejamento ou sessão de estudo em andamento.')
@@ -84,12 +88,17 @@ export function useStudySessionMutations({ refresh, invalidatePreview, concurren
       } catch (error: unknown) {
         throw new MutationSyncError(`A transição foi confirmada, mas a lista não pôde ser atualizada. ${error instanceof Error ? error.message : 'Tente atualizar a lista novamente.'}`)
       }
+      // Sucesso total - limpar qualquer registro de incerteza
+      clearUncertain(id, transition)
       return session
     } catch (error: unknown) {
       if (error instanceof MutationSyncError) throw error
       const uncertain = !isHttpError(error) || error.status === 408 || error.status === 429 || error.status >= 500
       if (!uncertain) throw error
       invalidatePreview()
+
+      // Registrar transição incerta persistentemente
+      registerUncertain(id, transition)
 
       try {
         const reconciled = await apiGet<StudySession>(`/api/sessoes-estudo/${id}`)
@@ -98,13 +107,28 @@ export function useStudySessionMutations({ refresh, invalidatePreview, concurren
           try {
             await refresh()
           } catch (error: unknown) {
+            // Preservar MutationSyncError - a transição foi confirmada pelo GET individual
             throw new MutationSyncError(`A transição foi confirmada, mas a lista não pôde ser atualizada. ${error instanceof Error ? error.message : 'Tente atualizar a lista novamente.'}`)
           }
+          // Reconciliação automática confirmada - limpar registro
+          clearUncertain(id, transition)
           return reconciled
         }
-        throw new HttpError('A sessão permanece no estado anterior. Você pode tentar a transição novamente explicitamente.', 409)
+        // GET individual retornou estado diferente do esperado.
+        // Como o POST original teve resultado incerto, não podemos confirmar se a transição
+        // falhou ou se o GET está desatualizado. Preservar erro original de outcome uncertain.
+        throw error
       } catch (reconciliationError: unknown) {
-        if (reconciliationError instanceof HttpError && reconciliationError.status === 409) throw reconciliationError
+        // Se o GET individual falhar (rede, 404, etc.), o resultado permanece incerto
+        // Não transformar em MutationSyncError - manter o erro original de outcome uncertain
+        if (reconciliationError instanceof HttpError) {
+          if (reconciliationError.status === 409) throw reconciliationError
+          // Se o GET individual falhou por rede (408, 429, 5xx) ou 404, o resultado permanece incerto
+          if (reconciliationError.status === 404 || reconciliationError.status === 408 || reconciliationError.status === 429 || reconciliationError.status >= 500) {
+            throw error // Preservar erro original de outcome uncertain
+          }
+        }
+        // Para outros erros de reconciliação (não HttpError = rede), também preservar erro original
         throw error
       }
     } finally {
@@ -115,5 +139,5 @@ export function useStudySessionMutations({ refresh, invalidatePreview, concurren
     }
   }
 
-  return { isMutating, createSession, updateSession, transitionSession }
+  return { isMutating, createSession, updateSession, transitionSession, isUncertain }
 }

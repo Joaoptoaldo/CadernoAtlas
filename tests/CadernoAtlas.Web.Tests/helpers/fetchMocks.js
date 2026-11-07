@@ -178,8 +178,16 @@ export function setupFetch({
   studySessionTransitionResponses = {},
   studySessionTransitionNetworkFailures = {},
   studySessionReconciliationDetails = {},
+  studySessionDetailsQueues = {},
+  studySessionListQueues = {},
   studySessionTransitionGate,
 } = {}) {
+  const remainingStudySessionDetailsQueues = new Map(
+    Object.entries(studySessionDetailsQueues).map(([id, queue]) => [Number(id), [...queue]])
+  )
+  const remainingStudySessionListQueues = new Map(
+    Object.entries(studySessionListQueues).map(([key, queue]) => [key, [...queue]])
+  )
   let remainingStudySessionFailures = studySessionFailures
   let remainingStudySessionReconcileFailures = studySessionReconcileFailures
   let currentStudySessions = studySessions
@@ -578,10 +586,22 @@ export function setupFetch({
       const singleSessionMatch = path.match(/^\/api\/sessoes-estudo\/(\d+)$/)
       if (singleSessionMatch) {
         const sessionId = Number(singleSessionMatch[1])
-        const reconciliationDetail = studySessionReconciliationDetails[sessionId]
-        if (reconciliationDetail) {
-          currentStudySessions = currentStudySessions.map((session) => session.id === sessionId ? reconciliationDetail : session)
-          return jsonResponse(reconciliationDetail)
+        const queue = remainingStudySessionDetailsQueues.get(sessionId)
+        if (queue && queue.length > 0) {
+          const next = queue.shift()
+          if (next.error) throw next.error
+          if (next.status && typeof next.status === 'number') {
+            return jsonResponse(next.data ?? { title: 'Sessão de estudo não encontrada.' }, next.status)
+          }
+          currentStudySessions = currentStudySessions.map((session) => session.id === sessionId ? next : session)
+          return jsonResponse(next)
+        }
+        if (studySessionTransitionRequests > 0) {
+          const reconciliationDetail = studySessionReconciliationDetails[sessionId]
+          if (reconciliationDetail) {
+            currentStudySessions = currentStudySessions.map((session) => session.id === sessionId ? reconciliationDetail : session)
+            return jsonResponse(reconciliationDetail)
+          }
         }
         const sessionConfig = studySessionDetails[sessionId]
         if (sessionConfig && typeof sessionConfig.status === 'number') {
@@ -596,6 +616,21 @@ export function setupFetch({
 
       const url = new URL(path, 'http://localhost')
       studySessionListRequests += 1
+
+      // Support for sequential responses via queues (for pre-creation GET in handleSubmit)
+      // Use pathname only to match regardless of query parameters
+      const queueKey = url.pathname
+      const queue = remainingStudySessionListQueues.get(queueKey)
+      if (queue && queue.length > 0) {
+        const next = queue.shift()
+        if (next.error) throw next.error
+        if (next.status && typeof next.status === 'number') {
+          return jsonResponse(next.data ?? { title: 'Falha temporária ao atualizar sessões.' }, next.status)
+        }
+        // next.data contains the array of sessions
+        return jsonResponse(next.data)
+      }
+
       if (remainingStudySessionReconcileFailures > 0 && studySessionListRequests > 1) {
         remainingStudySessionReconcileFailures -= 1
         return jsonResponse({ title: 'Falha temporária ao atualizar sessões.' }, 503)

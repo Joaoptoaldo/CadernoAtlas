@@ -1,5 +1,7 @@
 import { useEffect, useState, useRef } from 'react'
 import { apiGet, isHttpError } from '../../apiClient'
+import { isMutationSyncError } from '../shared/mutationOutcome'
+import { useStudySessionUncertainTransitions } from './useStudySessionUncertainTransitions'
 import {
   getSituacaoPresentation,
   type StudySession,
@@ -50,8 +52,15 @@ export default function StudySessionDetail({ sessionId, onClose, demands, onLoad
   const [reloadToken, setReloadToken] = useState(0)
   const [transitioning, setTransitioning] = useState(false)
   const [transitionError, setTransitionError] = useState<string | null>(null)
+  const [outcomeUnknown, setOutcomeUnknown] = useState(false)
+  const [synchronizationFailed, setSynchronizationFailed] = useState(false)
+  const [reconciling, setReconciling] = useState(false)
   const requestIdRef = useRef(0)
   const resolveErrorMessage = getErrorMessage ?? defaultGetErrorMessage
+
+  // Verificar se há transição incerta persistida para esta sessão
+  const { isUncertain, clearUncertain } = useStudySessionUncertainTransitions()
+  const hasUncertainForSession = isUncertain(sessionId)
 
   useEffect(() => {
     const controller = new AbortController()
@@ -129,17 +138,79 @@ export default function StudySessionDetail({ sessionId, onClose, demands, onLoad
   }
 
   async function handleTransition(transition: StudySessionTransition): Promise<void> {
+    // Verificar se há transição incerta pendente para esta sessão
+    if (hasUncertainForSession) {
+      setTransitionError('Esta sessão possui uma transição não reconciliada. Reconcilie antes de tentar uma nova transição.')
+      return
+    }
+
     if (transition === 'cancelar' && !window.confirm('Cancelar esta sessão de estudo? Ela será marcada como cancelada.')) return
     if (transition === 'concluir' && !window.confirm('Concluir esta sessão de estudo?')) return
     setTransitioning(true)
     setTransitionError(null)
+    setOutcomeUnknown(false)
+    setSynchronizationFailed(false)
+    onEditOutcomeUnknownChange(false)
     try {
       const updated = await onTransition(sessionId, transition)
       setSession(updated)
+      // Sucesso - limpar estados de erro
+      setOutcomeUnknown(false)
+      setSynchronizationFailed(false)
+      onEditOutcomeUnknownChange(false)
     } catch (transitionFailure: unknown) {
-      setTransitionError(transitionFailure instanceof Error ? transitionFailure.message : 'Não foi possível atualizar a situação da sessão.')
+      const status = isHttpError(transitionFailure) ? transitionFailure.status : null
+      if (isMutationSyncError(transitionFailure)) {
+        // Operação confirmada, mas falha ao atualizar a lista
+        setSynchronizationFailed(true)
+        setOutcomeUnknown(false)
+        onEditOutcomeUnknownChange(false)
+        setTransitionError(transitionFailure.message)
+      } else if (status === null || status === 408 || status === 429 || status >= 500) {
+        // Resultado incerto - falha de rede ou timeout
+        setOutcomeUnknown(true)
+        onEditOutcomeUnknownChange(true)
+        setSynchronizationFailed(false)
+        setTransitionError('Não foi possível confirmar o resultado da operação. Consulte a lista antes de decidir se tentará novamente.')
+      } else if (status === 404) {
+        // 404 definitivo vindo da mutação: sessão não encontrada
+        setOutcomeUnknown(false)
+        onEditOutcomeUnknownChange(false)
+        setSynchronizationFailed(false)
+        setTransitionError('A sessão informada não foi encontrada.')
+      } else {
+        setOutcomeUnknown(false)
+        onEditOutcomeUnknownChange(false)
+        setSynchronizationFailed(false)
+        setTransitionError(transitionFailure instanceof Error ? transitionFailure.message : 'Não foi possível atualizar a situação da sessão.')
+      }
     } finally {
       setTransitioning(false)
+    }
+  }
+
+  async function reconcile(): Promise<void> {
+    if (reconciling) return
+    setReconciling(true)
+    setTransitionError(null)
+    try {
+      // Consultar GET /api/sessoes-estudo/{id} para obter o estado individual da sessão
+      const individual = await apiGet<StudySession>(`/api/sessoes-estudo/${sessionId}`)
+      setSession(individual)
+      // Bloqueios só são liberados depois que o estado atual é conhecido
+      clearUncertain(sessionId)
+      setOutcomeUnknown(false)
+      setSynchronizationFailed(false)
+      onEditOutcomeUnknownChange(false)
+      try {
+        await onReconcile()
+      } catch {
+        // Falha ao atualizar lista não anula a confirmação do estado individual
+      }
+    } catch (reconcileError: unknown) {
+      setTransitionError(resolveErrorMessage(reconcileError, 'Não foi possível consultar as sessões. Tente novamente.'))
+    } finally {
+      setReconciling(false)
     }
   }
 
@@ -256,11 +327,19 @@ export default function StudySessionDetail({ sessionId, onClose, demands, onLoad
               </div>
             )}
           </dl>
+          {(outcomeUnknown || synchronizationFailed || hasUncertainForSession) && (
+            <div className="task-uncertain-guidance">
+              <p>{synchronizationFailed ? 'A operação foi confirmada, mas a lista não pôde ser atualizada. Consulte as sessões para sincronizar os dados; não é necessário reenviar a operação.' : 'O resultado da operação é incerto. Esta sessão possui uma transição não reconciliada. Consulte as sessões antes de tentar novamente para evitar alterações duplicadas.'}</p>
+              <button className="text-button" type="button" disabled={reconciling} onClick={() => void reconcile()}>
+                {reconciling ? 'Consultando sessões…' : synchronizationFailed ? 'Atualizar lista de sessões' : 'Consultar sessões antes de tentar novamente'}
+              </button>
+            </div>
+          )}
           <div className="study-session-detail-actions">
-            {session.situacao === 0 && <button className="button button-primary" type="button" disabled={transitioning || isTransitioning} onClick={() => void handleTransition('iniciar')}>{transitioning ? 'Iniciando…' : 'Iniciar sessão'}</button>}
-            {session.situacao === 1 && <button className="button button-primary" type="button" disabled={transitioning || isTransitioning} onClick={() => void handleTransition('concluir')}>{transitioning ? 'Concluindo…' : 'Concluir sessão'}</button>}
-            {(session.situacao === 0 || session.situacao === 1) && <button className="button button-secondary" type="button" disabled={transitioning || isTransitioning} onClick={() => void handleTransition('cancelar')}>Cancelar sessão</button>}
-            {session.situacao === 0 && <button className="button button-secondary" type="button" disabled={transitioning || isTransitioning} onClick={() => setEditing(true)}>Editar sessão</button>}
+            {session.situacao === 0 && <button className="button button-primary" type="button" disabled={transitioning || isTransitioning || outcomeUnknown || synchronizationFailed || hasUncertainForSession} onClick={() => void handleTransition('iniciar')}>{transitioning ? 'Iniciando…' : 'Iniciar sessão'}</button>}
+            {session.situacao === 1 && <button className="button button-primary" type="button" disabled={transitioning || isTransitioning || outcomeUnknown || synchronizationFailed || hasUncertainForSession} onClick={() => void handleTransition('concluir')}>{transitioning ? 'Concluindo…' : 'Concluir sessão'}</button>}
+            {(session.situacao === 0 || session.situacao === 1) && <button className="button button-secondary" type="button" disabled={transitioning || isTransitioning || outcomeUnknown || synchronizationFailed || hasUncertainForSession} onClick={() => void handleTransition('cancelar')}>Cancelar sessão</button>}
+            {session.situacao === 0 && <button className="button button-secondary" type="button" disabled={transitioning || isTransitioning || outcomeUnknown || synchronizationFailed || hasUncertainForSession} onClick={() => setEditing(true)}>Editar sessão</button>}
             {session.situacao !== 0 && <span className="study-session-edit-notice">Sessões {getSituacaoPresentation(session.situacao).label.toLowerCase()} não podem ser editadas.</span>}
             {transitionError && <p className="form-error" role="alert">{transitionError}</p>}
             <button className="button button-secondary" onClick={onClose}>Fechar</button>

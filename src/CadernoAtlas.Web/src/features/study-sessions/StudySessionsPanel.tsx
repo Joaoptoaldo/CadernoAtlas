@@ -104,7 +104,7 @@ export default function StudySessionsPanel({
           onLoadTasks={onLoadTasks}
           onSubmit={onCreate}
           onCancel={() => setIsCreating(false)}
-          onReconcile={onReconcile}
+          onReconcile={async () => { await onReconcile(); }}
           outcomeUnknown={creationOutcomeUnknown}
           onOutcomeUnknownChange={onCreationOutcomeUnknownChange}
         />
@@ -270,7 +270,7 @@ export default function StudySessionsPanel({
           demands={demands}
           onLoadTasks={onLoadTasks}
           onUpdate={onUpdate}
-          onReconcile={onReconcileEdit}
+          onReconcile={async () => { await onReconcileEdit(); }}
           onEditOutcomeUnknownChange={onEditOutcomeUnknownChange}
           onTransition={onTransition}
           isTransitioning={isTransitioning}
