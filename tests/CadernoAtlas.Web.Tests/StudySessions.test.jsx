@@ -1200,11 +1200,17 @@ describe('Sessões de estudo', () => {
     expect(screen.queryByText('Sessão para excluir')).not.toBeInTheDocument()
   })
 
-  it('trata 404 na exclusão: sessão não encontrada', async () => {
+  it('trata 404 na exclusão: sessão não encontrada dispara reconciliação', async () => {
     const session = { ...studySessionFixture, titulo: 'Sessão inexistente', situacao: 0 }
     const fetchMock = setupFetch({
       studySessions: [session],
       studySessionDeleteResponse: { status: 404, data: { detail: 'Sessão de estudo não encontrada.' } },
+      studySessionListQueues: {
+        '/api/sessoes-estudo': [
+          { data: [session] }, // 1. carga inicial
+          { data: [] }, // 2. refresh após reconciliação
+        ],
+      },
     })
     renderApp()
 
@@ -1217,11 +1223,12 @@ describe('Sessões de estudo', () => {
     const deleteButton = screen.getByRole('button', { name: 'Excluir' })
     fireEvent.click(deleteButton)
 
-    // Verifica mensagem de erro
+    // DELETE foi chamado uma vez
     await waitFor(() => expect(fetchMock.getStudySessionDeleteRequests()).toBe(1))
-    expect(await screen.findByRole('alert')).toHaveTextContent('Sessão de estudo não encontrada.')
-    // Sessão continua na lista (não foi removida)
-    expect(screen.getByText('Sessão inexistente')).toBeInTheDocument()
+
+    // Reconciliação automática atualiza a lista e remove a sessão
+    await screen.findByText('Nenhuma sessão de estudo encontrada')
+    expect(screen.queryByText('Sessão inexistente')).not.toBeInTheDocument()
   })
 
   it('trata 409 na exclusão: sessão não é planejada', async () => {
@@ -1650,5 +1657,310 @@ describe('Sessões de estudo', () => {
     // Sessão removida e DELETE NÃO duplicado
     await screen.findByText('Nenhuma sessão de estudo encontrada')
     expect(fetchMock.getStudySessionDeleteRequests()).toBe(1)
+  })
+
+  // testes de regressão
+
+  it('modal permanece aberto quando exclusão confirmada mas atualização da lista falha (reconcileDelete)', async () => {
+    // Teste: DELETE bem-sucedido (204), mas falha ao atualizar a lista (refresh) no modal
+    const session = { ...studySessionFixture, id: 1, titulo: 'Sessão modal sync fail', situacao: 0 }
+    const fetchMock = setupFetch({
+      studySessions: [session],
+      studySessionDetailsQueues: {
+        '1': [
+          { status: 200, data: session }, // 1. carga inicial do modal
+          { status: 404, data: { detail: 'Sessão de estudo não encontrada.' } }, // 2. reconciliação GET individual - sessão excluída
+        ],
+      },
+      studySessionDeleteResponse: { status: 204, data: null },
+      studySessionListQueues: {
+        '/api/sessoes-estudo': [
+          { data: [session] }, // 1. carga inicial
+          { error: new TypeError('Failed to fetch') }, // 2. refresh falha na reconciliação
+          { data: [] }, // 3. retry sucesso
+        ],
+      },
+    })
+    renderApp()
+
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Sessões de estudo' }))
+    await screen.findByText('Sessão modal sync fail')
+
+    // Abrir modal
+    fireEvent.click(screen.getByRole('button', { name: /Ver detalhes/ }))
+    await screen.findByRole('heading', { name: 'Sessão modal sync fail' })
+
+    // Excluir no modal - DELETE sucesso, mas refresh falha
+    const deleteButtonModal = screen.getByRole('button', { name: 'Excluir sessão' })
+    fireEvent.click(deleteButtonModal)
+
+    // DELETE chamado uma vez
+    await waitFor(() => expect(fetchMock.getStudySessionDeleteRequests()).toBe(1))
+
+    // Modal deve permanecer aberto (não fechar prematuramente)
+    // E mostrar mensagem de sincronização falhou no transitionError
+    await screen.findByText(/A exclusão foi confirmada, mas a lista não pôde ser atualizada. Failed to fetch/)
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+
+    // Clicar em atualizar - segunda chamada GET deve ter sucesso
+    fireEvent.click(screen.getByRole('button', { name: 'Atualizar lista de sessões' }))
+
+    // Modal fecha após sincronização bem-sucedida
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+    expect(fetchMock.getStudySessionDeleteRequests()).toBe(1)
+  })
+
+  it('MutationSyncError desabilita novo DELETE no card e oferece apenas atualização da lista', async () => {
+    const session = { ...studySessionFixture, titulo: 'Sessão mutation sync', situacao: 0 }
+    const fetchMock = setupFetch({
+      studySessions: [session],
+      studySessionDeleteResponse: { status: 204, data: null },
+      studySessionListQueues: {
+        '/api/sessoes-estudo': [
+          { data: [session] }, // 1. carga inicial
+          { error: new TypeError('Failed to fetch') }, // 2. refresh falha
+        ],
+      },
+    })
+    renderApp()
+
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Sessões de estudo' }))
+    await screen.findByText('Sessão mutation sync')
+
+    // Excluir via card - DELETE sucesso, refresh falha
+    const deleteButton = screen.getByRole('button', { name: 'Excluir' })
+    fireEvent.click(deleteButton)
+
+    // DELETE chamado uma vez
+    await waitFor(() => expect(fetchMock.getStudySessionDeleteRequests()).toBe(1))
+
+    // Botão "Excluir" deve ser substituído por "Atualizar lista de sessões"
+    expect(screen.queryByRole('button', { name: 'Excluir' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Atualizar lista de sessões' })).toBeInTheDocument()
+    expect(await screen.findByText(/A exclusão foi confirmada, mas a lista não pôde ser atualizada/)).toBeInTheDocument()
+
+    // Clicar em atualizar
+    fireEvent.click(screen.getByRole('button', { name: 'Atualizar lista de sessões' }))
+    await screen.findByText('Nenhuma sessão de estudo encontrada')
+
+    // DELETE NÃO duplicado
+    expect(fetchMock.getStudySessionDeleteRequests()).toBe(1)
+  })
+
+  it('DELETE 404 no card dispara reconciliação automática e atualiza listagem', async () => {
+    const session = { ...studySessionFixture, titulo: 'Sessão 404 card', situacao: 0 }
+    const fetchMock = setupFetch({
+      studySessions: [session],
+      studySessionDeleteResponse: { status: 404, data: { detail: 'Sessão de estudo não encontrada.' } },
+      studySessionListQueues: {
+        '/api/sessoes-estudo': [
+          { data: [session] }, // 1. carga inicial
+          { data: [] }, // 2. refresh após reconciliação
+        ],
+      },
+    })
+    renderApp()
+
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Sessões de estudo' }))
+    await screen.findByText('Sessão 404 card')
+
+    // Excluir via card - DELETE 404
+    const deleteButton = screen.getByRole('button', { name: 'Excluir' })
+    fireEvent.click(deleteButton)
+
+    // DELETE chamado uma vez
+    await waitFor(() => expect(fetchMock.getStudySessionDeleteRequests()).toBe(1))
+
+    // Reconciliação automática remove a sessão da lista
+    await screen.findByText('Nenhuma sessão de estudo encontrada')
+    expect(screen.queryByText('Sessão 404 card')).not.toBeInTheDocument()
+
+    // DELETE NÃO duplicado
+    expect(fetchMock.getStudySessionDeleteRequests()).toBe(1)
+  })
+
+  it('DELETE 404 no card com falha na atualização da lista marca sync failed', async () => {
+    const session = { ...studySessionFixture, titulo: 'Sessão 404 sync fail', situacao: 0 }
+    const fetchMock = setupFetch({
+      studySessions: [session],
+      studySessionDeleteResponse: { status: 404, data: { detail: 'Sessão de estudo não encontrada.' } },
+      studySessionListQueues: {
+        '/api/sessoes-estudo': [
+          { data: [session] }, // 1. carga inicial
+          { error: new TypeError('Failed to fetch') }, // 2. refresh falha
+          { data: [] }, // 3. retry sucesso
+        ],
+      },
+    })
+    renderApp()
+
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Sessões de estudo' }))
+    await screen.findByText('Sessão 404 sync fail')
+
+    // Excluir via card - DELETE 404
+    const deleteButton = screen.getByRole('button', { name: 'Excluir' })
+    fireEvent.click(deleteButton)
+
+    // DELETE chamado uma vez
+    await waitFor(() => expect(fetchMock.getStudySessionDeleteRequests()).toBe(1))
+
+    // Botão "Excluir" substituído por "Atualizar lista de sessões"
+    expect(screen.queryByRole('button', { name: 'Excluir' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Atualizar lista de sessões' })).toBeInTheDocument()
+    expect(await screen.findByText(/A sessão foi excluída, mas a lista não pôde ser atualizada/)).toBeInTheDocument()
+
+    // Clicar em atualizar
+    fireEvent.click(screen.getByRole('button', { name: 'Atualizar lista de sessões' }))
+    await screen.findByText('Nenhuma sessão de estudo encontrada')
+
+    // DELETE NÃO duplicado
+    expect(fetchMock.getStudySessionDeleteRequests()).toBe(1)
+  })
+
+  it('resultado incerto registrado no card é refletido imediatamente no modal sem fechá-lo', async () => {
+    const session = { ...studySessionFixture, titulo: 'Sessão incerteza cross', situacao: 0 }
+    const fetchMock = setupFetch({
+      studySessions: [session],
+      studySessionDetails: { 1: session },
+      studySessionDeleteNetworkFailures: 1, // Falha de rede no DELETE
+    })
+    renderApp()
+
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Sessões de estudo' }))
+    await screen.findByText('Sessão incerteza cross')
+
+    // Abrir modal primeiro
+    fireEvent.click(screen.getByRole('button', { name: /Ver detalhes/ }))
+    await screen.findByRole('heading', { name: 'Sessão incerteza cross' })
+    // Verificar que botão Excluir sessão está habilitado inicialmente
+    expect(screen.getByRole('button', { name: 'Excluir sessão' })).not.toBeDisabled()
+
+    // Fechar modal
+    const closeButtons = screen.getAllByRole('button', { name: 'Fechar' })
+    fireEvent.click(closeButtons[0])
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+
+    // Excluir via card - falha de rede
+    const deleteButton = screen.getByRole('button', { name: 'Excluir' })
+    fireEvent.click(deleteButton)
+
+    await waitFor(() => expect(fetchMock.getStudySessionDeleteRequests()).toBe(1))
+
+    // Reabrir modal - incerteza deve estar refletida imediatamente
+    fireEvent.click(screen.getByRole('button', { name: /Ver detalhes/ }))
+    await screen.findByRole('heading', { name: 'Sessão incerteza cross' })
+
+    // Botão Excluir sessão deve estar desabilitado (isDeleteUncertain)
+    expect(screen.getByRole('button', { name: 'Excluir sessão' })).toBeDisabled()
+    expect(screen.getByText(/resultado da exclusão é incerto/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Consultar sessão antes de tentar novamente' })).toBeInTheDocument()
+  })
+
+  it('reconciliação bem-sucedida no modal libera bloqueios apropriados', async () => {
+    const session = { ...studySessionFixture, id: 1, titulo: 'Sessão reconciliação sucesso', situacao: 0 }
+    const reconciled = { ...session, situacao: 1 } // Sessão ainda existe mas mudou para Em andamento
+    const fetchMock = setupFetch({
+      studySessions: [session],
+      studySessionDetailsQueues: {
+        '1': [
+          { status: 200, data: { ...session } }, // 1. carga inicial do modal
+          { status: 200, data: reconciled }, // 2. reconciliação - 200 sessão existe com estado diferente
+        ],
+      },
+      studySessionListQueues: {
+        '/api/sessoes-estudo': [
+          { data: [session] }, // 1. carga inicial
+          { data: [reconciled] }, // 2. refresh após reconciliação
+        ],
+      },
+      studySessionDeleteNetworkFailures: 1, // Simula falha de rede para forçar incerteza
+    })
+    renderApp()
+
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Sessões de estudo' }))
+    await screen.findByText('Sessão reconciliação sucesso')
+
+    // Abrir modal
+    fireEvent.click(screen.getByRole('button', { name: /Ver detalhes/ }))
+    await screen.findByRole('heading', { name: 'Sessão reconciliação sucesso' })
+
+    // Tentar excluir - falha de rede
+    const deleteButtonModal = screen.getByRole('button', { name: 'Excluir sessão' })
+    fireEvent.click(deleteButtonModal)
+
+    // Mensagem de incerteza aparece
+    await screen.findByText(/resultado da exclusão é incerto/)
+    expect(screen.getByRole('button', { name: 'Excluir sessão' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Consultar sessão antes de tentar novamente' })).toBeInTheDocument()
+
+    // Reconciliação via botão - GET individual retorna 200 com sessão atualizada
+    fireEvent.click(screen.getByRole('button', { name: 'Consultar sessão antes de tentar novamente' }))
+
+    // Sessão ainda existe mas mudou para Em andamento
+    const modal = screen.getByRole('dialog', { name: /Sessão reconciliação sucesso/i })
+    await findByText(modal, 'Em andamento')
+    // Mensagem de incerteza desaparece
+    expect(screen.queryByText(/resultado da exclusão é incerto/)).not.toBeInTheDocument()
+    // Botão Excluir sessão não deve mais existir (situacao !== 0)
+    expect(screen.queryByRole('button', { name: 'Excluir sessão' })).not.toBeInTheDocument()
+    // Botão de transição seguinte (Concluir sessão) fica habilitado
+    expect(screen.getByRole('button', { name: 'Concluir sessão' })).not.toBeDisabled()
+
+    // DELETE NÃO repetido
+    expect(fetchMock.getStudySessionDeleteRequests()).toBe(1)
+  })
+
+  it('falhas durante reconciliação no modal não liberam bloqueios indevidamente', async () => {
+    const session = { ...studySessionFixture, id: 1, titulo: 'Sessão falha reconciliação', situacao: 0 }
+    const fetchMock = setupFetch({
+      studySessions: [session],
+      studySessionDetailsQueues: {
+        '1': [
+          { status: 200, data: { ...session } }, // 1. carga inicial do modal
+          { error: new TypeError('Failed to fetch') }, // 2. reconciliação falha de rede
+        ],
+      },
+      studySessionDeleteNetworkFailures: 1,
+    })
+    renderApp()
+
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Sessões de estudo' }))
+    await screen.findByText('Sessão falha reconciliação')
+
+    // Abrir modal
+    fireEvent.click(screen.getByRole('button', { name: /Ver detalhes/ }))
+    await screen.findByRole('heading', { name: 'Sessão falha reconciliação' })
+
+    // Tentar excluir - falha de rede
+    const deleteButtonModal = screen.getByRole('button', { name: 'Excluir sessão' })
+    fireEvent.click(deleteButtonModal)
+
+    // Mensagem de incerteza
+    await screen.findByText(/resultado da exclusão é incerto/)
+
+    // Tentar reconciliação via modal - falha de rede
+    fireEvent.click(screen.getByRole('button', { name: 'Consultar sessão antes de tentar novamente' }))
+
+    // Aguardar a reconciliação falhar (o botão volta ao estado anterior após falha)
+    await screen.findByText(/resultado da exclusão é incerto/)
+
+    // Bloqueio deve persistir
+    expect(screen.getByRole('button', { name: 'Excluir sessão' })).toBeDisabled()
+    expect(screen.getByText(/resultado da exclusão é incerto/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Consultar sessão antes de tentar novamente' })).toBeInTheDocument()
   })
 })

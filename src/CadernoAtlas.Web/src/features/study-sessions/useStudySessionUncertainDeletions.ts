@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 
 interface UncertainDeletion {
   sessionId: number
@@ -8,6 +8,12 @@ interface UncertainDeletion {
 const STORAGE_KEY = 'cadernoatlas:uncertain-session-deletions'
 
 let memoryCache: UncertainDeletion[] = []
+
+const listeners = new Set<() => void>()
+
+function notifyListeners(): void {
+  listeners.forEach((listener) => listener())
+}
 
 function isValidUncertainDeletion(item: unknown): item is UncertainDeletion {
   if (typeof item !== 'object' || item === null) return false
@@ -46,6 +52,7 @@ function saveToStorage(deletions: UncertainDeletion[]): void {
   } catch {
     // Ignora erros de storage
   }
+  notifyListeners()
 }
 
 export function clearAllUncertainDeletions(): void {
@@ -55,12 +62,25 @@ export function clearAllUncertainDeletions(): void {
   } catch {
     // Ignora erros de storage
   }
+  notifyListeners()
 }
 
 export function useStudySessionUncertainDeletions() {
   const [uncertainDeletions, setUncertainDeletions] = useState<UncertainDeletion[]>(() =>
     loadFromStorage()
   )
+
+  const [, setVersion] = useState(0)
+  const forceUpdate = useCallback(() => {
+    setVersion((v) => v + 1)
+  }, [])
+
+  useEffect(() => {
+    listeners.add(forceUpdate)
+    return () => {
+      listeners.delete(forceUpdate)
+    }
+  }, [forceUpdate])
 
   const registerDeleteUncertain = useCallback((sessionId: number): void => {
     setUncertainDeletions((prev) => {

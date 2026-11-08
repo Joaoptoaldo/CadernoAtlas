@@ -3,6 +3,7 @@ import StatusMessage from '../../components/ui/StatusMessage'
 import StudySessionForm from './StudySessionForm'
 import StudySessionDetail from './StudySessionDetail'
 import { isMutationSyncError } from '../shared/mutationOutcome'
+import { isHttpError } from '../../apiClient'
 import {
   getSituacaoPresentation,
   matchesSituacaoFilter,
@@ -56,6 +57,7 @@ export default function StudySessionsPanel({
   const [transitioningSessionId, setTransitioningSessionId] = useState<number | null>(null)
   const [transitionError, setTransitionError] = useState<string | null>(null)
   const [deleteError, setDeleteError] = useState<string | null>(null)
+  const [deleteSyncFailed, setDeleteSyncFailed] = useState<Set<number>>(new Set())
 
   const filteredSessions = useMemo(() => {
     if (!state.data) return []
@@ -249,26 +251,66 @@ export default function StudySessionsPanel({
                   <button type="button" className="button button-secondary button-small" disabled={isTransitioning || transitioningSessionId !== null} onClick={() => void handleTransition(session.id, 'cancelar')}>
                     Cancelar
                   </button>
-                  <button
-                    type="button"
-                    className="button button-secondary button-small button-danger"
-                    disabled={isTransitioning || transitioningSessionId !== null || isUncertain(session.id) || isDeleteUncertain(session.id)}
-                    onClick={async () => {
-                      if (!window.confirm('Excluir esta sessão de estudo planejada? Esta ação não pode ser desfeita.')) return
-                      setDeleteError(null)
-                      try {
-                        await onDelete(session.id)
-                      } catch (error: unknown) {
-                        if (isMutationSyncError(error)) {
-                          setDeleteError(`A exclusão foi confirmada, mas a lista não pôde ser atualizada. ${error.message}`)
-                        } else if (error instanceof Error) {
-                          setDeleteError(error.message)
+                  {deleteSyncFailed.has(session.id) ? (
+                    <button
+                      type="button"
+                      className="button button-secondary button-small"
+                      onClick={async () => {
+                        setDeleteError(null)
+                        try {
+                          await onReconcile()
+                          setDeleteSyncFailed((prev) => {
+                            const next = new Set(prev)
+                            next.delete(session.id)
+                            return next
+                          })
+                        } catch (error: unknown) {
+                          setDeleteError(error instanceof Error ? error.message : 'Não foi possível atualizar a lista.')
                         }
-                      }
-                    }}
-                  >
-                    Excluir
-                  </button>
+                      }}
+                    >
+                      Atualizar lista de sessões
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      className="button button-secondary button-small button-danger"
+                      disabled={isTransitioning || transitioningSessionId !== null || isUncertain(session.id) || isDeleteUncertain(session.id) || deleteSyncFailed.has(session.id)}
+                      onClick={async () => {
+                        if (!window.confirm('Excluir esta sessão de estudo planejada? Esta ação não pode ser desfeita.')) return
+                        setDeleteError(null)
+                        try {
+                          await onDelete(session.id)
+                        } catch (error: unknown) {
+                          if (isMutationSyncError(error)) {
+                            setDeleteSyncFailed((prev) => {
+                              const next = new Set(prev)
+                              next.add(session.id)
+                              return next
+                            })
+                            setDeleteError(`A exclusão foi confirmada, mas a lista não pôde ser atualizada. ${error.message}`)
+                          } else if (isHttpError(error) && error.status === 404) {
+                            // HTTP 404: sessão já não existe - disparar reconciliação
+                            try {
+                              await onReconcile()
+                            } catch {
+                              // Se a atualização da lista falhar, marcar como sync failed
+                              setDeleteSyncFailed((prev) => {
+                                const next = new Set(prev)
+                                next.add(session.id)
+                                return next
+                              })
+                              setDeleteError('A sessão foi excluída, mas a lista não pôde ser atualizada. Atualize a listagem para sincronizar.')
+                            }
+                          } else if (error instanceof Error) {
+                            setDeleteError(error.message)
+                          }
+                        }
+                      }}
+                    >
+                      Excluir
+                    </button>
+                  )}
                 </>
               )}
               {session.situacao === 1 && (

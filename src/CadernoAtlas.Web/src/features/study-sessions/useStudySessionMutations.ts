@@ -162,7 +162,7 @@ export function useStudySessionMutations({ refresh, invalidatePreview, concurren
       try {
         await refresh()
       } catch (error: unknown) {
-        throw new MutationSyncError(`A sessão foi excluída, mas a lista não pôde ser atualizada. ${error instanceof Error ? error.message : 'Tente atualizar a lista novamente.'}`)
+        throw new MutationSyncError(`A exclusão foi confirmada, mas a lista não pôde ser atualizada. ${error instanceof Error ? error.message : 'Tente atualizar a lista novamente.'}`)
       }
       // Sucesso total - limpar qualquer registro de incerteza para esta sessão
       clearUncertain(id)

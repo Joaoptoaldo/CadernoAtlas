@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { apiGet } from '../../apiClient'
 import type { StudySessionTransition } from './studySessionTypes'
 
@@ -13,6 +13,12 @@ const STORAGE_KEY = 'cadernoatlas:uncertain-session-transitions'
 const VALID_TRANSITIONS: Set<string> = new Set(['iniciar', 'concluir', 'cancelar'])
 
 let memoryCache: UncertainTransition[] = []
+
+const listeners = new Set<() => void>()
+
+function notifyListeners(): void {
+  listeners.forEach((listener) => listener())
+}
 
 function isValidUncertainTransition(item: unknown): item is UncertainTransition {
   if (typeof item !== 'object' || item === null) return false
@@ -62,6 +68,7 @@ function saveToStorage(transitions: UncertainTransition[]): void {
   } catch {
     // Ignora erros de storage (quota, etc.) mantendo memoryCache
   }
+  notifyListeners()
 }
 
 export function clearAllUncertainTransitions(): void {
@@ -71,6 +78,7 @@ export function clearAllUncertainTransitions(): void {
   } catch {
     // Ignora erros de storage
   }
+  notifyListeners()
 }
 
 export function hasAnyUncertainTransition(): boolean {
@@ -81,6 +89,20 @@ export function useStudySessionUncertainTransitions() {
   const [uncertainTransitions, setUncertainTransitions] = useState<UncertainTransition[]>(() =>
     loadFromStorage()
   )
+
+  // Force update by incrementing a version counter
+  const [, setVersion] = useState(0)
+  const forceUpdate = useCallback(() => {
+    setVersion((v) => v + 1)
+  }, [])
+
+  // Subscribe to cross-instance updates
+  useEffect(() => {
+    listeners.add(forceUpdate)
+    return () => {
+      listeners.delete(forceUpdate)
+    }
+  }, [forceUpdate])
 
   const registerUncertain = useCallback((sessionId: number, transition: StudySessionTransition): void => {
     const expectedStatus = transition === 'iniciar' ? 1 : transition === 'concluir' ? 2 : 3
