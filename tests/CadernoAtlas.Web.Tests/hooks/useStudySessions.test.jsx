@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { act, renderHook, waitFor } from '@testing-library/react'
-import { useStudySessions } from '../../src/CadernoAtlas.Web/src/features/study-sessions/useStudySessions'
+import { useStudySessions } from '../../../src/CadernoAtlas.Web/src/features/study-sessions/useStudySessions'
 
 afterEach(() => vi.clearAllMocks())
 

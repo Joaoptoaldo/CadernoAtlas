@@ -81,6 +81,14 @@ export function clearAllUncertainTransitions(): void {
   notifyListeners()
 }
 
+export function clearUncertainForSession(sessionId: number, transition?: StudySessionTransition): void {
+  const current = loadFromStorage()
+  const next = current.filter((t) =>
+    t.sessionId !== sessionId || (transition !== undefined && t.transition !== transition)
+  )
+  saveToStorage(next)
+}
+
 export function hasAnyUncertainTransition(): boolean {
   return loadFromStorage().length > 0 || memoryCache.length > 0
 }

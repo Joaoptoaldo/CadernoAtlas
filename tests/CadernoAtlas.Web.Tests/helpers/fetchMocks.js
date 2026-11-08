@@ -184,6 +184,8 @@ export function setupFetch({
   studySessionListQueues = {},
   studySessionTransitionGate,
   studySessionDeleteGate,
+  studySessionDeleteResponses = {},
+  studySessionDeleteGates = {},
 } = {}) {
   const remainingStudySessionDetailsQueues = new Map(
     Object.entries(studySessionDetailsQueues).map(([id, queue]) => [Number(id), [...queue]])
@@ -586,10 +588,25 @@ export function setupFetch({
       if (init.method === 'DELETE') {
         const sessionId = Number(path.match(/^\/api\/sessoes-estudo\/(\d+)$/)?.[1])
         studySessionDeleteRequests += 1
-        if (studySessionDeleteGate) await studySessionDeleteGate
+        if (studySessionDeleteGates[sessionId]) {
+          await studySessionDeleteGates[sessionId]
+        } else if (studySessionDeleteGate) {
+          await studySessionDeleteGate
+        }
+        if (studySessionDeleteResponses[sessionId]) {
+          const resp = studySessionDeleteResponses[sessionId]
+          if (resp.error instanceof Error) throw resp.error
+          if (resp.status >= 200 && resp.status < 300) {
+            currentStudySessions = currentStudySessions.filter((session) => session.id !== sessionId)
+          }
+          return jsonResponse(resp.data, resp.status)
+        }
         if (remainingStudySessionDeleteNetworkFailures > 0) {
           remainingStudySessionDeleteNetworkFailures -= 1
           throw new TypeError('Failed to fetch')
+        }
+        if (studySessionDeleteResponse?.error instanceof Error) {
+          throw studySessionDeleteResponse.error
         }
         const existing = currentStudySessions.find((session) => session.id === sessionId)
         const response = studySessionDeleteResponse ?? (existing
@@ -639,9 +656,6 @@ export function setupFetch({
 
       const url = new URL(path, 'http://localhost')
       studySessionListRequests += 1
-
-      // Support for sequential responses via queues (for pre-creation GET in handleSubmit)
-      // Use pathname only to match regardless of query parameters
       const queueKey = url.pathname
       const queue = remainingStudySessionListQueues.get(queueKey)
       if (queue && queue.length > 0) {
@@ -650,7 +664,6 @@ export function setupFetch({
         if (next.status && typeof next.status === 'number') {
           return jsonResponse(next.data ?? { title: 'Falha temporária ao atualizar sessões.' }, next.status)
         }
-        // next.data contains the array of sessions
         return jsonResponse(next.data)
       }
 

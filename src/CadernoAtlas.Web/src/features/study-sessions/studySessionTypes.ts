@@ -171,13 +171,13 @@ export interface StudySessionDetailProps {
   demands: StudySessionDemand[]
   onLoadTasks: (demandId: number, signal: AbortSignal) => Promise<StudySessionTask[]>
   onUpdate: (id: number, request: StudySessionRequest) => Promise<void>
-  onReconcile: () => Promise<void>
+  onReconcile: () => Promise<StudySessionListItem[] | void>
   onEditOutcomeUnknownChange: (value: boolean) => void
   onTransition: (id: number, transition: StudySessionTransition) => Promise<StudySession>
   onDelete: (id: number) => Promise<void>
   isTransitioning: boolean
   isUncertain: (id: number) => boolean
   isDeleteUncertain: (id: number) => boolean
-  onReconcileDelete: () => Promise<void>
+  onReconcileDelete?: () => Promise<StudySessionListItem[] | void>
   getErrorMessage?: (error: unknown, fallback: string) => string
 }

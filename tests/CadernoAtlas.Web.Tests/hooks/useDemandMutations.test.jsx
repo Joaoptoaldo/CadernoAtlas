@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { act, renderHook } from '@testing-library/react'
-import { apiPost, apiPut } from '../../src/CadernoAtlas.Web/src/apiClient'
-import { useDemandMutations } from '../../src/CadernoAtlas.Web/src/features/demands/useDemandMutations'
+import { apiPost, apiPut } from '../../../src/CadernoAtlas.Web/src/apiClient'
+import { useDemandMutations } from '../../../src/CadernoAtlas.Web/src/features/demands/useDemandMutations'
 
-vi.mock('../../src/CadernoAtlas.Web/src/apiClient', () => ({
+vi.mock('../../../src/CadernoAtlas.Web/src/apiClient', () => ({
   apiPost: vi.fn(),
   apiPut: vi.fn(),
   isHttpError: (error) => error instanceof Error && 'status' in error && typeof error.status === 'number',
