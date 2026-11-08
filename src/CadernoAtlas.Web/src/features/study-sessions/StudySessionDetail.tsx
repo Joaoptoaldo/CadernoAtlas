@@ -202,13 +202,14 @@ export default function StudySessionDetail({ sessionId, onClose, demands, onLoad
     try {
       // Consultar GET /api/sessoes-estudo/{id} para verificar estado atual
       const individual = await apiGet<StudySession>(`/api/sessoes-estudo/${sessionId}`)
-      // 200: sessão ainda existe
+      // 200: sessão ainda existe - a exclusão NÃO foi confirmada
       setSession(individual)
       // Bloqueios só são liberados depois que o estado atual é conhecido
       clearUncertain(sessionId)
       clearDeleteUncertain(sessionId)
       setOutcomeUnknown(false)
       setSynchronizationFailed(false)
+      setDeleteSyncFailed(false)
       onEditOutcomeUnknownChange(false)
       // Se ainda for planejada (situacao === 0), permitir nova tentativa
       if (individual.situacao !== 0) {
@@ -216,11 +217,12 @@ export default function StudySessionDetail({ sessionId, onClose, demands, onLoad
       }
       try {
         await onReconcile()
+        // Sucesso na atualização da lista - limpar estados de falha
       } catch {
-        // Falha ao atualizar lista não anula a confirmação do estado individual
+        // Falha ao atualizar lista - a sessão ainda existe (GET retornou 200)
         setSynchronizationFailed(true)
         setDeleteSyncFailed(true)
-        setTransitionError('A exclusão foi confirmada, mas a lista não pôde ser atualizada. Atualize a listagem para sincronizar.')
+        setTransitionError('A sessão ainda existe, mas a lista não pôde ser atualizada. Atualize a listagem para sincronizar.')
       }
     } catch (reconcileError: unknown) {
       if (isHttpError(reconcileError) && reconcileError.status === 404) {

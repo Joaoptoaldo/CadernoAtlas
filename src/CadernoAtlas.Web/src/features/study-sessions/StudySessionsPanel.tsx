@@ -245,10 +245,10 @@ export default function StudySessionsPanel({
               </button>
               {session.situacao === 0 && (
                 <>
-                  <button type="button" className="button button-primary button-small" disabled={isTransitioning || transitioningSessionId !== null} onClick={() => void handleTransition(session.id, 'iniciar')}>
+                  <button type="button" className="button button-primary button-small" disabled={isTransitioning || transitioningSessionId !== null || deleteSyncFailed.has(session.id)} onClick={() => void handleTransition(session.id, 'iniciar')}>
                     {transitioningSessionId === session.id ? 'Iniciando…' : 'Iniciar'}
                   </button>
-                  <button type="button" className="button button-secondary button-small" disabled={isTransitioning || transitioningSessionId !== null} onClick={() => void handleTransition(session.id, 'cancelar')}>
+                  <button type="button" className="button button-secondary button-small" disabled={isTransitioning || transitioningSessionId !== null || deleteSyncFailed.has(session.id)} onClick={() => void handleTransition(session.id, 'cancelar')}>
                     Cancelar
                   </button>
                   {deleteSyncFailed.has(session.id) ? (
@@ -315,10 +315,10 @@ export default function StudySessionsPanel({
               )}
               {session.situacao === 1 && (
                 <>
-                  <button type="button" className="button button-primary button-small" disabled={isTransitioning || transitioningSessionId !== null} onClick={() => void handleTransition(session.id, 'concluir')}>
+                  <button type="button" className="button button-primary button-small" disabled={isTransitioning || transitioningSessionId !== null || deleteSyncFailed.has(session.id)} onClick={() => void handleTransition(session.id, 'concluir')}>
                     {transitioningSessionId === session.id ? 'Concluindo…' : 'Concluir'}
                   </button>
-                  <button type="button" className="button button-secondary button-small" disabled={isTransitioning || transitioningSessionId !== null} onClick={() => void handleTransition(session.id, 'cancelar')}>
+                  <button type="button" className="button button-secondary button-small" disabled={isTransitioning || transitioningSessionId !== null || deleteSyncFailed.has(session.id)} onClick={() => void handleTransition(session.id, 'cancelar')}>
                     Cancelar
                   </button>
                 </>
