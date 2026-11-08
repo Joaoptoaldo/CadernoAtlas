@@ -87,22 +87,18 @@ navegador real.
 ### 2.3 Testes e limitações atuais
 
 Os testes de interface estão organizados em
-[`App.availability.test.jsx`](../tests/CadernoAtlas.Web.Tests/App.availability.test.jsx),
-[`App.demands.test.jsx`](../tests/CadernoAtlas.Web.Tests/App.demands.test.jsx),
-[`App.demand-tasks.test.jsx`](../tests/CadernoAtlas.Web.Tests/App.demand-tasks.test.jsx),
-[`App.planning.test.jsx`](../tests/CadernoAtlas.Web.Tests/App.planning.test.jsx)
-e [`StudySessions.test.jsx`](../tests/CadernoAtlas.Web.Tests/StudySessions.test.jsx),
-com infraestrutura compartilhada em
-[`helpers/`](../tests/CadernoAtlas.Web.Tests/helpers/). Eles cobrem os fluxos
-separados de disponibilidade, demandas, tarefas, planejamento e sessões de estudo
-(listagem, filtros, criação, edição, transições de situação, exclusão de planejadas,
-concorrência, resultados incertos e reconciliação via GET individual). São
-evidências de comportamento da implementação, não uma afirmação de que todos
-os critérios deste roadmap já foram atendidos.
+[`tests/CadernoAtlas.Web.Tests/`](../tests/CadernoAtlas.Web.Tests/) com a seguinte estrutura:
+- `demands/` — `demands.list.test.jsx`, `demands.create.test.jsx`, `demands.edit.test.jsx`
+- `demand-tasks/` — `demandTasks.list.test.jsx`, `demandTasks.create.test.jsx`, `demandTasks.edit.test.jsx`
+- `availability/` — `availability.test.jsx`
+- `planning/` — `planning.test.jsx`
+- `study-sessions/` — `StudySessions.list.test.jsx`, `StudySessions.create.test.jsx`, `StudySessions.transitions.test.jsx`, `StudySessions.delete.test.jsx`, `StudySessions.reconciliation.test.jsx`, `helpers/studySessionFixtures.js`
+- `hooks/` — `apiClient.test.jsx`, `useDemandList.test.jsx`, `useDemandMutations.test.jsx`, `useStudySessions.test.jsx`
+- Infraestrutura compartilhada em [`helpers/`](../tests/CadernoAtlas.Web.Tests/helpers/)
 
-Em 20/10/2026, o [Frontend CI (run 39473717470)](https://github.com/Joaoptoaldo/CadernoAtlas/actions/runs/39473717470)
-passou com 74 testes, lint e build. O [.NET CI (run 39473717927)](https://github.com/Joaoptoaldo/CadernoAtlas/actions/runs/39473717927)
-passou com 178 testes.
+Eles cobrem os fluxos de disponibilidade, demandas, tarefas, planejamento e sessões de estudo (listagem, filtros, criação, edição, transições de situação, exclusão de planejadas, concorrência, resultados incertos e reconciliação via GET individual). São evidências de comportamento da implementação, não uma afirmação de que todos os critérios deste roadmap já foram atendidos.
+
+Em 08/11/2026, o **Frontend CI** passou com 17 arquivos e 186 testes, lint e build. O **Backend CI** passou com 221 testes, incluindo validação com PostgreSQL.
 
 O workflow do frontend já executa testes, lint e build. Ainda permanecem:
 
@@ -359,11 +355,24 @@ todos os itens forem marcados com evidência:
 - [`useStudySessionMutations.ts`](../src/CadernoAtlas.Web/src/features/study-sessions/useStudySessionMutations.ts)
 - [`useStudySessionUncertainTransitions.ts`](../src/CadernoAtlas.Web/src/features/study-sessions/useStudySessionUncertainTransitions.ts)
 - [`useStudySessionUncertainDeletions.ts`](../src/CadernoAtlas.Web/src/features/study-sessions/useStudySessionUncertainDeletions.ts)
-- [`App.availability.test.jsx`](../tests/CadernoAtlas.Web.Tests/App.availability.test.jsx)
-- [`App.demands.test.jsx`](../tests/CadernoAtlas.Web.Tests/App.demands.test.jsx)
-- [`App.demand-tasks.test.jsx`](../tests/CadernoAtlas.Web.Tests/App.demand-tasks.test.jsx)
-- [`App.planning.test.jsx`](../tests/CadernoAtlas.Web.Tests/App.planning.test.jsx)
-- [`StudySessions.test.jsx`](../tests/CadernoAtlas.Web.Tests/StudySessions.test.jsx)
+- [`demands.list.test.jsx`](../tests/CadernoAtlas.Web.Tests/demands/demands.list.test.jsx)
+- [`demands.create.test.jsx`](../tests/CadernoAtlas.Web.Tests/demands/demands.create.test.jsx)
+- [`demands.edit.test.jsx`](../tests/CadernoAtlas.Web.Tests/demands/demands.edit.test.jsx)
+- [`demandTasks.list.test.jsx`](../tests/CadernoAtlas.Web.Tests/demand-tasks/demandTasks.list.test.jsx)
+- [`demandTasks.create.test.jsx`](../tests/CadernoAtlas.Web.Tests/demand-tasks/demandTasks.create.test.jsx)
+- [`demandTasks.edit.test.jsx`](../tests/CadernoAtlas.Web.Tests/demand-tasks/demandTasks.edit.test.jsx)
+- [`availability.test.jsx`](../tests/CadernoAtlas.Web.Tests/availability/availability.test.jsx)
+- [`planning.test.jsx`](../tests/CadernoAtlas.Web.Tests/planning/planning.test.jsx)
+- [`StudySessions.list.test.jsx`](../tests/CadernoAtlas.Web.Tests/study-sessions/StudySessions.list.test.jsx)
+- [`StudySessions.create.test.jsx`](../tests/CadernoAtlas.Web.Tests/study-sessions/StudySessions.create.test.jsx)
+- [`StudySessions.transitions.test.jsx`](../tests/CadernoAtlas.Web.Tests/study-sessions/StudySessions.transitions.test.jsx)
+- [`StudySessions.delete.test.jsx`](../tests/CadernoAtlas.Web.Tests/study-sessions/StudySessions.delete.test.jsx)
+- [`StudySessions.reconciliation.test.jsx`](../tests/CadernoAtlas.Web.Tests/study-sessions/StudySessions.reconciliation.test.jsx)
+- [`studySessionFixtures.js`](../tests/CadernoAtlas.Web.Tests/study-sessions/helpers/studySessionFixtures.js)
+- [`apiClient.test.jsx`](../tests/CadernoAtlas.Web.Tests/hooks/apiClient.test.jsx)
+- [`useDemandList.test.jsx`](../tests/CadernoAtlas.Web.Tests/hooks/useDemandList.test.jsx)
+- [`useDemandMutations.test.jsx`](../tests/CadernoAtlas.Web.Tests/hooks/useDemandMutations.test.jsx)
+- [`useStudySessions.test.jsx`](../tests/CadernoAtlas.Web.Tests/hooks/useStudySessions.test.jsx)
 - [`helpers/`](../tests/CadernoAtlas.Web.Tests/helpers/)
 
 ### API e decisões
