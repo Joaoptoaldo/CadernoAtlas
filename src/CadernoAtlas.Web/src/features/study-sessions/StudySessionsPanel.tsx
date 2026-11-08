@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useState, useCallback, useRef } from 'react'
 import StatusMessage from '../../components/ui/StatusMessage'
 import StudySessionForm from './StudySessionForm'
 import StudySessionDetail from './StudySessionDetail'
@@ -56,8 +56,113 @@ export default function StudySessionsPanel({
   const [isCreating, setIsCreating] = useState(false)
   const [transitioningSessionId, setTransitioningSessionId] = useState<number | null>(null)
   const [transitionError, setTransitionError] = useState<string | null>(null)
-  const [deleteError, setDeleteError] = useState<string | null>(null)
+  const [deleteErrors, setDeleteErrors] = useState<Record<number, string>>({})
   const [deleteSyncFailed, setDeleteSyncFailed] = useState<Set<number>>(new Set())
+  const [deletingSessionIds, setDeletingSessionIds] = useState<Set<number>>(new Set())
+  // useRef para proteção síncrona contra duplo clique - verifica antes do render
+  const processingDeleteRef = useRef<Set<number>>(new Set())
+
+  const setDeleteErrorForSession = useCallback((sessionId: number, error: string | null) => {
+    setDeleteErrors((prev) => {
+      if (!error) {
+        if (!(sessionId in prev)) return prev
+        const next = { ...prev }
+        delete next[sessionId]
+        return next
+      }
+      return { ...prev, [sessionId]: error }
+    })
+  }, [])
+
+  const handleDeleteSyncFailure = useCallback((sessionId: number, message: string) => {
+    setDeleteSyncFailed((prev) => {
+      const next = new Set(prev)
+      next.add(sessionId)
+      return next
+    })
+    setDeleteErrorForSession(sessionId, message)
+  }, [setDeleteErrorForSession])
+
+  const handleRetrySync = useCallback(async (sessionId: number) => {
+    setDeleteErrorForSession(sessionId, null)
+    try {
+      await onReconcile()
+      setDeleteSyncFailed((prev) => {
+        if (!prev.has(sessionId)) return prev
+        const next = new Set(prev)
+        next.delete(sessionId)
+        return next
+      })
+    } catch (error: unknown) {
+      handleDeleteSyncFailure(
+        sessionId,
+        error instanceof Error ? error.message : 'Não foi possível atualizar a lista.'
+      )
+    }
+  }, [onReconcile, setDeleteErrorForSession, handleDeleteSyncFailure])
+
+  const handleDelete = useCallback(async (sessionId: number) => {
+    if (!window.confirm('Excluir esta sessão de estudo planejada? Esta ação não pode ser desfeita.')) return
+
+    // Proteção síncrona contra duplo clique - verifica imediatamente sem aguardar render
+    if (processingDeleteRef.current.has(sessionId)) {
+      return
+    }
+    processingDeleteRef.current.add(sessionId)
+
+    setDeleteErrorForSession(sessionId, null)
+    setDeletingSessionIds((prev) => {
+      const next = new Set(prev)
+      next.add(sessionId)
+      return next
+    })
+    try {
+      await onDelete(sessionId)
+      setDeleteSyncFailed((prev) => {
+        if (!prev.has(sessionId)) return prev
+        const next = new Set(prev)
+        next.delete(sessionId)
+        return next
+      })
+      setDeleteErrorForSession(sessionId, null)
+    } catch (error: unknown) {
+      if (isMutationSyncError(error)) {
+        handleDeleteSyncFailure(sessionId, error.message)
+      } else if (isHttpError(error) && error.status === 404) {
+        // HTTP 404: sessão já não existe - disparar reconciliação
+        try {
+          await onReconcile()
+          setDeleteSyncFailed((prev) => {
+            if (!prev.has(sessionId)) return prev
+            const next = new Set(prev)
+            next.delete(sessionId)
+            return next
+          })
+          setDeleteErrorForSession(sessionId, null)
+        } catch {
+          // Se a atualização da lista falhar, marcar como sync failed
+          handleDeleteSyncFailure(
+            sessionId,
+            'A sessão foi excluída, mas a lista não pôde ser atualizada. Atualize a listagem para sincronizar.'
+          )
+        }
+      } else if (error instanceof Error) {
+        setDeleteErrorForSession(sessionId, error.message)
+      }
+    } finally {
+      processingDeleteRef.current.delete(sessionId)
+      setDeletingSessionIds((prev) => {
+        if (!prev.has(sessionId)) return prev
+        const next = new Set(prev)
+        next.delete(sessionId)
+        return next
+      })
+    }
+  }, [onDelete, onReconcile, setDeleteErrorForSession, handleDeleteSyncFailure])
+
+  const handleCloseDetail = useCallback(() => {
+    setSelectedSessionId(null)
+  }, [])
 
   const filteredSessions = useMemo(() => {
     if (!state.data) return []
@@ -79,7 +184,7 @@ export default function StudySessionsPanel({
   const getDemandTitle = (id: number): string =>
     demands.find((demand) => demand.id === id)?.titulo ?? `Demanda acadêmica #${id}`
 
-  async function handleTransition(id: number, transition: StudySessionTransition): Promise<void> {
+  const handleTransition = useCallback(async (id: number, transition: StudySessionTransition): Promise<void> => {
     if (transition === 'cancelar' && !window.confirm('Cancelar esta sessão de estudo? Ela será marcada como cancelada.')) return
     if (transition === 'concluir' && !window.confirm('Concluir esta sessão de estudo?')) return
     setTransitioningSessionId(id)
@@ -91,7 +196,7 @@ export default function StudySessionsPanel({
     } finally {
       setTransitioningSessionId(null)
     }
-  }
+  }, [onTransition])
 
   return (
     <section className="panel study-sessions-panel" aria-labelledby="study-sessions-title">
@@ -255,19 +360,7 @@ export default function StudySessionsPanel({
                     <button
                       type="button"
                       className="button button-secondary button-small"
-                      onClick={async () => {
-                        setDeleteError(null)
-                        try {
-                          await onReconcile()
-                          setDeleteSyncFailed((prev) => {
-                            const next = new Set(prev)
-                            next.delete(session.id)
-                            return next
-                          })
-                        } catch (error: unknown) {
-                          setDeleteError(error instanceof Error ? error.message : 'Não foi possível atualizar a lista.')
-                        }
-                      }}
+                      onClick={() => void handleRetrySync(session.id)}
                     >
                       Atualizar lista de sessões
                     </button>
@@ -275,40 +368,10 @@ export default function StudySessionsPanel({
                     <button
                       type="button"
                       className="button button-secondary button-small button-danger"
-                      disabled={isTransitioning || transitioningSessionId !== null || isUncertain(session.id) || isDeleteUncertain(session.id) || deleteSyncFailed.has(session.id)}
-                      onClick={async () => {
-                        if (!window.confirm('Excluir esta sessão de estudo planejada? Esta ação não pode ser desfeita.')) return
-                        setDeleteError(null)
-                        try {
-                          await onDelete(session.id)
-                        } catch (error: unknown) {
-                          if (isMutationSyncError(error)) {
-                            setDeleteSyncFailed((prev) => {
-                              const next = new Set(prev)
-                              next.add(session.id)
-                              return next
-                            })
-                            setDeleteError(`A exclusão foi confirmada, mas a lista não pôde ser atualizada. ${error.message}`)
-                          } else if (isHttpError(error) && error.status === 404) {
-                            // HTTP 404: sessão já não existe - disparar reconciliação
-                            try {
-                              await onReconcile()
-                            } catch {
-                              // Se a atualização da lista falhar, marcar como sync failed
-                              setDeleteSyncFailed((prev) => {
-                                const next = new Set(prev)
-                                next.add(session.id)
-                                return next
-                              })
-                              setDeleteError('A sessão foi excluída, mas a lista não pôde ser atualizada. Atualize a listagem para sincronizar.')
-                            }
-                          } else if (error instanceof Error) {
-                            setDeleteError(error.message)
-                          }
-                        }
-                      }}
+                      disabled={isTransitioning || transitioningSessionId !== null || deletingSessionIds.has(session.id) || isUncertain(session.id) || isDeleteUncertain(session.id) || deleteSyncFailed.has(session.id)}
+                      onClick={() => void handleDelete(session.id)}
                     >
-                      Excluir
+                      {deletingSessionIds.has(session.id) ? 'Excluindo…' : 'Excluir'}
                     </button>
                   )}
                 </>
@@ -325,7 +388,7 @@ export default function StudySessionsPanel({
               )}
             </div>
             {transitionError && transitioningSessionId === null && <p className="form-error" role="alert">{transitionError}</p>}
-            {deleteError && <p className="form-error" role="alert">{deleteError}</p>}
+            {deleteErrors[session.id] && <p className="form-error" role="alert">{deleteErrors[session.id]}</p>}
           </article>
         )
       })}
@@ -334,18 +397,18 @@ export default function StudySessionsPanel({
         <StudySessionDetail
           key={selectedSessionId}
           sessionId={selectedSessionId}
-          onClose={() => setSelectedSessionId(null)}
+          onClose={handleCloseDetail}
           demands={demands}
           onLoadTasks={onLoadTasks}
           onUpdate={onUpdate}
-          onReconcile={async () => { await onReconcileEdit(); }}
+          onReconcile={onReconcileEdit}
           onEditOutcomeUnknownChange={onEditOutcomeUnknownChange}
           onTransition={onTransition}
           onDelete={onDelete}
           isTransitioning={isTransitioning}
           isUncertain={isUncertain}
           isDeleteUncertain={isDeleteUncertain}
-          onReconcileDelete={async () => { await onReconcile(); }}
+          onReconcileDelete={onReconcile}
           getErrorMessage={getErrorMessage}
         />
       )}
