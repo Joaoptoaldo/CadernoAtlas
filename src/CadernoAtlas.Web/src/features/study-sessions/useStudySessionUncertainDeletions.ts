@@ -65,6 +65,12 @@ export function clearAllUncertainDeletions(): void {
   notifyListeners()
 }
 
+export function clearDeleteUncertainForSession(sessionId: number): void {
+  const current = loadFromStorage()
+  const next = current.filter((d) => d.sessionId !== sessionId)
+  saveToStorage(next)
+}
+
 export function useStudySessionUncertainDeletions() {
   const [uncertainDeletions, setUncertainDeletions] = useState<UncertainDeletion[]>(() =>
     loadFromStorage()

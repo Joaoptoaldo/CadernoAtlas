@@ -77,6 +77,14 @@ export function useStudySessionMutations({ refresh, invalidatePreview, concurren
   }
 
   async function transitionSession(id: number, transition: StudySessionTransition): Promise<StudySession> {
+    // Impedir transição se houver transição incerta não reconciliada para esta sessão
+    if (isUncertain(id)) {
+      throw new Error('Esta sessão possui uma transição não reconciliada. Reconcilie antes de tentar uma nova transição.')
+    }
+    // Impedir transição se houver exclusão incerta não reconciliada para esta sessão
+    if (isDeleteUncertain(id)) {
+      throw new Error('Esta sessão possui uma exclusão não reconciliada. Reconcilie antes de tentar uma nova transição.')
+    }
     if (mutationRef.current || dataMutationInProgressRef.current) throw new Error('Aguarde a operação de planejamento ou sessão de estudo em andamento.')
     mutationRef.current = true
     setStudySessionMutationInProgress(true)

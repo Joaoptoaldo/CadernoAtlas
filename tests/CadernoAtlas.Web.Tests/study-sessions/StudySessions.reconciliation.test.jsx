@@ -216,4 +216,243 @@ describe('Sessões de estudo — Reconciliação', () => {
     expect(screen.getByText(/resultado da exclusão é incerto/)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Consultar sessão antes de tentar novamente' })).toBeInTheDocument()
   })
+
+  // novos testes para bloqueio de mutações durante incerteza
+
+  it('bloqueia transição quando há transição incerta não reconciliada', async () => {
+    const session = { ...studySessionFixture, id: 1, titulo: 'Sessão bloqueada transição', situacao: 0 }
+    const reconciled = { ...session, situacao: 1, inicioRealEm: '2026-11-06T15:00:00Z' }
+    const fetchMock = setupFetch({
+      studySessions: [session],
+      studySessionDetails: { 1: session },
+      studySessionTransitionNetworkFailures: { '1/iniciar': 1 },
+      studySessionDetailsQueues: {
+        '1': [session, { status: 503, data: { detail: 'Falha temporária' } }, reconciled],
+      },
+    })
+    renderApp()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Sessões de estudo' }))
+    await screen.findByText('Sessão bloqueada transição')
+
+    // Abrir modal e tentar iniciar - falha de rede registra incerteza
+    fireEvent.click(screen.getByRole('button', { name: /Ver detalhes/ }))
+    await screen.findByRole('heading', { name: 'Sessão bloqueada transição' })
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Iniciar sessão' }))
+
+    // Incerteza registrada
+    await screen.findByText(/resultado da operação é incerto/)
+    expect(within(screen.getByRole('dialog')).getByRole('button', { name: 'Iniciar sessão' })).toBeDisabled()
+    expect(within(screen.getByRole('dialog')).getByRole('button', { name: 'Consultar sessões antes de tentar novamente' })).toBeInTheDocument()
+
+    // Tentar cancelar enquanto há transição incerta - deve ser bloqueado
+    expect(within(screen.getByRole('dialog')).getByRole('button', { name: 'Cancelar sessão' })).toBeDisabled()
+
+    // Tentar excluir enquanto há transição incerta - deve ser bloqueado
+    expect(within(screen.getByRole('dialog')).getByRole('button', { name: 'Excluir sessão' })).toBeDisabled()
+
+    // Reconciliar para limpar a incerteza
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Consultar sessões antes de tentar novamente' }))
+
+    // Após reconciliação, bloqueios devem ser liberados
+    await screen.findByRole('button', { name: 'Concluir sessão' })
+    expect(screen.queryByText(/resultado da operação é incerto/)).not.toBeInTheDocument()
+    expect(within(screen.getByRole('dialog')).getByRole('button', { name: 'Concluir sessão' })).not.toBeDisabled()
+  })
+
+  it('bloqueia transição quando há exclusão incerta não reconciliada', async () => {
+    const session = { ...studySessionFixture, id: 1, titulo: 'Sessão bloqueada exclusão', situacao: 0 }
+    const fetchMock = setupFetch({
+      studySessions: [session],
+      studySessionDetails: { 1: session },
+      studySessionDeleteNetworkFailures: 1,
+      studySessionDetailsQueues: {
+        '1': [session, { status: 404, data: { detail: 'Sessão de estudo não encontrada.' } }],
+      },
+    })
+    renderApp()
+
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Sessões de estudo' }))
+    await screen.findByText('Sessão bloqueada exclusão')
+
+    // Abrir modal e tentar excluir - falha de rede registra incerteza de exclusão
+    fireEvent.click(screen.getByRole('button', { name: /Ver detalhes/ }))
+    await screen.findByRole('heading', { name: 'Sessão bloqueada exclusão' })
+    fireEvent.click(screen.getByRole('button', { name: 'Excluir sessão' }))
+
+    // Incerteza de exclusão registrada
+    await screen.findByText(/resultado da exclusão é incerto/)
+    expect(screen.getByRole('button', { name: 'Excluir sessão' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Consultar sessão antes de tentar novamente' })).toBeInTheDocument()
+
+    // Tentar iniciar enquanto há exclusão incerta - deve ser bloqueado
+    expect(screen.getByRole('button', { name: 'Iniciar sessão' })).toBeDisabled()
+    // Tentar cancelar enquanto há exclusão incerta - deve ser bloqueado
+    expect(screen.getByRole('button', { name: 'Cancelar sessão' })).toBeDisabled()
+
+    // Reconciliar para limpar a incerteza
+    fireEvent.click(screen.getByRole('button', { name: 'Consultar sessão antes de tentar novamente' }))
+
+    // Modal deve fechar após confirmação de exclusão
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+  })
+
+  // Teste: fechar modal após incerteza de transição mantém botões desabilitados no card
+  it('fecha modal após incerteza de transição mantém botões desabilitados no card', async () => {
+    const session = { ...studySessionFixture, id: 1, titulo: 'Sessão fecha modal transição', situacao: 0 }
+    const fetchMock = setupFetch({
+      studySessions: [session],
+      studySessionDetails: { 1: session },
+      studySessionTransitionNetworkFailures: { '1/iniciar': 1 },
+      studySessionDetailsQueues: {
+        '1': [session, { status: 503, data: { detail: 'Falha temporária' } }],
+      },
+    })
+    renderApp()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Sessões de estudo' }))
+    await screen.findByText('Sessão fecha modal transição')
+
+    // Abrir modal e tentar iniciar - falha de rede registra incerteza
+    fireEvent.click(screen.getByRole('button', { name: /Ver detalhes/ }))
+    await screen.findByRole('heading', { name: 'Sessão fecha modal transição' })
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Iniciar sessão' }))
+
+    // Incerteza registrada
+    await screen.findByText(/resultado da operação é incerto/)
+
+    // Fechar modal
+    const closeButtons = screen.getAllByRole('button', { name: 'Fechar' })
+    fireEvent.click(closeButtons[0])
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+
+    // Botões no card devem permanecer desabilitados
+    expect(screen.getByRole('button', { name: 'Iniciar' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Cancelar' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Excluir' })).toBeDisabled()
+  })
+
+  // Teste: fechar modal após incerteza de exclusão mantém botões desabilitados no card
+  it('fecha modal após incerteza de exclusão mantém botões desabilitados no card', async () => {
+    const session = { ...studySessionFixture, id: 1, titulo: 'Sessão fecha modal exclusão', situacao: 0 }
+    const fetchMock = setupFetch({
+      studySessions: [session],
+      studySessionDetails: { 1: session },
+      studySessionDeleteNetworkFailures: 1,
+    })
+    renderApp()
+
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Sessões de estudo' }))
+    await screen.findByText('Sessão fecha modal exclusão')
+
+    // Abrir modal e tentar excluir - falha de rede registra incerteza de exclusão
+    fireEvent.click(screen.getByRole('button', { name: /Ver detalhes/ }))
+    await screen.findByRole('heading', { name: 'Sessão fecha modal exclusão' })
+    fireEvent.click(screen.getByRole('button', { name: 'Excluir sessão' }))
+
+    // Incerteza de exclusão registrada
+    await screen.findByText(/resultado da exclusão é incerto/)
+
+    // Fechar modal
+    const closeButtons = screen.getAllByRole('button', { name: 'Fechar' })
+    fireEvent.click(closeButtons[0])
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+
+    // Botões no card devem permanecer desabilitados
+    expect(screen.getByRole('button', { name: 'Iniciar' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Cancelar' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Excluir' })).toBeDisabled()
+  })
+
+  // Teste unitário: useStudySessionMutations.transitionSession rejeita nova operação com incerteza não reconciliada
+  it('useStudySessionMutations.transitionSession rejeita nova transição quando há incerteza não reconciliada', async () => {
+    const { renderHook, act } = await import('@testing-library/react')
+    const { useStudySessionMutations } = await import('../../../src/CadernoAtlas.Web/src/features/study-sessions/useStudySessionMutations')
+    const { clearUncertainForSession, isUncertain } = await import('../../../src/CadernoAtlas.Web/src/features/study-sessions/useStudySessionUncertainTransitions')
+    const { clearDeleteUncertainForSession } = await import('../../../src/CadernoAtlas.Web/src/features/study-sessions/useStudySessionUncertainDeletions')
+
+    // Limpar estado anterior
+    clearUncertainForSession(1)
+    clearDeleteUncertainForSession(1)
+
+    // Mock das dependências
+    const apiPost = vi.fn()
+    const refresh = vi.fn().mockResolvedValue(undefined)
+    const invalidatePreview = vi.fn()
+    const concurrencyLocks = {
+      dataMutationInProgressRef: { current: false },
+      studySessionMutationInProgressRef: { current: false },
+      setStudySessionMutationInProgress: vi.fn(),
+      setDataMutationInProgress: vi.fn(),
+    }
+
+    // Simular incerteza já registrada via sessionStorage
+    sessionStorage.setItem('cadernoatlas:uncertain-session-transitions', JSON.stringify([{
+      sessionId: 1,
+      transition: 'iniciar',
+      expectedStatus: 1,
+      timestamp: Date.now(),
+    }]))
+
+    // Verificar que a incerteza foi registrada via hook
+    const { result: hookResult } = renderHook(() =>
+      useStudySessionMutations({ refresh, invalidatePreview, concurrencyLocks })
+    )
+    expect(hookResult.current.isUncertain(1)).toBe(true)
+
+    // Tentar fazer uma nova transição - deve ser rejeitada
+    const { result } = renderHook(() =>
+      useStudySessionMutations({ refresh, invalidatePreview, concurrencyLocks })
+    )
+
+    await expect(act(async () => {
+      await result.current.transitionSession(1, 'iniciar')
+    })).rejects.toThrow('Esta sessão possui uma transição não reconciliada')
+
+    // Verificar que apiPost NÃO foi chamado (mock não disponível aqui, mas a exceção prova que não prossegue)
+  })
+
+  // Teste unitário: useStudySessionMutations.transitionSession rejeita nova transição quando há exclusão incerta
+  it('useStudySessionMutations.transitionSession rejeita nova transição quando há exclusão incerta', async () => {
+    const { renderHook, act } = await import('@testing-library/react')
+    const { useStudySessionMutations } = await import('../../../src/CadernoAtlas.Web/src/features/study-sessions/useStudySessionMutations')
+
+    // Limpar estado anterior
+    sessionStorage.removeItem('cadernoatlas:uncertain-session-transitions')
+    sessionStorage.removeItem('cadernoatlas:uncertain-session-deletions')
+
+    // Registrar incerteza de exclusão via sessionStorage
+    sessionStorage.setItem('cadernoatlas:uncertain-session-deletions', JSON.stringify([{
+      sessionId: 1,
+      timestamp: Date.now(),
+    }]))
+
+    const refresh = vi.fn().mockResolvedValue(undefined)
+    const invalidatePreview = vi.fn()
+    const concurrencyLocks = {
+      dataMutationInProgressRef: { current: false },
+      studySessionMutationInProgressRef: { current: false },
+      setStudySessionMutationInProgress: vi.fn(),
+      setDataMutationInProgress: vi.fn(),
+    }
+
+    // Verificar que a incerteza foi registrada via hook
+    const { result: hookResult } = renderHook(() =>
+      useStudySessionMutations({ refresh, invalidatePreview, concurrencyLocks })
+    )
+    expect(hookResult.current.isDeleteUncertain(1)).toBe(true)
+
+    // Tentar fazer uma nova transição - deve ser rejeitada
+    const { result } = renderHook(() =>
+      useStudySessionMutations({ refresh, invalidatePreview, concurrencyLocks })
+    )
+
+    await expect(act(async () => {
+      await result.current.transitionSession(1, 'iniciar')
+    })).rejects.toThrow('Esta sessão possui uma exclusão não reconciliada')
+  })
 })
