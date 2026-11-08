@@ -1,4 +1,4 @@
-import { afterEach, vi } from 'vitest'
+﻿import { afterEach, vi } from 'vitest'
 import { cleanup } from '@testing-library/react'
 
 afterEach(() => {
@@ -656,9 +656,6 @@ export function setupFetch({
 
       const url = new URL(path, 'http://localhost')
       studySessionListRequests += 1
-
-      // Support for sequential responses via queues (for pre-creation GET in handleSubmit)
-      // Use pathname only to match regardless of query parameters
       const queueKey = url.pathname
       const queue = remainingStudySessionListQueues.get(queueKey)
       if (queue && queue.length > 0) {
@@ -667,7 +664,6 @@ export function setupFetch({
         if (next.status && typeof next.status === 'number') {
           return jsonResponse(next.data ?? { title: 'Falha temporária ao atualizar sessões.' }, next.status)
         }
-        // next.data contains the array of sessions
         return jsonResponse(next.data)
       }
 

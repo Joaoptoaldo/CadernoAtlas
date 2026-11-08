@@ -1,7 +1,7 @@
-﻿import { describe, expect, it } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { fireEvent, screen, waitFor, within } from '@testing-library/react'
-import { renderApp } from './helpers/renderApp.jsx'
-import { setupFetch, buildPreview, getCurrentMondayIso } from './helpers/fetchMocks.js'
+import { renderApp } from '../helpers/renderApp.jsx'
+import { setupFetch, buildPreview, getCurrentMondayIso } from '../helpers/fetchMocks.js'
 
 describe('Planejamento semanal e acessibilidade', () => {
   it('oferece um link para pular ao conteúdo principal', () => {
@@ -14,7 +14,6 @@ describe('Planejamento semanal e acessibilidade', () => {
     )
   })
 
-
   it('permite focar programaticamente o conteúdo principal', () => {
     setupFetch()
     renderApp()
@@ -22,7 +21,6 @@ describe('Planejamento semanal e acessibilidade', () => {
     expect(screen.getByRole('main')).toHaveAttribute('id', 'planejamento')
     expect(screen.getByRole('main')).toHaveAttribute('tabindex', '-1')
   })
-
 
   it('direciona a marca para o planejamento semanal', () => {
     setupFetch()
@@ -32,7 +30,6 @@ describe('Planejamento semanal e acessibilidade', () => {
       screen.getByRole('link', { name: 'CadernoAtlas, planejamento semanal' }),
     ).toHaveAttribute('href', '#planejamento')
   })
-
 
   it('retorna ao planejamento ao clicar na marca desde a gestão de demandas', () => {
     setupFetch()
@@ -45,7 +42,6 @@ describe('Planejamento semanal e acessibilidade', () => {
     expect(screen.getByRole('button', { name: 'Planejamento semanal' })).toHaveAttribute('aria-current', 'page')
     expect(screen.getByRole('button', { name: 'Demandas acadêmicas' })).not.toHaveAttribute('aria-current', 'page')
   })
-
 
   it('associa aria-controls aos formulários somente enquanto estão renderizados', () => {
     setupFetch()
@@ -83,7 +79,6 @@ describe('Planejamento semanal e acessibilidade', () => {
     expect(availabilityFormToggle).not.toHaveAttribute('aria-controls')
   })
 
-
   it('exibe as demandas e a disponibilidade retornadas pela API', async () => {
     setupFetch()
     renderApp()
@@ -100,7 +95,6 @@ describe('Planejamento semanal e acessibilidade', () => {
       screen.getByRole('heading', { name: 'Disponibilidade' }),
     ).toBeInTheDocument()
   })
-
 
   it('permite tentar novamente depois de uma falha ao carregar demandas', async () => {
     const fetchMock = setupFetch({ demandFailures: 1 })
@@ -120,7 +114,6 @@ describe('Planejamento semanal e acessibilidade', () => {
     expect(fetchMock.getDemandListRequests()).toBe(2)
     expect(fetchMock.getAvailabilityRequests()).toBe(1)
   })
-
 
   it('tenta novamente apenas disponibilidades sem recarregar as demandas', async () => {
     const fetchMock = setupFetch({ availabilityFailures: 1 })
@@ -172,7 +165,6 @@ describe('Planejamento semanal e acessibilidade', () => {
     expect(fetchMock.mock.calls.some(([url]) => String(url).includes(`dataDe=${getCurrentMondayIso()}`))).toBe(true)
   })
 
-
   it('exibe as atividades sugeridas e as não alocadas sem salvá-las', async () => {
     const fetchMock = setupFetch()
     renderApp()
@@ -195,7 +187,6 @@ describe('Planejamento semanal e acessibilidade', () => {
 
     expect(confirmationWasSent).toBe(false)
   })
-
 
   it('informa quando nenhuma sessão pode ser alocada e impede a confirmação', async () => {
     const fetchMock = setupFetch({
@@ -235,7 +226,6 @@ describe('Planejamento semanal e acessibilidade', () => {
       expect.objectContaining({ method: 'POST' }),
     )
   })
-
 
   it('envia os dados da prévia ao confirmar o planejamento', async () => {
     const fetchMock = setupFetch()
@@ -288,7 +278,6 @@ describe('Planejamento semanal e acessibilidade', () => {
     expect((await screen.findAllByText('Revisar anatomia')).length).toBeGreaterThanOrEqual(2)
     expect(fetchMock.getStudySessionListRequests()).toBeGreaterThan(1)
   })
-
 
   it('exige uma nova prévia quando a conexão falha durante a confirmação', async () => {
     const fetchMock = setupFetch()
@@ -400,7 +389,6 @@ describe('Planejamento semanal e acessibilidade', () => {
     ).toBeInTheDocument()
   })
 
-
   it('não permite reenviar a mesma prévia após erro HTTP 400 na confirmação', async () => {
     const fetchMock = setupFetch({
       postResponse: {
@@ -445,7 +433,6 @@ describe('Planejamento semanal e acessibilidade', () => {
 
     expect(confirmationRequests).toHaveLength(1)
   })
-
 
   it('exige uma nova prévia quando a confirmação retorna HTTP 500', async () => {
     const fetchMock = setupFetch({
@@ -513,7 +500,6 @@ describe('Planejamento semanal e acessibilidade', () => {
     expect(previewRequests).toHaveLength(2)
     expect(confirmationRequests()).toHaveLength(1)
   })
-
 
   it.each([
     [408, 'Não foi possível verificar se o planejamento foi salvo. Gere uma nova prévia antes de confirmar novamente.'],
@@ -583,7 +569,6 @@ describe('Planejamento semanal e acessibilidade', () => {
     expect(confirmationRequests()).toHaveLength(1)
   })
 
-
   it('impede confirmação duplicada enquanto a requisição está pendente', async () => {
     let releaseConfirmation
     const confirmationGate = new Promise((resolve) => {
@@ -612,7 +597,6 @@ describe('Planejamento semanal e acessibilidade', () => {
     expect(pendingButton).toBeDisabled()
     expect(fetchMock.getConfirmationPostRequests()).toBe(1)
 
-    // Simula uma tentativa de segundo clique apesar do bloqueio visual.
     pendingButton.disabled = false
     fireEvent.click(pendingButton)
 

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { apiGet, apiPost, apiPut, HttpError } from '../../src/CadernoAtlas.Web/src/apiClient'
+import { apiGet, apiPost, apiPut, HttpError } from '../../../src/CadernoAtlas.Web/src/apiClient'
 
 afterEach(() => vi.unstubAllGlobals())
 

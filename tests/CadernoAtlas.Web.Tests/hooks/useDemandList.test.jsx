@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { act, renderHook, waitFor } from '@testing-library/react'
-import { useDemandList } from '../../src/CadernoAtlas.Web/src/features/demands/useDemandList'
+import { useDemandList } from '../../../src/CadernoAtlas.Web/src/features/demands/useDemandList'
 
 afterEach(() => vi.clearAllMocks())
 
