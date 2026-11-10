@@ -10,6 +10,7 @@ import {
   type StudySessionTransition,
 } from './studySessionTypes'
 import StudySessionForm from './StudySessionForm'
+import SessionConfirmModal from './SessionConfirmModal'
 
 const defaultGetErrorMessage = (error: unknown, fallback: string): string =>
   error instanceof Error && error.message ? error.message : fallback
@@ -68,7 +69,6 @@ function syncReducer(_state: SyncState, action: SyncAction): SyncState {
         sessionExistsSyncFailed: true,
       }
     default:
-      // Exhaustive check - will cause TypeScript error if new action types are added without handling
       const _exhaustive: never = action
       return _exhaustive
   }
@@ -143,6 +143,13 @@ export default function StudySessionDetail({
   const { isDeleteUncertain: isDeleteUncertainHook, clearDeleteUncertain } = useStudySessionUncertainDeletions()
   const hasDeleteUncertainForSession = isDeleteUncertainHook(sessionId) || isDeleteUncertainProp(sessionId)
 
+  // Modal de confirmação genérico
+  const [confirmAction, setConfirmAction] = useState<{
+    open: boolean
+    type: 'delete' | 'transition'
+    transition?: StudySessionTransition
+  } | null>(null)
+
   const handleDeleteSyncFailure = useCallback((message: string) => {
     dispatchSync({ type: 'SET_DELETE_SYNC_FAILED' })
     onEditOutcomeUnknownChange(false)
@@ -206,8 +213,11 @@ export default function StudySessionDetail({
       return
     }
 
-    if (transition === 'cancelar' && !window.confirm('Cancelar esta sessão de estudo? Ela será marcada como cancelada.')) return
-    if (transition === 'concluir' && !window.confirm('Concluir esta sessão de estudo?')) return
+    // Abrir modal de confirmação para transições destrutivas
+    if (transition === 'cancelar' || transition === 'concluir') {
+      setConfirmAction({ open: true, type: 'transition', transition })
+      return
+    }
     setTransitioning(true)
     setTransitionError(null)
     dispatchSync({ type: 'RESET' })
@@ -244,6 +254,45 @@ export default function StudySessionDetail({
       setTransitioning(false)
     }
   }, [hasUncertainForSession, onEditOutcomeUnknownChange, onTransition, sessionId])
+
+  const handleConfirmTransition = useCallback(async (transition: StudySessionTransition) => {
+    setConfirmAction(null)
+    setTransitioning(true)
+    setTransitionError(null)
+    dispatchSync({ type: 'RESET' })
+    onEditOutcomeUnknownChange(false)
+    try {
+      const updated = await onTransition(sessionId, transition)
+      setSession(updated)
+      // Sucesso - limpar estados de erro
+      dispatchSync({ type: 'RESET' })
+      onEditOutcomeUnknownChange(false)
+    } catch (transitionFailure: unknown) {
+      const status = isHttpError(transitionFailure) ? transitionFailure.status : null
+      if (isMutationSyncError(transitionFailure)) {
+        // Operação confirmada, mas falha ao atualizar a lista
+        dispatchSync({ type: 'SET_TRANSITION_SYNC_FAILED' })
+        onEditOutcomeUnknownChange(false)
+        setTransitionError(transitionFailure.message)
+      } else if (status === null || status === 408 || status === 429 || status >= 500) {
+        // Resultado incerto - falha de rede ou timeout
+        dispatchSync({ type: 'SET_OUTCOME_UNKNOWN' })
+        onEditOutcomeUnknownChange(true)
+        setTransitionError('Não foi possível confirmar o resultado da operação. Consulte a lista antes de decidir se tentará novamente.')
+      } else if (status === 404) {
+        // 404 definitivo vindo da mutação: sessão não encontrada
+        dispatchSync({ type: 'RESET' })
+        onEditOutcomeUnknownChange(false)
+        setTransitionError('A sessão informada não foi encontrada.')
+      } else {
+        dispatchSync({ type: 'RESET' })
+        onEditOutcomeUnknownChange(false)
+        setTransitionError(transitionFailure instanceof Error ? transitionFailure.message : 'Não foi possível atualizar a situação da sessão.')
+      }
+    } finally {
+      setTransitioning(false)
+    }
+  }, [onEditOutcomeUnknownChange, onTransition, sessionId])
 
   const reconcileDelete = useCallback(async (): Promise<void> => {
     if (reconciling) return
@@ -324,7 +373,12 @@ export default function StudySessionDetail({
       return
     }
 
-    if (!window.confirm('Excluir esta sessão de estudo planejada? Esta ação não pode ser desfeita.')) return
+    // Abrir modal de confirmação em vez de window.confirm
+    setConfirmAction({ open: true, type: 'delete' })
+  }, [hasUncertainForSession, hasDeleteUncertainForSession])
+
+  const handleConfirmDelete = useCallback(async () => {
+    setConfirmAction(null)
     setTransitioning(true)
     setTransitionError(null)
     dispatchSync({ type: 'RESET' })
@@ -368,8 +422,6 @@ export default function StudySessionDetail({
       setTransitioning(false)
     }
   }, [
-    hasUncertainForSession,
-    hasDeleteUncertainForSession,
     onEditOutcomeUnknownChange,
     onDelete,
     sessionId,
@@ -519,160 +571,179 @@ export default function StudySessionDetail({
   }
 
   return (
-    <div className="study-session-detail-overlay" role="dialog" aria-modal="true" aria-labelledby="detail-title">
-      <div className="study-session-detail-panel">
-        <div className="study-session-detail-header">
-          <h2 id="detail-title">{session.titulo}</h2>
-          <button className="icon-button" onClick={onClose} aria-label="Fechar">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <line x1="18" y1="6" x2="6" y2="18" />
-              <line x1="6" y1="6" x2="18" y2="18" />
-            </svg>
-          </button>
-        </div>
-        <div className="study-session-detail-content">
-          <dl className="study-session-detail-grid">
-            <div className="detail-row">
-              <dt>Situação</dt>
-              <dd>
-                <span className={`study-session-status ${getSituacaoPresentation(session.situacao).className}`}>
-                  {getSituacaoPresentation(session.situacao).label}
+    <>
+      <div className="study-session-detail-overlay" role="dialog" aria-modal="true" aria-labelledby="detail-title">
+        <div className="study-session-detail-panel">
+          <div className="study-session-detail-header">
+            <h2 id="detail-title">{session.titulo}</h2>
+            <button className="icon-button" onClick={onClose} aria-label="Fechar">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <line x1="18" y1="6" x2="6" y2="18" />
+                <line x1="6" y1="6" x2="18" y2="18" />
+              </svg>
+            </button>
+          </div>
+          <div className="study-session-detail-content">
+            <dl className="study-session-detail-grid">
+              <div className="detail-row">
+                <dt>Situação</dt>
+                <dd>
+                  <span className={`study-session-status ${getSituacaoPresentation(session.situacao).className}`}>
+                    {getSituacaoPresentation(session.situacao).label}
+                  </span>
+                </dd>
+              </div>
+              <div className="detail-row">
+                <dt>Data planejada</dt>
+                <dd>{formatDate(session.dataPlanejada)}</dd>
+              </div>
+              <div className="detail-row">
+                <dt>Horário de início</dt>
+                <dd>{formatTime(session.horaInicioPlanejada)}</dd>
+              </div>
+              <div className="detail-row">
+                <dt>Duração planejada</dt>
+                <dd>{formatDuration(session.duracaoPlanejadaMinutos)}</dd>
+              </div>
+              {session.duracaoRealMinutos !== null && (
+                <div className="detail-row">
+                  <dt>Duração real</dt>
+                  <dd>{formatDuration(session.duracaoRealMinutos)}</dd>
+                </div>
+              )}
+              {session.demandaAcademicaId !== null && (
+                <div className="detail-row">
+                  <dt>Demanda acadêmica</dt>
+                  <dd><span>#{session.demandaAcademicaId}</span> {demands.find((demand) => demand.id === session.demandaAcademicaId)?.titulo ?? 'Demanda acadêmica'}</dd>
+                </div>
+              )}
+              {session.tarefaDemandaId !== null && (
+                <div className="detail-row">
+                  <dt>Tarefa</dt>
+                  <dd>#{session.tarefaDemandaId}</dd>
+                </div>
+              )}
+              {session.observacoes && (
+                <div className="detail-row detail-row-full">
+                  <dt>Observações</dt>
+                  <dd>{session.observacoes}</dd>
+                </div>
+              )}
+              <div className="detail-row">
+                <dt>Criada em</dt>
+                <dd>{formatDateTime(session.criadoEm)}</dd>
+              </div>
+              {session.inicioRealEm && (
+                <div className="detail-row">
+                  <dt>Iniciada em</dt>
+                  <dd>{formatDateTime(session.inicioRealEm)}</dd>
+                </div>
+              )}
+              {session.concluidaEm && (
+                <div className="detail-row">
+                  <dt>Concluída em</dt>
+                  <dd>{formatDateTime(session.concluidaEm)}</dd>
+                </div>
+              )}
+              {session.canceladaEm && (
+                <div className="detail-row">
+                  <dt>Cancelada em</dt>
+                  <dd>{formatDateTime(session.canceladaEm)}</dd>
+                </div>
+              )}
+            </dl>
+            {shouldShowSyncGuidance && (
+              <div className="task-uncertain-guidance" role="status" aria-live="polite">
+                <p>{getGuidanceMessage()}</p>
+                <button
+                  className="text-button"
+                  type="button"
+                  disabled={reconciling}
+                  onClick={() => (shouldShowDeleteWarning ? reconcileDelete() : reconcile())}
+                >
+                  {getGuidanceButtonLabel()}
+                </button>
+              </div>
+            )}
+            <div className="study-session-detail-actions">
+              {session.situacao === 0 && (
+                <button
+                  className="button button-primary"
+                  type="button"
+                  disabled={isAnyMutationBlocked}
+                  onClick={() => handleTransition('iniciar')}
+                >
+                  {transitioning ? 'Iniciando…' : 'Iniciar sessão'}
+                </button>
+              )}
+              {session.situacao === 1 && (
+                <button
+                  className="button button-primary"
+                  type="button"
+                  disabled={isAnyMutationBlocked}
+                  onClick={() => handleTransition('concluir')}
+                >
+                  {transitioning ? 'Concluindo…' : 'Concluir sessão'}
+                </button>
+              )}
+              {(session.situacao === 0 || session.situacao === 1) && (
+                <button
+                  className="button button-secondary"
+                  type="button"
+                  disabled={isAnyMutationBlocked}
+                  onClick={() => handleTransition('cancelar')}
+                >
+                  Cancelar sessão
+                </button>
+              )}
+              {session.situacao === 0 && (
+                <button
+                  className="button button-secondary"
+                  type="button"
+                  disabled={isAnyMutationBlocked}
+                  onClick={() => setEditing(true)}
+                >
+                  Editar sessão
+                </button>
+              )}
+              {session.situacao === 0 && (
+                <button
+                  className="button button-secondary button-danger"
+                  type="button"
+                  disabled={isDeleteBlocked}
+                  onClick={handleDelete}
+                >
+                  {transitioning ? 'Excluindo…' : 'Excluir sessão'}
+                </button>
+              )}
+              {session.situacao !== 0 && (
+                <span className="study-session-edit-notice">
+                  Sessões {getSituacaoPresentation(session.situacao).label.toLowerCase()} não podem ser editadas.
                 </span>
-              </dd>
+              )}
+              {transitionError && <p className="form-error" role="alert">{transitionError}</p>}
+              <button className="button button-secondary" onClick={onClose}>Fechar</button>
             </div>
-            <div className="detail-row">
-              <dt>Data planejada</dt>
-              <dd>{formatDate(session.dataPlanejada)}</dd>
-            </div>
-            <div className="detail-row">
-              <dt>Horário de início</dt>
-              <dd>{formatTime(session.horaInicioPlanejada)}</dd>
-            </div>
-            <div className="detail-row">
-              <dt>Duração planejada</dt>
-              <dd>{formatDuration(session.duracaoPlanejadaMinutos)}</dd>
-            </div>
-            {session.duracaoRealMinutos !== null && (
-              <div className="detail-row">
-                <dt>Duração real</dt>
-                <dd>{formatDuration(session.duracaoRealMinutos)}</dd>
-              </div>
-            )}
-            {session.demandaAcademicaId !== null && (
-              <div className="detail-row">
-                <dt>Demanda acadêmica</dt>
-                <dd><span>#{session.demandaAcademicaId}</span> {demands.find((demand) => demand.id === session.demandaAcademicaId)?.titulo ?? 'Demanda acadêmica'}</dd>
-              </div>
-            )}
-            {session.tarefaDemandaId !== null && (
-              <div className="detail-row">
-                <dt>Tarefa</dt>
-                <dd>#{session.tarefaDemandaId}</dd>
-              </div>
-            )}
-            {session.observacoes && (
-              <div className="detail-row detail-row-full">
-                <dt>Observações</dt>
-                <dd>{session.observacoes}</dd>
-              </div>
-            )}
-            <div className="detail-row">
-              <dt>Criada em</dt>
-              <dd>{formatDateTime(session.criadoEm)}</dd>
-            </div>
-            {session.inicioRealEm && (
-              <div className="detail-row">
-                <dt>Iniciada em</dt>
-                <dd>{formatDateTime(session.inicioRealEm)}</dd>
-              </div>
-            )}
-            {session.concluidaEm && (
-              <div className="detail-row">
-                <dt>Concluída em</dt>
-                <dd>{formatDateTime(session.concluidaEm)}</dd>
-              </div>
-            )}
-            {session.canceladaEm && (
-              <div className="detail-row">
-                <dt>Cancelada em</dt>
-                <dd>{formatDateTime(session.canceladaEm)}</dd>
-              </div>
-            )}
-          </dl>
-          {shouldShowSyncGuidance && (
-            <div className="task-uncertain-guidance" role="status" aria-live="polite">
-              <p>{getGuidanceMessage()}</p>
-              <button
-                className="text-button"
-                type="button"
-                disabled={reconciling}
-                onClick={() => void (shouldShowDeleteWarning ? reconcileDelete() : reconcile())}
-              >
-                {getGuidanceButtonLabel()}
-              </button>
-            </div>
-          )}
-          <div className="study-session-detail-actions">
-            {session.situacao === 0 && (
-              <button
-                className="button button-primary"
-                type="button"
-                disabled={isAnyMutationBlocked}
-                onClick={() => void handleTransition('iniciar')}
-              >
-                {transitioning ? 'Iniciando…' : 'Iniciar sessão'}
-              </button>
-            )}
-            {session.situacao === 1 && (
-              <button
-                className="button button-primary"
-                type="button"
-                disabled={isAnyMutationBlocked}
-                onClick={() => void handleTransition('concluir')}
-              >
-                {transitioning ? 'Concluindo…' : 'Concluir sessão'}
-              </button>
-            )}
-            {(session.situacao === 0 || session.situacao === 1) && (
-              <button
-                className="button button-secondary"
-                type="button"
-                disabled={isAnyMutationBlocked}
-                onClick={() => void handleTransition('cancelar')}
-              >
-                Cancelar sessão
-              </button>
-            )}
-            {session.situacao === 0 && (
-              <button
-                className="button button-secondary"
-                type="button"
-                disabled={isAnyMutationBlocked}
-                onClick={() => setEditing(true)}
-              >
-                Editar sessão
-              </button>
-            )}
-            {session.situacao === 0 && (
-              <button
-                className="button button-secondary button-danger"
-                type="button"
-                disabled={isDeleteBlocked}
-                onClick={() => void handleDelete()}
-              >
-                {transitioning ? 'Excluindo…' : 'Excluir sessão'}
-              </button>
-            )}
-            {session.situacao !== 0 && (
-              <span className="study-session-edit-notice">
-                Sessões {getSituacaoPresentation(session.situacao).label.toLowerCase()} não podem ser editadas.
-              </span>
-            )}
-            {transitionError && <p className="form-error" role="alert">{transitionError}</p>}
-            <button className="button button-secondary" onClick={onClose}>Fechar</button>
           </div>
         </div>
       </div>
-    </div>
+
+      {confirmAction && (
+        <SessionConfirmModal
+          open={confirmAction.open}
+          type={confirmAction.type}
+          transition={confirmAction.transition}
+          onConfirm={() => {
+            if (confirmAction.type === 'delete') {
+              handleConfirmDelete()
+            } else if (confirmAction.transition) {
+              handleConfirmTransition(confirmAction.transition)
+            }
+          }}
+          onCancel={() => setConfirmAction(null)}
+          busy={transitioning}
+        />
+      )}
+    </>
   )
 }

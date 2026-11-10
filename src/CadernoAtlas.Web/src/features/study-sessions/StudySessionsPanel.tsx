@@ -2,6 +2,7 @@ import { useMemo, useState, useCallback, useRef } from 'react'
 import StatusMessage from '../../components/ui/StatusMessage'
 import StudySessionForm from './StudySessionForm'
 import StudySessionDetail from './StudySessionDetail'
+import SessionConfirmModal from './SessionConfirmModal'
 import { isMutationSyncError } from '../shared/mutationOutcome'
 import { isHttpError } from '../../apiClient'
 import {
@@ -62,6 +63,14 @@ export default function StudySessionsPanel({
   // useRef para proteção síncrona contra duplo clique - verifica antes do render
   const processingDeleteRef = useRef<Set<number>>(new Set())
 
+  // Modal de confirmação
+  const [confirmAction, setConfirmAction] = useState<{
+    open: boolean
+    type: 'delete' | 'transition'
+    sessionId: number
+    transition?: StudySessionTransition
+  } | null>(null)
+
   const setDeleteErrorForSession = useCallback((sessionId: number, error: string | null) => {
     setDeleteErrors((prev) => {
       if (!error) {
@@ -102,12 +111,16 @@ export default function StudySessionsPanel({
   }, [onReconcile, setDeleteErrorForSession, handleDeleteSyncFailure])
 
   const handleDelete = useCallback(async (sessionId: number) => {
-    if (!window.confirm('Excluir esta sessão de estudo planejada? Esta ação não pode ser desfeita.')) return
-
     // Proteção síncrona contra duplo clique - verifica imediatamente sem aguardar render
     if (processingDeleteRef.current.has(sessionId)) {
       return
     }
+    // Abrir modal de confirmação em vez de window.confirm
+    setConfirmAction({ open: true, type: 'delete', sessionId })
+  }, [])
+
+  const handleConfirmDelete = useCallback(async (sessionId: number) => {
+    setConfirmAction(null)
     processingDeleteRef.current.add(sessionId)
 
     setDeleteErrorForSession(sessionId, null)
@@ -185,12 +198,28 @@ export default function StudySessionsPanel({
     demands.find((demand) => demand.id === id)?.titulo ?? `Demanda acadêmica #${id}`
 
   const handleTransition = useCallback(async (id: number, transition: StudySessionTransition): Promise<void> => {
-    if (transition === 'cancelar' && !window.confirm('Cancelar esta sessão de estudo? Ela será marcada como cancelada.')) return
-    if (transition === 'concluir' && !window.confirm('Concluir esta sessão de estudo?')) return
+    // Abrir modal de confirmação para transições destrutivas
+    if (transition === 'cancelar' || transition === 'concluir') {
+      setConfirmAction({ open: true, type: 'transition', sessionId: id, transition })
+      return
+    }
     setTransitioningSessionId(id)
     setTransitionError(null)
     try {
       await onTransition(id, transition)
+    } catch (error: unknown) {
+      setTransitionError(error instanceof Error ? error.message : 'Não foi possível atualizar a situação da sessão.')
+    } finally {
+      setTransitioningSessionId(null)
+    }
+  }, [onTransition])
+
+  const handleConfirmTransition = useCallback(async (sessionId: number, transition: StudySessionTransition) => {
+    setConfirmAction(null)
+    setTransitioningSessionId(sessionId)
+    setTransitionError(null)
+    try {
+      await onTransition(sessionId, transition)
     } catch (error: unknown) {
       setTransitionError(error instanceof Error ? error.message : 'Não foi possível atualizar a situação da sessão.')
     } finally {
@@ -223,25 +252,25 @@ export default function StudySessionsPanel({
       )}
 
       <div className="study-sessions-filters" aria-label="Filtros de sessões de estudo">
-        <label className="form-field">Data inicial
+        <label className="form-field" htmlFor="filter-data-de">Data inicial
           <input
-            aria-label="Filtrar por data inicial"
+            id="filter-data-de"
             type="date"
             value={dataDeFilter}
             onChange={(event) => setDataDeFilter(event.target.value)}
           />
         </label>
-        <label className="form-field">Data final
+        <label className="form-field" htmlFor="filter-data-ate">Data final
           <input
-            aria-label="Filtrar por data final"
+            id="filter-data-ate"
             type="date"
             value={dataAteFilter}
             onChange={(event) => setDataAteFilter(event.target.value)}
           />
         </label>
-        <label className="form-field">Filtrar situação
+        <label className="form-field" htmlFor="filter-situacao">Filtrar situação
           <select
-            aria-label="Filtrar sessões por situação"
+            id="filter-situacao"
             value={situacaoFilter}
             onChange={(event) => setSituacaoFilter(event.target.value)}
           >
@@ -350,17 +379,17 @@ export default function StudySessionsPanel({
               </button>
               {session.situacao === 0 && (
                 <>
-                  <button type="button" className="button button-primary button-small" disabled={isTransitioning || transitioningSessionId !== null || deleteSyncFailed.has(session.id) || isUncertain(session.id) || isDeleteUncertain(session.id)} onClick={() => void handleTransition(session.id, 'iniciar')}>
+                  <button type="button" className="button button-primary button-small" disabled={isTransitioning || transitioningSessionId !== null || deleteSyncFailed.has(session.id) || isUncertain(session.id) || isDeleteUncertain(session.id)} onClick={() => handleTransition(session.id, 'iniciar')}>
                     {transitioningSessionId === session.id ? 'Iniciando…' : 'Iniciar'}
                   </button>
-                  <button type="button" className="button button-secondary button-small" disabled={isTransitioning || transitioningSessionId !== null || deleteSyncFailed.has(session.id) || isUncertain(session.id) || isDeleteUncertain(session.id)} onClick={() => void handleTransition(session.id, 'cancelar')}>
+                  <button type="button" className="button button-secondary button-small" disabled={isTransitioning || transitioningSessionId !== null || deleteSyncFailed.has(session.id) || isUncertain(session.id) || isDeleteUncertain(session.id)} onClick={() => handleTransition(session.id, 'cancelar')}>
                     Cancelar
                   </button>
                   {deleteSyncFailed.has(session.id) ? (
                     <button
                       type="button"
                       className="button button-secondary button-small"
-                      onClick={() => void handleRetrySync(session.id)}
+                      onClick={() => handleRetrySync(session.id)}
                     >
                       Atualizar lista de sessões
                     </button>
@@ -369,7 +398,7 @@ export default function StudySessionsPanel({
                       type="button"
                       className="button button-secondary button-small button-danger"
                       disabled={isTransitioning || transitioningSessionId !== null || deletingSessionIds.has(session.id) || isUncertain(session.id) || isDeleteUncertain(session.id) || deleteSyncFailed.has(session.id)}
-                      onClick={() => void handleDelete(session.id)}
+                      onClick={() => handleDelete(session.id)}
                     >
                       {deletingSessionIds.has(session.id) ? 'Excluindo…' : 'Excluir'}
                     </button>
@@ -378,10 +407,10 @@ export default function StudySessionsPanel({
               )}
               {session.situacao === 1 && (
                 <>
-                  <button type="button" className="button button-primary button-small" disabled={isTransitioning || transitioningSessionId !== null || deleteSyncFailed.has(session.id) || isUncertain(session.id) || isDeleteUncertain(session.id)} onClick={() => void handleTransition(session.id, 'concluir')}>
+                  <button type="button" className="button button-primary button-small" disabled={isTransitioning || transitioningSessionId !== null || deleteSyncFailed.has(session.id) || isUncertain(session.id) || isDeleteUncertain(session.id)} onClick={() => handleTransition(session.id, 'concluir')}>
                     {transitioningSessionId === session.id ? 'Concluindo…' : 'Concluir'}
                   </button>
-                  <button type="button" className="button button-secondary button-small" disabled={isTransitioning || transitioningSessionId !== null || deleteSyncFailed.has(session.id) || isUncertain(session.id) || isDeleteUncertain(session.id)} onClick={() => void handleTransition(session.id, 'cancelar')}>
+                  <button type="button" className="button button-secondary button-small" disabled={isTransitioning || transitioningSessionId !== null || deleteSyncFailed.has(session.id) || isUncertain(session.id) || isDeleteUncertain(session.id)} onClick={() => handleTransition(session.id, 'cancelar')}>
                     Cancelar
                   </button>
                 </>
@@ -410,6 +439,23 @@ export default function StudySessionsPanel({
           isDeleteUncertain={isDeleteUncertain}
           onReconcileDelete={onReconcile}
           getErrorMessage={getErrorMessage}
+        />
+      )}
+
+      {confirmAction && (
+        <SessionConfirmModal
+          open={confirmAction.open}
+          type={confirmAction.type}
+          transition={confirmAction.transition}
+          onConfirm={() => {
+            if (confirmAction.type === 'delete') {
+              handleConfirmDelete(confirmAction.sessionId)
+            } else if (confirmAction.transition) {
+              handleConfirmTransition(confirmAction.sessionId, confirmAction.transition)
+            }
+          }}
+          onCancel={() => setConfirmAction(null)}
+          busy={transitioningSessionId !== null || (confirmAction.type === 'delete' && confirmAction.sessionId !== undefined && deletingSessionIds.has(confirmAction.sessionId))}
         />
       )}
     </section>
