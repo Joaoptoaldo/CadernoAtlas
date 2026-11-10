@@ -241,7 +241,7 @@ export default function CreateDemandForm({
       {(outcomeUnknown || synchronizationFailed) && (
         <div className="task-uncertain-guidance">
           <p>{synchronizationFailed ? 'A demanda foi criada, mas a lista não pôde ser atualizada. Consulte a lista novamente; não é necessário cadastrá-la outra vez.' : 'A consulta reduz a incerteza, mas não garante que uma requisição anterior ainda em processamento não seja concluída depois.'}</p>
-          <button className="text-button" type="button" disabled={controlsDisabled} onClick={() => void reconcileOutcome()}>
+          <button className="text-button" type="button" disabled={controlsDisabled} onClick={reconcileOutcome}>
             {isReconciling ? 'Consultando demandas…' : synchronizationFailed ? 'Atualizar lista de demandas' : 'Consultar demandas antes de tentar novamente'}
           </button>
         </div>

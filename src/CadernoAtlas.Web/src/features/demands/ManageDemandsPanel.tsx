@@ -211,7 +211,7 @@ export default function ManageDemandsPanel({ state, onRetry, onUpdate, onLoadTas
                 <div className="task-uncertain-guidance">
                   <p>A consulta reduz a incerteza, mas não garante que uma requisição anterior ainda em processamento não seja concluída depois.</p>
                   {!reconciliationComplete ? (
-                    <button className="text-button" type="button" disabled={controlsDisabled} onClick={() => void reconcileOutcome()}>
+                    <button className="text-button" type="button" disabled={controlsDisabled} onClick={reconcileOutcome}>
                       {isReconciling ? 'Consultando demandas…' : 'Consultar demandas antes de tentar novamente'}
                     </button>
                   ) : (

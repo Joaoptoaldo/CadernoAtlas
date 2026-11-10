@@ -276,9 +276,9 @@ export default function StudySessionForm({
       </div>
       {error && <p className="form-error" role="alert">{error}</p>}
       {(outcomeUnknown || synchronizationFailed) && (
-        <div className="task-uncertain-guidance">
+        <div role="alert" aria-live="assertive" className="alert alert-warning task-uncertain-guidance">
           <p>{synchronizationFailed ? 'A sessão foi criada, mas a lista não pôde ser atualizada. Consulte as sessões para sincronizar os dados; não é necessário reenviar a operação.' : 'O resultado da operação é incerto. Não reenvie automaticamente para evitar alterações duplicadas.'}</p>
-          <button className="text-button" type="button" disabled={controlsDisabled} onClick={() => void reconcile()}>
+          <button className="text-button" type="button" disabled={controlsDisabled} onClick={reconcile}>
             {reconciling ? 'Consultando sessões…' : synchronizationFailed ? 'Atualizar lista de sessões' : 'Consultar sessões antes de tentar novamente'}
           </button>
         </div>

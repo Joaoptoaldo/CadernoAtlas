@@ -189,7 +189,7 @@ export default function CreateAvailabilityForm({
       {outcomeUnknown && (
         <div className="task-uncertain-guidance">
           <p>A consulta reduz a incerteza, mas não garante que uma requisição anterior ainda em processamento não seja concluída depois.</p>
-          <button className="text-button" type="button" disabled={controlsDisabled} onClick={() => void reconcileOutcome()}>
+          <button className="text-button" type="button" disabled={controlsDisabled} onClick={reconcileOutcome}>
             {isReconciling ? 'Consultando horários…' : 'Consultar horários antes de tentar novamente'}
           </button>
         </div>
