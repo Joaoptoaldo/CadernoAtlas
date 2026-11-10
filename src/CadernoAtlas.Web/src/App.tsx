@@ -25,6 +25,7 @@ import { getInitialWeek, toIsoDate, useWeekNavigation } from './features/plannin
 import { useStudySessions } from './features/study-sessions/useStudySessions'
 import StudySessionsPanel from './features/study-sessions/StudySessionsPanel'
 import { useStudySessionMutations } from './features/study-sessions/useStudySessionMutations'
+import { Dashboard } from './pages/Dashboard'
 import { hasAnyUncertainTransition } from './features/study-sessions/useStudySessionUncertainTransitions'
 import type { StudySession, StudySessionDemand, StudySessionListItem, StudySessionRequest, StudySessionTask, StudySessionTransition } from './features/study-sessions/studySessionTypes'
 
@@ -68,7 +69,7 @@ function LoadingLines({ count = 3 }: LoadingLinesProps) {
 }
 
 function App() {
-  const [activeSection, setActiveSection] = useState<'planning' | 'demands' | 'study-sessions'>('planning')
+  const [activeSection, setActiveSection] = useState<'planning' | 'demands' | 'study-sessions' | 'dashboard'>('planning')
   const [availabilityState, setAvailabilityState] = useState<LoadState<Availability[]>>({ status: 'loading', data: null, error: null })
   const [availabilityReloadToken, setAvailabilityReloadToken] = useState(0)
   const [isDemandFormOpen, setIsDemandFormOpen] = useState(false)
@@ -312,6 +313,10 @@ function App() {
             <Icon name="calendar" size={18} />
             <span>Planejamento semanal</span>
           </button>
+          <button className={`nav-item nav-item-button ${activeSection === 'dashboard' ? 'nav-item-active' : ''}`} type="button" aria-current={activeSection === 'dashboard' ? 'page' : undefined} onClick={() => setActiveSection('dashboard')} aria-label="Dashboard">
+            <Icon name="calendarDays" size={18} />
+            <span>Dashboard</span>
+          </button>
           <button className={`nav-item nav-item-button ${activeSection === 'demands' ? 'nav-item-active' : ''}`} type="button" aria-current={activeSection === 'demands' ? 'page' : undefined} onClick={() => setActiveSection('demands')} aria-label="Demandas acadêmicas">
             <Icon name="book" size={18} />
             <span>Demandas acadêmicas</span>
@@ -329,7 +334,7 @@ function App() {
 
       <main className="main-area" id="planejamento" tabIndex={-1}>
         <header className="topbar">
-          <span className="breadcrumb">{activeSection === 'planning' ? <>Planejamento <span>/</span> Visão semanal</> : activeSection === 'demands' ? <>Demandas acadêmicas <span>/</span> Gestão</> : <>Sessões de estudo <span>/</span> Consulta</>}</span>
+          <span className="breadcrumb">{activeSection === 'planning' ? <>Planejamento <span>/</span> Visão semanal</> : activeSection === 'dashboard' ? <>Dashboard <span>/</span> Visão geral</> : activeSection === 'demands' ? <>Demandas acadêmicas <span>/</span> Gestão</> : <>Sessões de estudo <span>/</span> Consulta</>}</span>
           <div className="topbar-status"><span className="status-dot" /> Dados da API</div>
         </header>
 
@@ -337,7 +342,6 @@ function App() {
           <div hidden={activeSection !== 'planning'}>
           <section className="page-heading">
             <div>
-              <p className="eyebrow">SEU ESPAÇO DE ESTUDO</p>
               <h1>Planejamento semanal</h1>
               <p className="page-subtitle">Organize suas demandas em uma semana possível.</p>
             </div>
@@ -485,7 +489,6 @@ function App() {
             <div hidden={activeSection !== 'demands'}>
               <section className="page-heading">
                 <div>
-                  <p className="eyebrow">SEU ESPAÇO DE ESTUDO</p>
                   <h1>Demandas acadêmicas</h1>
                   <p className="page-subtitle">Consulte, filtre e atualize suas demandas.</p>
                 </div>
@@ -496,10 +499,24 @@ function App() {
                 <span>CadernoAtlas <span className="footer-separator">·</span> Demandas acadêmicas</span>
               </footer>
             </div>
+            <div hidden={activeSection !== 'dashboard'}>
+              <section className="page-heading">
+                <div>
+                  <h1>Dashboard</h1>
+                  <p className="page-subtitle">Visão geral das suas sessões de estudo e progresso.</p>
+                </div>
+              </section>
+              {activeSection === 'dashboard' && (
+                <Dashboard sessionsState={sessionsState} weekStart={monday} />
+              )}
+              <footer className="page-footer">
+                <span>Sessões organizadas para uma rotina real.</span>
+                <span>CadernoAtlas <span className="footer-separator">·</span> Dashboard</span>
+              </footer>
+            </div>
             <div hidden={activeSection !== 'study-sessions'}>
               <section className="page-heading">
                 <div>
-                  <p className="eyebrow">SEU ESPAÇO DE ESTUDO</p>
                   <h1>Sessões de estudo</h1>
                   <p className="page-subtitle">Consulte as sessões planejadas, em andamento, concluídas ou canceladas.</p>
                 </div>
