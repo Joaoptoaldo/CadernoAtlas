@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it } from 'vitest'
 import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { renderApp } from '../helpers/renderApp.jsx'
 import { setupFetch, studySessionFixture } from '../helpers/fetchMocks.js'
@@ -57,6 +57,24 @@ describe('Sessões de estudo — Listagem', () => {
     expect(screen.getByText('As sessões de estudo aparecerão aqui quando forem cadastradas.')).toBeInTheDocument()
   })
 
+  it('associa labels aos inputs de filtro via htmlFor/id (acessibilidade)', async () => {
+    setupFetch({ studySessions: [studySessionFixture] })
+    renderApp()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Sessões de estudo' }))
+    await screen.findByText('Revisão de Biologia Celular')
+
+    // getByLabelText deve encontrar o input associado ao label
+    const dataDeInput = screen.getByLabelText('Data inicial')
+    expect(dataDeInput).toHaveAttribute('id', 'filter-data-de')
+
+    const dataAteInput = screen.getByLabelText('Data final')
+    expect(dataAteInput).toHaveAttribute('id', 'filter-data-ate')
+
+    const situacaoSelect = screen.getByRole('combobox', { name: 'Filtrar situação' })
+    expect(situacaoSelect).toHaveAttribute('id', 'filter-situacao')
+  })
+
   it('filtra as sessões por situação (0, 1, 2, 3) e por intervalo de datas', async () => {
     setupFetch({
       studySessions: [
@@ -71,7 +89,7 @@ describe('Sessões de estudo — Listagem', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Sessões de estudo' }))
     expect(await screen.findByText('Sessão 1 Planejada')).toBeInTheDocument()
 
-    const situacaoSelect = screen.getByLabelText('Filtrar sessões por situação')
+    const situacaoSelect = screen.getByRole('combobox', { name: 'Filtrar situação' })
 
     fireEvent.change(situacaoSelect, { target: { value: 'Planejada' } })
     expect(screen.getByText('Sessão 1 Planejada')).toBeInTheDocument()
@@ -93,12 +111,12 @@ describe('Sessões de estudo — Listagem', () => {
     expect(screen.getByText('Sessão 3 Concluída')).toBeInTheDocument()
     expect(screen.getByText('Sessão 4 Cancelada')).toBeInTheDocument()
 
-    const dataDeInput = screen.getByLabelText('Filtrar por data inicial')
+    const dataDeInput = screen.getByLabelText('Data inicial')
     fireEvent.change(dataDeInput, { target: { value: '2026-11-12' } })
     expect(screen.queryByText('Sessão 1 Planejada')).not.toBeInTheDocument()
     expect(screen.getByText('Sessão 2 Em Andamento')).toBeInTheDocument()
 
-    const dataAteInput = screen.getByLabelText('Filtrar por data final')
+    const dataAteInput = screen.getByLabelText('Data final')
     fireEvent.change(dataAteInput, { target: { value: '2026-11-16' } })
     expect(screen.queryByText('Sessão 4 Cancelada')).not.toBeInTheDocument()
   })

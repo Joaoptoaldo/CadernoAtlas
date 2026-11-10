@@ -250,7 +250,6 @@ describe('Tarefas de demandas — Edição e Exclusão', () => {
   })
 
   it('confirma a exclusão e atualiza a lista de tarefas após sucesso', async () => {
-    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true)
     const tasks = [
       { id: 31, demandaAcademicaId: 1, titulo: 'Tarefa a excluir', descricao: null, ordem: 0, esforcoEstimadoMinutos: null, situacao: 0 },
       { id: 32, demandaAcademicaId: 1, titulo: 'Tarefa preservada', descricao: null, ordem: 1, esforcoEstimadoMinutos: null, situacao: 0 },
@@ -263,17 +262,19 @@ describe('Tarefas de demandas — Edição e Exclusão', () => {
     const taskRegion = await screen.findByRole('region', { name: 'Tarefas de Demanda gerenciada ativa' })
     await within(taskRegion).findByRole('heading', { name: 'Tarefa a excluir', level: 4 })
 
+    // Clica no botão "Excluir tarefa" - abre o modal
     fireEvent.click(within(taskRegion).getByRole('button', { name: 'Excluir tarefa Tarefa a excluir' }))
 
+    // Confirma no modal
+    fireEvent.click(screen.getByRole('button', { name: 'Excluir' }))
+
     await waitFor(() => expect(fetchMock.getTaskDeleteRequests()).toBe(1))
-    expect(confirmSpy).toHaveBeenCalledWith(expect.stringContaining('perderão o vínculo com esta tarefa'))
     expect(await within(taskRegion).findByRole('heading', { name: 'Tarefa preservada', level: 4 })).toBeInTheDocument()
     await waitFor(() => expect(within(taskRegion).queryByRole('heading', { name: 'Tarefa a excluir', level: 4 })).not.toBeInTheDocument())
     expect(fetchMock.getTaskRequests(1)).toBe(2)
   })
 
   it('não envia DELETE quando a confirmação de exclusão é cancelada', async () => {
-    vi.spyOn(window, 'confirm').mockReturnValue(false)
     const task = { id: 33, demandaAcademicaId: 1, titulo: 'Tarefa não removida', descricao: null, ordem: 0, esforcoEstimadoMinutos: null, situacao: 0 }
     const fetchMock = setupFetch({ tasksByDemand: { 1: [task] } })
     renderApp()
@@ -283,7 +284,11 @@ describe('Tarefas de demandas — Edição e Exclusão', () => {
     const taskRegion = await screen.findByRole('region', { name: 'Tarefas de Demanda gerenciada ativa' })
     await within(taskRegion).findByRole('heading', { name: 'Tarefa não removida', level: 4 })
 
+    // Clica no botão "Excluir tarefa" - abre o modal
     fireEvent.click(within(taskRegion).getByRole('button', { name: 'Excluir tarefa Tarefa não removida' }))
+
+    // Cancela no modal
+    fireEvent.click(screen.getByRole('button', { name: 'Cancelar' }))
 
     expect(fetchMock.getTaskDeleteRequests()).toBe(0)
     expect(within(taskRegion).getByRole('heading', { name: 'Tarefa não removida', level: 4 })).toBeInTheDocument()
@@ -293,7 +298,6 @@ describe('Tarefas de demandas — Edição e Exclusão', () => {
     ['falha de rede', { taskDeleteNetworkFailures: 1 }],
     ['erro HTTP 503', { taskDeleteResponse: { status: 503, data: { detail: 'Falha temporária ao excluir.' } } }],
   ])('exige consultar as tarefas antes de repetir o DELETE após %s', async (_description, deleteOptions) => {
-    vi.spyOn(window, 'confirm').mockReturnValue(true)
     const task = { id: 34, demandaAcademicaId: 1, titulo: 'Tarefa com resultado incerto', descricao: null, ordem: 0, esforcoEstimadoMinutos: null, situacao: 0 }
     const fetchMock = setupFetch({ tasksByDemand: { 1: [task] }, ...deleteOptions })
     renderApp()
@@ -303,7 +307,11 @@ describe('Tarefas de demandas — Edição e Exclusão', () => {
     const taskRegion = await screen.findByRole('region', { name: 'Tarefas de Demanda gerenciada ativa' })
     await within(taskRegion).findByRole('heading', { name: 'Tarefa com resultado incerto', level: 4 })
 
+    // Clica no botão "Excluir tarefa" - abre o modal
     fireEvent.click(within(taskRegion).getByRole('button', { name: 'Excluir tarefa Tarefa com resultado incerto' }))
+
+    // Confirma no modal
+    fireEvent.click(screen.getByRole('button', { name: 'Excluir' }))
 
     expect(await screen.findByRole('alert')).toHaveTextContent('Não foi possível confirmar se a tarefa foi excluída')
     expect(fetchMock.getTaskDeleteRequests()).toBe(1)
@@ -317,7 +325,6 @@ describe('Tarefas de demandas — Edição e Exclusão', () => {
   it('bloqueia operações de tarefa enquanto o DELETE está em andamento', async () => {
     let releaseDelete
     const deleteGate = new Promise((resolve) => { releaseDelete = resolve })
-    vi.spyOn(window, 'confirm').mockReturnValue(true)
     const task = { id: 35, demandaAcademicaId: 1, titulo: 'Tarefa em exclusão', descricao: null, ordem: 0, esforcoEstimadoMinutos: null, situacao: 0 }
     const fetchMock = setupFetch({ tasksByDemand: { 1: [task] }, taskDeleteGate: deleteGate })
     renderApp()
@@ -327,7 +334,12 @@ describe('Tarefas de demandas — Edição e Exclusão', () => {
     const taskRegion = await screen.findByRole('region', { name: 'Tarefas de Demanda gerenciada ativa' })
     await within(taskRegion).findByRole('heading', { name: 'Tarefa em exclusão', level: 4 })
 
+    // Clica no botão "Excluir tarefa" - abre o modal
     fireEvent.click(within(taskRegion).getByRole('button', { name: 'Excluir tarefa Tarefa em exclusão' }))
+
+    // Confirma no modal
+    fireEvent.click(screen.getByRole('button', { name: 'Excluir' }))
+
     await waitFor(() => expect(fetchMock.getTaskDeleteRequests()).toBe(1))
 
     expect(within(taskRegion).getByRole('button', { name: 'Excluir tarefa Tarefa em exclusão' })).toBeDisabled()
@@ -339,7 +351,6 @@ describe('Tarefas de demandas — Edição e Exclusão', () => {
   })
 
   it('diferencia exclusão confirmada de falha ao atualizar a lista', async () => {
-    vi.spyOn(window, 'confirm').mockReturnValue(true)
     const tasks = [
       { id: 36, demandaAcademicaId: 1, titulo: 'Tarefa a excluir', descricao: null, ordem: 0, esforcoEstimadoMinutos: null, situacao: 0 },
       { id: 37, demandaAcademicaId: 1, titulo: 'Tarefa preservada', descricao: null, ordem: 1, esforcoEstimadoMinutos: null, situacao: 0 },
@@ -355,7 +366,11 @@ describe('Tarefas de demandas — Edição e Exclusão', () => {
     const taskRegion = await screen.findByRole('region', { name: 'Tarefas de Demanda gerenciada ativa' })
     await within(taskRegion).findByRole('heading', { name: 'Tarefa a excluir', level: 4 })
 
+    // Clica no botão "Excluir tarefa" - abre o modal
     fireEvent.click(within(taskRegion).getByRole('button', { name: 'Excluir tarefa Tarefa a excluir' }))
+
+    // Confirma no modal
+    fireEvent.click(screen.getByRole('button', { name: 'Excluir' }))
 
     await waitFor(() => expect(fetchMock.getTaskDeleteRequests()).toBe(1))
     expect(await screen.findByRole('alert')).toHaveTextContent('Tarefa excluída, mas a lista não foi atualizada')
@@ -368,7 +383,6 @@ describe('Tarefas de demandas — Edição e Exclusão', () => {
     ['HTTP 404', { taskDeleteResponse: { status: 404, data: { detail: 'Tarefa não encontrada.' } } }],
     ['HTTP 409', { taskDeleteResponse: { status: 409, data: { detail: 'Reabra a demanda antes de excluir a tarefa.' } } }],
   ])('não repete DELETE automaticamente após %s e exige reconciliação', async (_description, deleteOptions) => {
-    vi.spyOn(window, 'confirm').mockReturnValue(true)
     const task = { id: 38, demandaAcademicaId: 1, titulo: 'Tarefa com erro definitivo', descricao: null, ordem: 0, esforcoEstimadoMinutos: null, situacao: 0 }
     const fetchMock = setupFetch({ tasksByDemand: { 1: [task] }, ...deleteOptions })
     renderApp()
@@ -378,7 +392,11 @@ describe('Tarefas de demandas — Edição e Exclusão', () => {
     const taskRegion = await screen.findByRole('region', { name: 'Tarefas de Demanda gerenciada ativa' })
     await within(taskRegion).findByRole('heading', { name: 'Tarefa com erro definitivo', level: 4 })
 
+    // Clica no botão "Excluir tarefa" - abre o modal
     fireEvent.click(within(taskRegion).getByRole('button', { name: 'Excluir tarefa Tarefa com erro definitivo' }))
+
+    // Confirma no modal
+    fireEvent.click(screen.getByRole('button', { name: 'Excluir' }))
 
     expect(await screen.findByRole('alert')).toHaveTextContent(deleteOptions.taskDeleteResponse.data.detail)
     expect(fetchMock.getTaskDeleteRequests()).toBe(1)

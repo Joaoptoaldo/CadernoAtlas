@@ -1,10 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { fireEvent, screen, waitFor, within, findByText, render } from '@testing-library/react'
+import { screen, waitFor, within, findByText, render } from '@testing-library/react'
 import { renderApp } from '../helpers/renderApp.jsx'
 import { setupFetch, studySessionFixture } from '../helpers/fetchMocks.js'
 import StudySessionsPanel from '../../../src/CadernoAtlas.Web/src/features/study-sessions/StudySessionsPanel'
 import { clearAllUncertainTransitions } from '../../../src/CadernoAtlas.Web/src/features/study-sessions/useStudySessionUncertainTransitions'
 import { clearAllUncertainDeletions } from '../../../src/CadernoAtlas.Web/src/features/study-sessions/useStudySessionUncertainDeletions'
+import userEvent from '@testing-library/user-event'
 
 describe('Sessões de estudo — Exclusão', () => {
   beforeEach(() => {
@@ -22,11 +23,15 @@ describe('Sessões de estudo — Exclusão', () => {
 
     vi.spyOn(window, 'confirm').mockReturnValue(true)
 
-    fireEvent.click(screen.getByRole('button', { name: 'Sessões de estudo' }))
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: 'Sessões de estudo' }))
     await screen.findByText('Sessão para excluir')
 
     const deleteButton = screen.getByRole('button', { name: 'Excluir' })
-    fireEvent.click(deleteButton)
+    await user.click(deleteButton)
+    // Confirmar no modal de confirmação
+    const confirmModal = await screen.findByRole('dialog', { name: /Excluir sessão de estudo/i })
+    await user.click(within(confirmModal).getByRole('button', { name: 'Excluir' }))
 
     await waitFor(() => expect(fetchMock.getStudySessionDeleteRequests()).toBe(1))
     expect(await screen.findByText('Nenhuma sessão de estudo encontrada')).toBeInTheDocument()
@@ -48,11 +53,15 @@ describe('Sessões de estudo — Exclusão', () => {
 
     vi.spyOn(window, 'confirm').mockReturnValue(true)
 
-    fireEvent.click(screen.getByRole('button', { name: 'Sessões de estudo' }))
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: 'Sessões de estudo' }))
     await screen.findByText('Sessão inexistente')
 
     const deleteButton = screen.getByRole('button', { name: 'Excluir' })
-    fireEvent.click(deleteButton)
+    await user.click(deleteButton)
+    // Confirmar no modal de confirmação
+    const confirmModal = await screen.findByRole('dialog', { name: /Excluir sessão de estudo/i })
+    await user.click(within(confirmModal).getByRole('button', { name: 'Excluir' }))
 
     await waitFor(() => expect(fetchMock.getStudySessionDeleteRequests()).toBe(1))
     await screen.findByText('Nenhuma sessão de estudo encontrada')
@@ -67,7 +76,8 @@ describe('Sessões de estudo — Exclusão', () => {
     })
     renderApp()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Sessões de estudo' }))
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: 'Sessões de estudo' }))
     await screen.findByText('Sessão em andamento')
 
     expect(screen.queryByRole('button', { name: 'Excluir' })).not.toBeInTheDocument()
@@ -89,18 +99,22 @@ describe('Sessões de estudo — Exclusão', () => {
 
     vi.spyOn(window, 'confirm').mockReturnValue(true)
 
-    fireEvent.click(screen.getByRole('button', { name: 'Sessões de estudo' }))
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: 'Sessões de estudo' }))
     await screen.findByText('Sessão para excluir com sync fail')
 
     const deleteButton = screen.getByRole('button', { name: 'Excluir' })
-    fireEvent.click(deleteButton)
+    await user.click(deleteButton)
+    // Confirmar no modal de confirmação
+    const confirmModal = await screen.findByRole('dialog', { name: /Excluir sessão de estudo/i })
+    await user.click(within(confirmModal).getByRole('button', { name: 'Excluir' }))
 
     await waitFor(() => expect(fetchMock.getStudySessionDeleteRequests()).toBe(1))
 
     expect(await screen.findByText(/A exclusão foi confirmada, mas a lista não pôde ser atualizada/)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Tentar novamente' })).toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Tentar novamente' }))
+    await user.click(screen.getByRole('button', { name: 'Tentar novamente' }))
 
     expect(await screen.findByText('Nenhuma sessão de estudo encontrada')).toBeInTheDocument()
     expect(fetchMock.getStudySessionDeleteRequests()).toBe(1)
@@ -116,18 +130,22 @@ describe('Sessões de estudo — Exclusão', () => {
 
     vi.spyOn(window, 'confirm').mockReturnValue(true)
 
-    fireEvent.click(screen.getByRole('button', { name: 'Sessões de estudo' }))
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: 'Sessões de estudo' }))
     await screen.findByText('Sessão para excluir com rede')
 
     const deleteButton = screen.getByRole('button', { name: 'Excluir' })
-    fireEvent.click(deleteButton)
+    await user.click(deleteButton)
+    // Confirmar no modal de confirmação
+    const confirmModal = await screen.findByRole('dialog', { name: /Excluir sessão de estudo/i })
+    await user.click(within(confirmModal).getByRole('button', { name: 'Excluir' }))
 
     await waitFor(() => expect(fetchMock.getStudySessionDeleteRequests()).toBe(1))
 
     expect(await screen.findByRole('alert')).toHaveTextContent(/Failed to fetch/)
 
-    fireEvent.click(screen.getByRole('button', { name: /Ver detalhes/ }))
-    await screen.findByRole('heading', { name: 'Sessão para excluir com rede' })
+    await user.click(screen.getByRole('button', { name: /Ver detalhes/ }))
+    await within(screen.getByRole('dialog')).findByRole('heading', { name: 'Sessão para excluir com rede' })
 
     expect(await screen.findByText(/resultado da exclusão é incerto/)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Consultar sessão antes de tentar novamente' })).toBeInTheDocument()
@@ -144,22 +162,26 @@ describe('Sessões de estudo — Exclusão', () => {
 
     vi.spyOn(window, 'confirm').mockReturnValue(true)
 
-    fireEvent.click(screen.getByRole('button', { name: 'Sessões de estudo' }))
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: 'Sessões de estudo' }))
     await screen.findByText('Sessão persistir incerteza')
 
-    fireEvent.click(screen.getByRole('button', { name: /Ver detalhes/ }))
-    await screen.findByRole('heading', { name: 'Sessão persistir incerteza' })
+    await user.click(screen.getByRole('button', { name: /Ver detalhes/ }))
+    await within(screen.getByRole('dialog')).findByRole('heading', { name: 'Sessão persistir incerteza' })
 
-    const deleteButtonModal = screen.getByRole('button', { name: 'Excluir sessão' })
-    fireEvent.click(deleteButtonModal)
+    const deleteButtonModal = within(screen.getByRole('dialog')).getByRole('button', { name: 'Excluir sessão' })
+    await user.click(deleteButtonModal)
+    // Confirmar no modal de confirmação
+    const confirmModal = await screen.findByRole('dialog', { name: /Excluir sessão de estudo/i })
+    await user.click(within(confirmModal).getByRole('button', { name: 'Excluir' }))
 
     await screen.findByText(/resultado da exclusão é incerto/)
 
     const closeButtons = screen.getAllByRole('button', { name: 'Fechar' })
-    fireEvent.click(closeButtons[0])
+    await user.click(closeButtons[0])
 
-    fireEvent.click(screen.getByRole('button', { name: /Ver detalhes/ }))
-    await screen.findByRole('heading', { name: 'Sessão persistir incerteza' })
+    await user.click(screen.getByRole('button', { name: /Ver detalhes/ }))
+    await within(screen.getByRole('dialog')).findByRole('heading', { name: 'Sessão persistir incerteza' })
 
     expect(screen.getByRole('button', { name: 'Excluir sessão' })).toBeDisabled()
     expect(screen.getByText(/resultado da exclusão é incerto/)).toBeInTheDocument()
@@ -175,11 +197,15 @@ describe('Sessões de estudo — Exclusão', () => {
 
     vi.spyOn(window, 'confirm').mockReturnValue(true)
 
-    fireEvent.click(screen.getByRole('button', { name: 'Sessões de estudo' }))
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: 'Sessões de estudo' }))
     await screen.findByText('Sessão card bloqueado')
 
     const deleteButton = screen.getByRole('button', { name: 'Excluir' })
-    fireEvent.click(deleteButton)
+    await user.click(deleteButton)
+    // Confirmar no modal de confirmação
+    const confirmModal = await screen.findByRole('dialog', { name: /Excluir sessão de estudo/i })
+    await user.click(within(confirmModal).getByRole('button', { name: 'Excluir' }))
 
     await waitFor(() => expect(fetchMock.getStudySessionDeleteRequests()).toBe(1))
 
@@ -207,14 +233,18 @@ describe('Sessões de estudo — Exclusão', () => {
 
     vi.spyOn(window, 'confirm').mockReturnValue(true)
 
-    fireEvent.click(screen.getByRole('button', { name: 'Sessões de estudo' }))
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: 'Sessões de estudo' }))
     await screen.findByText('Sessão 404 confirma')
 
-    fireEvent.click(screen.getByRole('button', { name: /Ver detalhes/ }))
-    await screen.findByRole('heading', { name: 'Sessão 404 confirma' })
+    await user.click(screen.getByRole('button', { name: /Ver detalhes/ }))
+    await within(screen.getByRole('dialog')).findByRole('heading', { name: 'Sessão 404 confirma' })
 
-    const deleteButtonModal = screen.getByRole('button', { name: 'Excluir sessão' })
-    fireEvent.click(deleteButtonModal)
+    const deleteButtonModal = within(screen.getByRole('dialog')).getByRole('button', { name: 'Excluir sessão' })
+    await user.click(deleteButtonModal)
+    // Confirmar no modal de confirmação
+    const confirmModal = await screen.findByRole('dialog', { name: /Excluir sessão de estudo/i })
+    await user.click(within(confirmModal).getByRole('button', { name: 'Excluir' }))
 
     await screen.findByText('Nenhuma sessão de estudo encontrada')
 
@@ -244,21 +274,25 @@ describe('Sessões de estudo — Exclusão', () => {
 
     vi.spyOn(window, 'confirm').mockReturnValue(true)
 
-    fireEvent.click(screen.getByRole('button', { name: 'Sessões de estudo' }))
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: 'Sessões de estudo' }))
     await screen.findByText('Sessão 200 mantem')
 
-    fireEvent.click(screen.getByRole('button', { name: /Ver detalhes/ }))
-    await screen.findByRole('heading', { name: 'Sessão 200 mantem' })
+    await user.click(screen.getByRole('button', { name: /Ver detalhes/ }))
+    await within(screen.getByRole('dialog')).findByRole('heading', { name: 'Sessão 200 mantem' })
 
-    const deleteButtonModal = screen.getByRole('button', { name: 'Excluir sessão' })
-    fireEvent.click(deleteButtonModal)
+    const deleteButtonModal = within(screen.getByRole('dialog')).getByRole('button', { name: 'Excluir sessão' })
+    await user.click(deleteButtonModal)
+    // Confirmar no modal de confirmação
+    const confirmModal = await screen.findByRole('dialog', { name: /Excluir sessão de estudo/i })
+    await user.click(within(confirmModal).getByRole('button', { name: 'Excluir' }))
 
     await screen.findByText(/resultado da exclusão é incerto/)
 
-    fireEvent.click(screen.getByRole('button', { name: 'Consultar sessão antes de tentar novamente' }))
+    await user.click(screen.getByRole('button', { name: 'Consultar sessão antes de tentar novamente' }))
 
     const modal = screen.getByRole('dialog', { name: /Sessão 200 mantem/i })
-    await findByText(modal, 'Em andamento')
+    await findByText(modal, 'Em andamento', { selector: '.study-session-status' })
     expect(screen.queryByRole('button', { name: 'Excluir sessão' })).not.toBeInTheDocument()
   })
 
@@ -278,18 +312,22 @@ describe('Sessões de estudo — Exclusão', () => {
 
     vi.spyOn(window, 'confirm').mockReturnValue(true)
 
-    fireEvent.click(screen.getByRole('button', { name: 'Sessões de estudo' }))
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: 'Sessões de estudo' }))
     await screen.findByText('Sessão rede reconciliação')
 
-    fireEvent.click(screen.getByRole('button', { name: /Ver detalhes/ }))
-    await screen.findByRole('heading', { name: 'Sessão rede reconciliação' })
+    await user.click(screen.getByRole('button', { name: /Ver detalhes/ }))
+    await within(screen.getByRole('dialog')).findByRole('heading', { name: 'Sessão rede reconciliação' })
 
-    const deleteButtonModal = screen.getByRole('button', { name: 'Excluir sessão' })
-    fireEvent.click(deleteButtonModal)
+    const deleteButtonModal = within(screen.getByRole('dialog')).getByRole('button', { name: 'Excluir sessão' })
+    await user.click(deleteButtonModal)
+    // Confirmar no modal de confirmação
+    const confirmModal = await screen.findByRole('dialog', { name: /Excluir sessão de estudo/i })
+    await user.click(within(confirmModal).getByRole('button', { name: 'Excluir' }))
 
     await screen.findByText(/resultado da exclusão é incerto/)
 
-    fireEvent.click(screen.getByRole('button', { name: 'Consultar sessão antes de tentar novamente' }))
+    await user.click(screen.getByRole('button', { name: 'Consultar sessão antes de tentar novamente' }))
 
     expect(screen.getByRole('button', { name: 'Excluir sessão' })).toBeDisabled()
     expect(screen.getByText(/resultado da exclusão é incerto/)).toBeInTheDocument()
@@ -302,11 +340,12 @@ describe('Sessões de estudo — Exclusão', () => {
 
     vi.spyOn(window, 'confirm').mockReturnValue(false)
 
-    fireEvent.click(screen.getByRole('button', { name: 'Sessões de estudo' }))
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: 'Sessões de estudo' }))
     await screen.findByText('Sessão cancelar confirmação')
 
     const deleteButton = screen.getByRole('button', { name: 'Excluir' })
-    fireEvent.click(deleteButton)
+    await user.click(deleteButton)
 
     expect(fetchMock.getStudySessionDeleteRequests()).toBe(0)
     expect(screen.getByText('Sessão cancelar confirmação')).toBeInTheDocument()
@@ -327,18 +366,22 @@ describe('Sessões de estudo — Exclusão', () => {
 
     vi.spyOn(window, 'confirm').mockReturnValue(true)
 
-    fireEvent.click(screen.getByRole('button', { name: 'Sessões de estudo' }))
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: 'Sessões de estudo' }))
     await screen.findByText('Sessão sync fail')
 
     const deleteButton = screen.getByRole('button', { name: 'Excluir' })
-    fireEvent.click(deleteButton)
+    await user.click(deleteButton)
+    // Confirmar no modal de confirmação
+    const confirmModal = await screen.findByRole('dialog', { name: /Excluir sessão de estudo/i })
+    await user.click(within(confirmModal).getByRole('button', { name: 'Excluir' }))
 
     await waitFor(() => expect(fetchMock.getStudySessionDeleteRequests()).toBe(1))
 
     expect(await screen.findByText(/A exclusão foi confirmada, mas a lista não pôde ser atualizada/)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Tentar novamente' })).toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Tentar novamente' }))
+    await user.click(screen.getByRole('button', { name: 'Tentar novamente' }))
 
     await screen.findByText('Nenhuma sessão de estudo encontrada')
     expect(fetchMock.getStudySessionDeleteRequests()).toBe(1)
@@ -365,21 +408,25 @@ describe('Sessões de estudo — Exclusão', () => {
 
     vi.spyOn(window, 'confirm').mockReturnValue(true)
 
-    fireEvent.click(screen.getByRole('button', { name: 'Sessões de estudo' }))
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: 'Sessões de estudo' }))
     await screen.findByText('Sessão modal sync fail')
 
-    fireEvent.click(screen.getByRole('button', { name: /Ver detalhes/ }))
-    await screen.findByRole('heading', { name: 'Sessão modal sync fail' })
+    await user.click(screen.getByRole('button', { name: /Ver detalhes/ }))
+    await within(screen.getByRole('dialog')).findByRole('heading', { name: 'Sessão modal sync fail' })
 
-    const deleteButtonModal = screen.getByRole('button', { name: 'Excluir sessão' })
-    fireEvent.click(deleteButtonModal)
+    const deleteButtonModal = within(screen.getByRole('dialog')).getByRole('button', { name: 'Excluir sessão' })
+    await user.click(deleteButtonModal)
+    // Confirmar no modal de confirmação
+    const confirmModal = await screen.findByRole('dialog', { name: /Excluir sessão de estudo/i })
+    await user.click(within(confirmModal).getByRole('button', { name: 'Excluir' }))
 
     await waitFor(() => expect(fetchMock.getStudySessionDeleteRequests()).toBe(1))
 
     await screen.findByText(/A exclusão foi confirmada, mas a lista não pôde ser atualizada. Failed to fetch/)
     expect(screen.getByRole('dialog')).toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Atualizar lista de sessões' }))
+    await user.click(screen.getByRole('button', { name: 'Atualizar lista de sessões' }))
 
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
     expect(fetchMock.getStudySessionDeleteRequests()).toBe(1)
@@ -400,11 +447,15 @@ describe('Sessões de estudo — Exclusão', () => {
 
     vi.spyOn(window, 'confirm').mockReturnValue(true)
 
-    fireEvent.click(screen.getByRole('button', { name: 'Sessões de estudo' }))
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: 'Sessões de estudo' }))
     await screen.findByText('Sessão mutation sync')
 
     const deleteButton = screen.getByRole('button', { name: 'Excluir' })
-    fireEvent.click(deleteButton)
+    await user.click(deleteButton)
+    // Confirmar no modal de confirmação
+    const confirmModal = await screen.findByRole('dialog', { name: /Excluir sessão de estudo/i })
+    await user.click(within(confirmModal).getByRole('button', { name: 'Excluir' }))
 
     await waitFor(() => expect(fetchMock.getStudySessionDeleteRequests()).toBe(1))
 
@@ -412,7 +463,7 @@ describe('Sessões de estudo — Exclusão', () => {
     expect(screen.getByRole('button', { name: 'Atualizar lista de sessões' })).toBeInTheDocument()
     expect(await screen.findByText(/A exclusão foi confirmada, mas a lista não pôde ser atualizada/)).toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Atualizar lista de sessões' }))
+    await user.click(screen.getByRole('button', { name: 'Atualizar lista de sessões' }))
     await screen.findByText('Nenhuma sessão de estudo encontrada')
 
     expect(fetchMock.getStudySessionDeleteRequests()).toBe(1)
@@ -433,11 +484,15 @@ describe('Sessões de estudo — Exclusão', () => {
 
     vi.spyOn(window, 'confirm').mockReturnValue(true)
 
-    fireEvent.click(screen.getByRole('button', { name: 'Sessões de estudo' }))
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: 'Sessões de estudo' }))
     await screen.findByText('Sessão 404 card')
 
     const deleteButton = screen.getByRole('button', { name: 'Excluir' })
-    fireEvent.click(deleteButton)
+    await user.click(deleteButton)
+    // Confirmar no modal de confirmação
+    const confirmModal = await screen.findByRole('dialog', { name: /Excluir sessão de estudo/i })
+    await user.click(within(confirmModal).getByRole('button', { name: 'Excluir' }))
 
     await waitFor(() => expect(fetchMock.getStudySessionDeleteRequests()).toBe(1))
 
@@ -462,11 +517,15 @@ describe('Sessões de estudo — Exclusão', () => {
 
     vi.spyOn(window, 'confirm').mockReturnValue(true)
 
-    fireEvent.click(screen.getByRole('button', { name: 'Sessões de estudo' }))
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: 'Sessões de estudo' }))
     await screen.findByText('Sessão 404 sync fail')
 
     const deleteButton = screen.getByRole('button', { name: 'Excluir' })
-    fireEvent.click(deleteButton)
+    await user.click(deleteButton)
+    // Confirmar no modal de confirmação
+    const confirmModal = await screen.findByRole('dialog', { name: /Excluir sessão de estudo/i })
+    await user.click(within(confirmModal).getByRole('button', { name: 'Excluir' }))
 
     await waitFor(() => expect(fetchMock.getStudySessionDeleteRequests()).toBe(1))
 
@@ -474,7 +533,7 @@ describe('Sessões de estudo — Exclusão', () => {
     expect(screen.getByRole('button', { name: 'Atualizar lista de sessões' })).toBeInTheDocument()
     expect(await screen.findByText(/A sessão foi excluída, mas a lista não pôde ser atualizada/)).toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Atualizar lista de sessões' }))
+    await user.click(screen.getByRole('button', { name: 'Atualizar lista de sessões' }))
     await screen.findByText('Nenhuma sessão de estudo encontrada')
 
     expect(fetchMock.getStudySessionDeleteRequests()).toBe(1)
@@ -500,6 +559,7 @@ describe('Sessões de estudo — Exclusão', () => {
 
     vi.spyOn(window, 'confirm').mockReturnValue(true)
 
+    const user = userEvent.setup()
     render(
       <StudySessionsPanel
         state={{ status: 'success', data: [session1, session2], error: null }}
@@ -528,10 +588,16 @@ describe('Sessões de estudo — Exclusão', () => {
     const deleteBtn1 = within(card1).getByRole('button', { name: 'Excluir' })
     const deleteBtn2 = within(card2).getByRole('button', { name: 'Excluir' })
 
-    fireEvent.click(deleteBtn1)
+    await user.click(deleteBtn1)
+    // Confirmar no modal de confirmação para sessão 1
+    const confirmModal1 = await screen.findByRole('dialog', { name: /Excluir sessão de estudo/i })
+    await user.click(within(confirmModal1).getByRole('button', { name: 'Excluir' }))
     expect(onDeleteMock).toHaveBeenCalledWith(1)
 
-    fireEvent.click(deleteBtn2)
+    await user.click(deleteBtn2)
+    // Confirmar no modal de confirmação para sessão 2
+    const confirmModal2 = await screen.findByRole('dialog', { name: /Excluir sessão de estudo/i })
+    await user.click(within(confirmModal2).getByRole('button', { name: 'Excluir' }))
     expect(onDeleteMock).toHaveBeenCalledWith(2)
 
     expect(within(card1).getByRole('button', { name: 'Excluindo…' })).toBeDisabled()
@@ -572,7 +638,8 @@ describe('Sessões de estudo — Exclusão', () => {
     renderApp()
     vi.spyOn(window, 'confirm').mockReturnValue(true)
 
-    fireEvent.click(screen.getByRole('button', { name: 'Sessões de estudo' }))
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: 'Sessões de estudo' }))
     await screen.findByText('Sessão 1 Sync Fail')
     await screen.findByText('Sessão 2 Sucesso')
 
@@ -580,7 +647,10 @@ describe('Sessões de estudo — Exclusão', () => {
     const card1 = cards.find((c) => within(c).queryByText('Sessão 1 Sync Fail'))
     const card2 = cards.find((c) => within(c).queryByText('Sessão 2 Sucesso'))
 
-    fireEvent.click(within(card1).getByRole('button', { name: 'Excluir' }))
+    await user.click(within(card1).getByRole('button', { name: 'Excluir' }))
+    // Confirmar no modal de confirmação para sessão 1
+    const confirmModal1 = await screen.findByRole('dialog', { name: /Excluir sessão de estudo/i })
+    await user.click(within(confirmModal1).getByRole('button', { name: 'Excluir' }))
     await waitFor(() => expect(fetchMock.getStudySessionDeleteRequests()).toBe(1))
 
     await waitFor(() => {
@@ -592,7 +662,10 @@ describe('Sessões de estudo — Exclusão', () => {
     expect(within(card2).getByRole('button', { name: 'Excluir' })).toBeInTheDocument()
     expect(within(card2).queryByRole('button', { name: 'Atualizar lista de sessões' })).not.toBeInTheDocument()
 
-    fireEvent.click(within(card2).getByRole('button', { name: 'Excluir' }))
+    await user.click(within(card2).getByRole('button', { name: 'Excluir' }))
+    // Confirmar no modal de confirmação para sessão 2
+    const confirmModal2 = await screen.findByRole('dialog', { name: /Excluir sessão de estudo/i })
+    await user.click(within(confirmModal2).getByRole('button', { name: 'Excluir' }))
     await waitFor(() => expect(fetchMock.getStudySessionDeleteRequests()).toBe(2))
 
     await waitFor(() => {
@@ -624,14 +697,18 @@ describe('Sessões de estudo — Exclusão', () => {
     renderApp()
     vi.spyOn(window, 'confirm').mockReturnValue(true)
 
-    fireEvent.click(screen.getByRole('button', { name: 'Sessões de estudo' }))
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: 'Sessões de estudo' }))
     await screen.findByText('Sessão Falha Real Rede')
 
-    fireEvent.click(screen.getByRole('button', { name: /Ver detalhes/ }))
-    await screen.findByRole('heading', { name: 'Sessão Falha Real Rede' })
+    await user.click(screen.getByRole('button', { name: /Ver detalhes/ }))
+    await within(screen.getByRole('dialog')).findByRole('heading', { name: 'Sessão Falha Real Rede' })
 
-    const deleteButtonModal = screen.getByRole('button', { name: 'Excluir sessão' })
-    fireEvent.click(deleteButtonModal)
+    const deleteButtonModal = within(screen.getByRole('dialog')).getByRole('button', { name: 'Excluir sessão' })
+    await user.click(deleteButtonModal)
+    // Confirmar no modal de confirmação
+    const confirmModal = await screen.findByRole('dialog', { name: /Excluir sessão de estudo/i })
+    await user.click(within(confirmModal).getByRole('button', { name: 'Excluir' }))
 
     expect(screen.queryByText(/A exclusão foi confirmada/)).not.toBeInTheDocument()
 
@@ -642,7 +719,7 @@ describe('Sessões de estudo — Exclusão', () => {
     const reconcileBtn = screen.getByRole('button', { name: 'Consultar sessão antes de tentar novamente' })
     expect(reconcileBtn).toBeInTheDocument()
 
-    fireEvent.click(reconcileBtn)
+    await user.click(reconcileBtn)
 
     await waitFor(() => {
       expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
@@ -667,11 +744,15 @@ describe('Sessões de estudo — Exclusão', () => {
 
     vi.spyOn(window, 'confirm').mockReturnValue(true)
 
-    fireEvent.click(screen.getByRole('button', { name: 'Sessões de estudo' }))
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: 'Sessões de estudo' }))
     await screen.findByText('Sessão sync failed')
 
     const deleteButton = screen.getByRole('button', { name: 'Excluir' })
-    fireEvent.click(deleteButton)
+    await user.click(deleteButton)
+    // Confirmar no modal de confirmação
+    const confirmModal = await screen.findByRole('dialog', { name: /Excluir sessão de estudo/i })
+    await user.click(within(confirmModal).getByRole('button', { name: 'Excluir' }))
 
     await waitFor(() => expect(fetchMock.getStudySessionDeleteRequests()).toBe(1))
 
@@ -696,11 +777,15 @@ describe('Sessões de estudo — Exclusão', () => {
 
     vi.spyOn(window, 'confirm').mockReturnValue(true)
 
-    fireEvent.click(screen.getByRole('button', { name: 'Sessões de estudo' }))
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: 'Sessões de estudo' }))
     await screen.findByText('Sessão reconciliação ok')
 
     const deleteButton = screen.getByRole('button', { name: 'Excluir' })
-    fireEvent.click(deleteButton)
+    await user.click(deleteButton)
+    // Confirmar no modal de confirmação
+    const confirmModal = await screen.findByRole('dialog', { name: /Excluir sessão de estudo/i })
+    await user.click(within(confirmModal).getByRole('button', { name: 'Excluir' }))
 
     await waitFor(() => expect(fetchMock.getStudySessionDeleteRequests()).toBe(1))
 
@@ -708,7 +793,7 @@ describe('Sessões de estudo — Exclusão', () => {
     expect(screen.getByRole('button', { name: 'Iniciar' })).toBeDisabled()
     expect(screen.getByRole('button', { name: 'Cancelar' })).toBeDisabled()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Atualizar lista de sessões' }))
+    await user.click(screen.getByRole('button', { name: 'Atualizar lista de sessões' }))
     await screen.findByText('Nenhuma sessão de estudo encontrada')
 
     expect(fetchMock.getStudySessionDeleteRequests()).toBe(1)
