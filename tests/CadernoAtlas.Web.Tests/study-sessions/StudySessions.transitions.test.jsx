@@ -44,6 +44,8 @@ describe('Sessões de estudo — Transições', () => {
     await user.click(within(modal).getByRole('button', { name: 'Concluir sessão' }))
     // ConfirmActionModal abre - confirmar no modal
     const confirmModal = await screen.findByRole('dialog', { name: /Confirmar transição/i })
+    expect(screen.getAllByRole('dialog')).toHaveLength(1)
+    expect(document.querySelector('.study-session-detail-overlay')).toHaveAttribute('aria-hidden', 'true')
     await user.click(within(confirmModal).getByRole('button', { name: 'Confirmar' }))
     await waitFor(() => expect(fetchMock.getStudySessionTransitionRequests()).toBe(1))
     expect(await within(modal).findByText('Concluída', { selector: '.study-session-status' })).toBeInTheDocument()

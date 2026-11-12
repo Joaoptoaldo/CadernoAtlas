@@ -507,7 +507,12 @@ function App() {
                 </div>
               </section>
               {activeSection === 'dashboard' && (
-                <Dashboard sessionsState={sessionsState} weekStart={monday} />
+                <Dashboard
+                  sessionsState={sessionsState}
+                  weekStart={monday}
+                  onNavigateToSessions={() => setActiveSection('study-sessions')}
+                  onRetry={() => setSessionsReloadToken((v) => v + 1)}
+                />
               )}
               <footer className="page-footer">
                 <span>Sessões organizadas para uma rotina real.</span>

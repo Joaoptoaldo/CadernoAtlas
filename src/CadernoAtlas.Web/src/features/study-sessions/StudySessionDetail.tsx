@@ -489,7 +489,12 @@ export default function StudySessionDetail({
 
   if (status === 'loading') {
     return (
-      <div className="study-session-detail-overlay" role="dialog" aria-modal="true" aria-labelledby="detail-title">
+      <div
+        className="study-session-detail-overlay"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="detail-title"
+      >
         <div className="study-session-detail-panel">
           <div className="study-session-detail-header">
             <h2 id="detail-title">Carregando…</h2>
@@ -572,7 +577,14 @@ export default function StudySessionDetail({
 
   return (
     <>
-      <div className="study-session-detail-overlay" role="dialog" aria-modal="true" aria-labelledby="detail-title">
+      <div
+        className="study-session-detail-overlay"
+        role={confirmAction === null ? 'dialog' : undefined}
+        aria-modal={confirmAction === null ? 'true' : undefined}
+        aria-labelledby="detail-title"
+        aria-hidden={confirmAction !== null}
+        inert={confirmAction !== null}
+      >
         <div className="study-session-detail-panel">
           <div className="study-session-detail-header">
             <h2 id="detail-title">{session.titulo}</h2>

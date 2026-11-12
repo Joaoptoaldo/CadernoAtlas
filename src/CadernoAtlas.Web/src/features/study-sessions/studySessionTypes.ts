@@ -114,6 +114,7 @@ export interface StudySessionListItem {
   situacao: SituacaoSessaoEstudo
   demandaAcademicaId: number | null
   tarefaDemandaId: number | null
+  concluidaEm: string | null
 }
 
 export interface StudySessionRequest {

@@ -1,4 +1,5 @@
-import { useEffect, useRef } from 'react'
+import { useId, useLayoutEffect, useRef } from 'react'
+import { createPortal } from 'react-dom'
 
 interface ConfirmActionModalProps {
   open: boolean
@@ -9,6 +10,24 @@ interface ConfirmActionModalProps {
   onConfirm: () => void
   onCancel: () => void
   busy?: boolean
+}
+
+const focusableSelector = [
+  'button:not([disabled])',
+  '[href]',
+  'input:not([disabled])',
+  'select:not([disabled])',
+  'textarea:not([disabled])',
+  '[tabindex]:not([tabindex="-1"])',
+].join(', ')
+
+function isRestorable(element: HTMLElement | null): element is HTMLElement {
+  return Boolean(
+    element &&
+    element.isConnected &&
+    !element.hasAttribute('disabled') &&
+    !element.closest('[aria-hidden="true"]')
+  )
 }
 
 export default function ConfirmActionModal({
@@ -25,86 +44,96 @@ export default function ConfirmActionModal({
   const confirmButtonRef = useRef<HTMLButtonElement>(null)
   const previousActiveElement = useRef<HTMLElement | null>(null)
   const modalRef = useRef<HTMLDivElement>(null)
+  const titleId = useId()
+  const descriptionId = useId()
 
-  // Focus trap and restore previous active element
-  useEffect(() => {
-    if (open) {
-      previousActiveElement.current = document.activeElement as HTMLElement
-      setTimeout(() => cancelButtonRef.current?.focus(), 0)
-    } else if (previousActiveElement.current) {
-      previousActiveElement.current.focus()
+  useLayoutEffect(() => {
+    if (!open) return
+
+    if (!previousActiveElement.current && document.activeElement instanceof HTMLElement) {
+      previousActiveElement.current = document.activeElement
+    }
+
+    const initialFocusTarget =
+      cancelButtonRef.current && !cancelButtonRef.current.disabled
+        ? cancelButtonRef.current
+        : confirmButtonRef.current && !confirmButtonRef.current.disabled
+          ? confirmButtonRef.current
+          : modalRef.current
+
+    initialFocusTarget?.focus()
+
+    return () => {
+      const elementToRestore = previousActiveElement.current
+      previousActiveElement.current = null
+      if (isRestorable(elementToRestore)) {
+        elementToRestore.focus()
+      }
     }
   }, [open])
 
-  // Escape key handler
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!open) return
 
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
+        if (busy) return
         event.preventDefault()
         onCancel()
+        return
       }
-    }
 
-    document.addEventListener('keydown', handleKeyDown)
-    return () => document.removeEventListener('keydown', handleKeyDown)
-  }, [open, onCancel])
-
-  // Focus trap: Tab / Shift+Tab
-  useEffect(() => {
-    if (!open || !modalRef.current) return
-
-    const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key !== 'Tab') return
 
-      const focusableElements = modalRef.current?.querySelectorAll<HTMLElement>(
-        'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
-      )
+      const modal = modalRef.current
+      if (!modal) return
 
-      if (!focusableElements || focusableElements.length === 0) return
+      const focusableElements = Array.from(
+        modal.querySelectorAll<HTMLElement>(focusableSelector)
+      ).filter((element) => !element.closest('[aria-hidden="true"]'))
+
+      if (focusableElements.length === 0) {
+        event.preventDefault()
+        modal.focus()
+        return
+      }
 
       const firstElement = focusableElements[0]
       const lastElement = focusableElements[focusableElements.length - 1]
+      const activeElement = document.activeElement
 
-      if (event.shiftKey) {
-        // Shift + Tab: move to last element if on first
-        if (document.activeElement === firstElement) {
-          event.preventDefault()
-          lastElement.focus()
-        }
-      } else {
-        // Tab: move to first element if on last
-        if (document.activeElement === lastElement) {
-          event.preventDefault()
-          firstElement.focus()
-        }
+      if (event.shiftKey && (activeElement === firstElement || !modal.contains(activeElement))) {
+        event.preventDefault()
+        lastElement.focus()
+      } else if (!event.shiftKey && (activeElement === lastElement || !modal.contains(activeElement))) {
+        event.preventDefault()
+        firstElement.focus()
       }
     }
 
     document.addEventListener('keydown', handleKeyDown)
     return () => document.removeEventListener('keydown', handleKeyDown)
-  }, [open])
+  }, [busy, onCancel, open])
 
   if (!open) return null
 
   const variantClass = `btn-${confirmVariant}`
-
-  return (
+  const modal = (
     <>
-      <div className="modal-backdrop fade show" />
+      <div className="modal-backdrop fade show" aria-hidden="true" />
       <div
         ref={modalRef}
         className="modal fade show d-block"
         role="dialog"
         aria-modal="true"
-        aria-labelledby="confirm-action-title"
+        aria-labelledby={titleId}
+        aria-describedby={descriptionId}
         tabIndex={-1}
       >
         <div className="modal-dialog modal-dialog-centered">
           <div className="modal-content">
             <div className="modal-header">
-              <h5 id="confirm-action-title" className="modal-title">
+              <h5 id={titleId} className="modal-title">
                 {title}
               </h5>
               <button
@@ -112,10 +141,11 @@ export default function ConfirmActionModal({
                 className="btn-close"
                 aria-label="Fechar"
                 onClick={onCancel}
+                disabled={busy}
               />
             </div>
             <div className="modal-body">
-              <p style={{ whiteSpace: 'pre-wrap' }}>{message}</p>
+              <p id={descriptionId} style={{ whiteSpace: 'pre-wrap' }}>{message}</p>
             </div>
             <div className="modal-footer">
               <button
@@ -142,4 +172,6 @@ export default function ConfirmActionModal({
       </div>
     </>
   )
+
+  return createPortal(modal, document.body)
 }

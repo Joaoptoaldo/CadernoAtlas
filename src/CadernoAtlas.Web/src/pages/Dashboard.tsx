@@ -5,6 +5,8 @@ import type { StudySessionListItem } from '../features/study-sessions/studySessi
 interface DashboardProps {
   sessionsState: LoadState<StudySessionListItem[]>
   weekStart: Date
+  onNavigateToSessions: () => void
+  onRetry: () => void
 }
 
 function formatDate(dateStr: string): string {
@@ -33,7 +35,7 @@ function formatMinutes(minutes: number): string {
   return `${hours} h ${String(mins).padStart(2, '0')} min`
 }
 
-export function Dashboard({ sessionsState, weekStart }: DashboardProps) {
+export function Dashboard({ sessionsState, weekStart, onNavigateToSessions, onRetry }: DashboardProps) {
   const {
     plannedCount,
     completedThisWeek,
@@ -66,7 +68,7 @@ export function Dashboard({ sessionsState, weekStart }: DashboardProps) {
         <div className="container-fluid py-3">
           <div className="alert alert-danger" role="alert">
             <strong>Erro ao carregar sessões:</strong> {errorMessage ?? 'Tente novamente.'}
-            <button className="btn btn-sm btn-outline-danger ms-3" type="button" onClick={() => window.location.reload()}>
+            <button className="btn btn-sm btn-outline-danger ms-3" type="button" onClick={onRetry}>
               Recarregar
             </button>
           </div>
@@ -130,7 +132,7 @@ export function Dashboard({ sessionsState, weekStart }: DashboardProps) {
             <div className="card">
               <div className="card-header d-flex justify-content-between align-items-center">
                 <span>Sessões planejadas da semana</span>
-                <button className="btn btn-sm btn-outline-secondary" type="button" aria-label="Ir para sessões de estudo" onClick={() => window.location.hash = 'study-sessions'}>
+                <button className="btn btn-sm btn-outline-secondary" type="button" aria-label="Ir para sessões de estudo" onClick={onNavigateToSessions}>
                   Ver todas
                 </button>
               </div>
