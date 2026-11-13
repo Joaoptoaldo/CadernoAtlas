@@ -74,7 +74,7 @@ a { color: inherit; }
   --bs-btn-disabled-bg: #2d776d;
   --bs-btn-disabled-border-color: #2d776d;
   --bs-btn-disabled-color: rgba(255, 255, 255, 0.65);
-  --bs-btn-focus-shadow: 0 0 0 0.25rem rgba(45, 119, 109, 0.4);
+  --bs-btn-focus-box-shadow: 0 0 0 0.25rem rgba(45, 119, 109, 0.4);
 }
 
 .btn-danger {
@@ -90,7 +90,7 @@ a { color: inherit; }
   --bs-btn-disabled-bg: #b46051;
   --bs-btn-disabled-border-color: #b46051;
   --bs-btn-disabled-color: rgba(255, 255, 255, 0.65);
-  --bs-btn-focus-shadow: 0 0 0 0.25rem rgba(180, 96, 81, 0.4);
+  --bs-btn-focus-box-shadow: 0 0 0 0.25rem rgba(180, 96, 81, 0.4);
 }
 
 .btn-secondary {
@@ -106,7 +106,7 @@ a { color: inherit; }
   --bs-btn-disabled-bg: #fff;
   --bs-btn-disabled-border-color: #dfe5df;
   --bs-btn-disabled-color: rgba(72, 98, 90, 0.65);
-  --bs-btn-focus-shadow: 0 0 0 0.25rem rgba(72, 98, 90, 0.4);
+  --bs-btn-focus-box-shadow: 0 0 0 0.25rem rgba(72, 98, 90, 0.4);
 }
 
 .btn-outline-secondary {
@@ -118,7 +118,7 @@ a { color: inherit; }
   --bs-btn-active-bg: #dceadc;
   --bs-btn-active-border-color: #a8bca8;
   --bs-btn-active-color: #48625a;
-  --bs-btn-focus-shadow: 0 0 0 0.25rem rgba(72, 98, 90, 0.4);
+  --bs-btn-focus-box-shadow: 0 0 0 0.25rem rgba(72, 98, 90, 0.4);
 }
 
 /* Progress bar */
@@ -137,6 +137,27 @@ a {
   --bs-form-control-border-color: #dce2dc;
   --bs-form-control-focus-border-color: #78a899;
   --bs-form-control-focus-box-shadow: 0 0 0 0.25rem rgba(45, 119, 109, 0.25);
+}
+
+.form-control:focus, .form-select:focus {
+  border-color: var(--bs-form-control-focus-border-color);
+  box-shadow: var(--bs-form-control-focus-box-shadow);
+  outline: none;
+}
+
+.form-control:disabled,
+.form-select:disabled,
+.form-control[readonly],
+.form-select[readonly] {
+  background-color: #f6f7f5;
+  border-color: var(--bs-form-control-border-color);
+  opacity: 0.65;
+}
+
+.form-control[readonly]:focus,
+.form-select[readonly]:focus {
+  border-color: var(--bs-form-control-focus-border-color);
+  box-shadow: var(--bs-form-control-focus-box-shadow);
 }
 
 .status-message {

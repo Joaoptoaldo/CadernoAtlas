@@ -5,6 +5,7 @@ import type { StudySessionListItem } from './studySessionTypes'
 interface UseStudySessionsDataOptions {
   sessionsState: LoadState<StudySessionListItem[]>
   weekStart: Date
+  useCurrentWeek?: boolean
 }
 
 interface DemandDistributionItem {
@@ -49,6 +50,20 @@ function toIsoDate(date: Date): string {
   return `${year}-${month}-${day}`
 }
 
+function getCurrentWeekStart(referenceDate: Date): Date {
+  const { year, month, day } = getSaoPauloDateParts(referenceDate)
+
+  // usa UTC para calcular o dia da semana sem depender do fuso do navegador
+  const anchor = new Date(Date.UTC(year, month - 1, day))
+
+  // segunda é o primeiro dia da semana
+  anchor.setUTCDate(anchor.getUTCDate() - ((anchor.getUTCDay() + 6) % 7))
+
+  // retorna uma data local com os mesmos componentes de calendário
+  // isso mantém a compatibilidade com toIsoDate e isThisWeek
+  return new Date(anchor.getUTCFullYear(), anchor.getUTCMonth(), anchor.getUTCDate())
+}
+
 function toLocalDateTime(dateStr: string, timeStr: string): number {
   const [year, month, day] = dateStr.split('-').map(Number)
   const [hours, minutes, seconds = 0] = timeStr.split(':').map(Number)
@@ -89,6 +104,7 @@ function isCompletionInWeek(dateStr: string | null, weekStart: Date): boolean {
 export function useStudySessionsData({
   sessionsState,
   weekStart,
+  useCurrentWeek = false,
 }: UseStudySessionsDataOptions): UseStudySessionsDataReturn {
   const sessions = useMemo(() => sessionsState.data ?? [], [sessionsState.data])
   const [now, setNow] = useState(() => new Date())
@@ -101,32 +117,49 @@ export function useStudySessionsData({
     return () => clearInterval(intervalId)
   }, [])
 
+  // Calcula a semana atual ou utiliza a semana fornecida
+  const effectiveWeekStart = useMemo(
+    () => (useCurrentWeek ? getCurrentWeekStart(now) : weekStart),
+    [now, useCurrentWeek, weekStart]
+  )
+
   const plannedCount = useMemo(
-    () => sessions.filter((s) => s.situacao === 0 && isThisWeek(s.dataPlanejada, weekStart)).length,
-    [sessions, weekStart]
+    () =>
+      sessions.filter(
+        (s) => s.situacao === 0 && isThisWeek(s.dataPlanejada, effectiveWeekStart)
+      ).length,
+    [sessions, effectiveWeekStart]
   )
 
   const completedThisWeek = useMemo(
     () =>
       sessions.filter(
-        (s) => s.situacao === 2 && isCompletionInWeek(s.concluidaEm, weekStart)
+        (s) => s.situacao === 2 && isCompletionInWeek(s.concluidaEm, effectiveWeekStart)
       ).length,
-    [sessions, weekStart]
+    [sessions, effectiveWeekStart]
   )
 
   const totalPlannedMinutes = useMemo(
     () =>
       sessions
-        .filter((s) => s.situacao === 0 && isThisWeek(s.dataPlanejada, weekStart))
+        .filter(
+          (s) =>
+            s.situacao === 0 &&
+            isThisWeek(s.dataPlanejada, effectiveWeekStart)
+        )
         .reduce((sum, s) => sum + s.duracaoPlanejadaMinutos, 0),
-    [sessions, weekStart]
+    [sessions, effectiveWeekStart]
   )
 
   const nextSession = useMemo(() => {
     const nowParts = getSaoPauloDateParts(now)
     const nowKey = Date.UTC(nowParts.year, nowParts.month - 1, nowParts.day, nowParts.hours, nowParts.minutes, nowParts.seconds)
     const planned = [...sessions]
-      .filter((s) => s.situacao === 0 && isThisWeek(s.dataPlanejada, weekStart))
+      .filter(
+        (s) =>
+          s.situacao === 0 &&
+          isThisWeek(s.dataPlanejada, effectiveWeekStart)
+      )
       .sort((a, b) => {
         return toLocalDateTime(a.dataPlanejada, a.horaInicioPlanejada) - toLocalDateTime(b.dataPlanejada, b.horaInicioPlanejada)
       })
@@ -141,10 +174,14 @@ export function useStudySessionsData({
       duracaoPlanejadaMinutos: s.duracaoPlanejadaMinutos,
       demandaAcademicaId: s.demandaAcademicaId,
     }
-  }, [now, sessions, weekStart])
+  }, [now, sessions, effectiveWeekStart])
 
   const distributionByDemand = useMemo(() => {
-    const plannedSessions = sessions.filter((s) => s.situacao === 0 && isThisWeek(s.dataPlanejada, weekStart))
+    const plannedSessions = sessions.filter(
+      (s) =>
+        s.situacao === 0 &&
+        isThisWeek(s.dataPlanejada, effectiveWeekStart)
+    )
     const total = plannedSessions.length
     if (total === 0) return []
 
@@ -164,11 +201,15 @@ export function useStudySessionsData({
         percentage: Math.round((count / total) * 100),
       }))
       .sort((a, b) => b.count - a.count)
-  }, [sessions, weekStart])
+  }, [sessions, effectiveWeekStart])
 
   const upcomingSessions = useMemo(() => {
     return [...sessions]
-      .filter((s) => s.situacao === 0 && isThisWeek(s.dataPlanejada, weekStart))
+      .filter(
+        (s) =>
+          s.situacao === 0 &&
+          isThisWeek(s.dataPlanejada, effectiveWeekStart)
+      )
       .sort((a, b) => {
         return toLocalDateTime(a.dataPlanejada, a.horaInicioPlanejada) - toLocalDateTime(b.dataPlanejada, b.horaInicioPlanejada)
       })
@@ -181,7 +222,7 @@ export function useStudySessionsData({
         duracaoPlanejadaMinutos: s.duracaoPlanejadaMinutos,
         demandaAcademicaId: s.demandaAcademicaId,
       }))
-  }, [sessions, weekStart])
+  }, [sessions, effectiveWeekStart])
 
   return {
     plannedCount,

@@ -48,7 +48,7 @@ export function Dashboard({ sessionsState, weekStart, onNavigateToSessions, onRe
     isLoading,
     isError,
     errorMessage,
-  } = useStudySessionsData({ sessionsState, weekStart })
+  } = useStudySessionsData({ sessionsState, weekStart, useCurrentWeek: true })
 
   if (isLoading) {
     return (
@@ -200,7 +200,9 @@ export function Dashboard({ sessionsState, weekStart, onNavigateToSessions, onRe
                       <div className="progress" style={{ height: '8px' }} role="progressbar" aria-valuenow={item.percentage} aria-valuemin={0} aria-valuemax={100} aria-label={`${item.demandTitle}: ${item.percentage}% das sessões planejadas`}>
                         <div className="progress-bar bg-primary" style={{ width: `${item.percentage}%` }} />
                       </div>
-                      <div className="small text-muted mt-1">{item.count} sessão{item.count !== 1 ? 'ões' : ''}</div>
+                      <div className="small text-muted mt-1">
+                        {item.count} {item.count === 1 ? 'sessão' : 'sessões'}
+                      </div>
                     </div>
                   ))
                 )}
