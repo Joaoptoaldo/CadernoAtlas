@@ -10,6 +10,7 @@ vi.mock('../../../src/CadernoAtlas.Web/src/apiClient', () => ({
 }))
 
 function makeOptions() {
+  const dataMutationInProgressRef = { current: false }
   const demandCreationInProgressRef = { current: false }
   const demandUpdateInProgressRef = { current: false }
   const availabilityCreationInProgressRef = { current: false }
@@ -17,6 +18,12 @@ function makeOptions() {
   const taskMutationInProgressRef = { current: false }
   const invalidatePreview = vi.fn()
   const locks = {
+    dataMutationInProgressRef,
+
+    setDataMutationInProgress: (value) => {
+      dataMutationInProgressRef.current = value
+    },
+    
     demandCreationInProgressRef,
     demandUpdateInProgressRef,
     availabilityCreationInProgressRef,
@@ -32,12 +39,10 @@ function makeOptions() {
     options: {
       concurrencyLocks: locks,
       invalidatePreview,
-      clearPreview: vi.fn(),
-      refreshAllDemands: vi.fn(),
+      refreshAllDemands: vi.fn().mockResolvedValue(undefined),
+      reconcileAllDemands: vi.fn().mockResolvedValue([]),
       setDemandState: vi.fn(),
-      setAllDemandsState: vi.fn(),
       setDemandReloadToken: vi.fn(),
-      setAllDemandsReloadToken: vi.fn(),
     },
     locks,
     invalidatePreview,

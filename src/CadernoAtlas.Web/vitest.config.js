@@ -48,6 +48,10 @@ export default defineConfig({
         find: /^@testing-library\/react$/,
         replacement: projectRequire.resolve('@testing-library/react'),
       },
+      {
+        find: /^@testing-library\/user-event$/,
+        replacement: projectRequire.resolve('@testing-library/user-event'),
+      },
     ],
   },
 
@@ -55,6 +59,7 @@ export default defineConfig({
     include: [
       '../../tests/CadernoAtlas.Web.Tests/**/*.test.{js,jsx}',
     ],
+    fileParallelism: false,
     environment: 'jsdom',
     setupFiles: ['./vitest.setup.js'],
     clearMocks: true,

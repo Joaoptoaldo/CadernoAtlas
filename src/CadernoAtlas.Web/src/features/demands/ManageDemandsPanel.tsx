@@ -1,5 +1,7 @@
 import { useMemo, useRef, useState, type FormEvent } from 'react'
 import StatusMessage from '../../components/ui/StatusMessage'
+import EmptyState from '../../components/ui/EmptyState'
+import ProcessingState from '../../components/ui/ProcessingState'
 import ManageDemandTasks, { type DemandTask, type UpdateDemandTaskRequest } from './ManageDemandTasks'
 import type { CreateDemandTaskRequest } from './CreateDemandTaskForm'
 
@@ -61,6 +63,7 @@ export default function ManageDemandsPanel({ state, onRetry, onUpdate, onLoadTas
   const [editingId, setEditingId] = useState<number | null>(null)
   const [form, setForm] = useState<UpdateDemandRequest | null>(null)
   const [formError, setFormError] = useState<string | null>(null)
+  const [fieldErrors, setFieldErrors] = useState<{ titulo?: string }>({})
   const [saving, setSaving] = useState(false)
   const [expandedTaskDemandId, setExpandedTaskDemandId] = useState<number | null>(null)
   const [outcomeUnknown, setOutcomeUnknown] = useState(demandOutcomeUnknown)
@@ -68,6 +71,15 @@ export default function ManageDemandsPanel({ state, onRetry, onUpdate, onLoadTas
   const [reconciliationComplete, setReconciliationComplete] = useState(false)
   const savingRef = useRef(false)
   const controlsDisabled = saving || isUpdatingDemand || isReconciling
+
+  function clearFieldError(field: keyof typeof fieldErrors): void {
+    setFieldErrors((prev) => {
+      if (!prev[field]) return prev
+      const next = { ...prev }
+      delete next[field]
+      return next
+    })
+  }
 
   const filteredDemands = useMemo(() => (state.data ?? []).filter((demand) => (
     (statusFilter === '' || demand.situacao === Number(statusFilter)) &&
@@ -106,10 +118,19 @@ export default function ManageDemandsPanel({ state, onRetry, onUpdate, onLoadTas
     event.preventDefault()
     if (editingId === null || form === null || savingRef.current || controlsDisabled || (outcomeUnknown && !reconciliationComplete)) return
     const payload = { ...form, titulo: form.titulo.trim(), descricao: form.descricao?.trim() || null }
+    const newFieldErrors: { titulo?: string; descricao?: string; tipo?: string; importancia?: string; prazo?: string; esforcoEstimadoMinutos?: string; situacao?: string } = {}
+
     if (payload.titulo.length < 2) {
-      setFormError('O título deve ter pelo menos 2 caracteres.')
+      newFieldErrors.titulo = 'O título deve ter pelo menos 2 caracteres.'
+    }
+    // Add more field validations as needed
+
+    if (Object.keys(newFieldErrors).length > 0) {
+      setFieldErrors(newFieldErrors)
       return
     }
+
+    setFieldErrors({})
     savingRef.current = true
     setSaving(true)
     setFormError(null)
@@ -187,31 +208,126 @@ export default function ManageDemandsPanel({ state, onRetry, onUpdate, onLoadTas
       </div>
 
       {state.status === 'loading' && !state.data && <p role="status">Carregando demandas…</p>}
-      {state.status === 'error' && !state.data && <StatusMessage title="Não foi possível carregar as demandas" description={state.error ?? 'Tente novamente.'} onRetry={isUpdatingDemand || taskMutationInProgress ? undefined : onRetry} />}
-      {state.status === 'error' && state.data && <StatusMessage title="A lista pode estar desatualizada" description={state.error ?? 'Tente novamente.'} onRetry={isUpdatingDemand || taskMutationInProgress ? undefined : onRetry} compact />}
+      {state.status === 'error' && !state.data && <StatusMessage title="Não foi possível carregar as demandas" description={state.error ?? 'Tente novamente.'} onRetry={isUpdatingDemand || taskMutationInProgress ? undefined : onRetry} variant="danger" />}
+      {state.status === 'error' && state.data && <StatusMessage title="A lista pode estar desatualizada" description={state.error ?? 'Tente novamente.'} onRetry={isUpdatingDemand || taskMutationInProgress ? undefined : onRetry} compact variant="warning" />}
       {state.data && filteredDemands.length === 0 && (
-        <div className="empty-state"><h3>Nenhuma demanda encontrada</h3><p>Ajuste os filtros ou cadastre uma nova demanda.</p></div>
+        <EmptyState
+          title="Nenhuma demanda encontrada"
+          description="Ajuste os filtros ou cadastre uma nova demanda."
+          icon="book"
+        />
       )}
       {filteredDemands.map((demand) => (
         <article className="managed-demand-card" key={demand.id}>
           {editingId === demand.id && form ? (
-            <form className="edit-demand-form" onSubmit={submitEdit}>
+            <form className="edit-demand-form" onSubmit={submitEdit} noValidate>
               <h3>Editar demanda</h3>
               <div className="create-demand-form-grid">
-                <label className="form-field form-field-full">Título<input required minLength={2} maxLength={150} disabled={saving || isUpdatingDemand} value={form.titulo} onChange={(event) => setForm({ ...form, titulo: event.target.value })} /></label>
-                <label className="form-field form-field-full">Descrição<textarea maxLength={1000} rows={3} disabled={saving || isUpdatingDemand} value={form.descricao ?? ''} onChange={(event) => setForm({ ...form, descricao: event.target.value || null })} /></label>
-                <label className="form-field">Tipo<select aria-label="Tipo da demanda" disabled={saving || isUpdatingDemand} value={form.tipo} onChange={(event) => setForm({ ...form, tipo: Number(event.target.value) })}>{typeLabels.map((label, index) => <option value={index} key={label}>{label}</option>)}</select></label>
-                <label className="form-field">Importância<select aria-label="Importância da demanda" disabled={saving || isUpdatingDemand} value={form.importancia} onChange={(event) => setForm({ ...form, importancia: Number(event.target.value) })}>{importanceLabels.map((label, index) => <option value={index} key={label}>{label}</option>)}</select></label>
-                <label className="form-field">Prazo<input aria-label="Prazo da demanda" type="date" disabled={saving || isUpdatingDemand} value={form.prazo ?? ''} onChange={(event) => setForm({ ...form, prazo: event.target.value || null })} /></label>
-                <label className="form-field">Esforço estimado em minutos<input aria-label="Esforço da demanda" type="number" min={1} step={1} disabled={saving || isUpdatingDemand} value={form.esforcoEstimadoMinutos ?? ''} onChange={(event) => setForm({ ...form, esforcoEstimadoMinutos: event.target.value === '' ? null : Number(event.target.value) })} /></label>
-                <label className="form-field">Situação<select aria-label="Situação da demanda" disabled={saving || isUpdatingDemand} value={form.situacao} onChange={(event) => setForm({ ...form, situacao: Number(event.target.value) })}>{statusLabels.map((label, index) => <option value={index} key={label}>{label}</option>)}</select></label>
+                <div className="form-field form-field-full">
+                  <label htmlFor={`edit-demand-titulo-${demand.id}`}>Título</label>
+                  <input
+                    id={`edit-demand-titulo-${demand.id}`}
+                    required
+                    minLength={2}
+                    maxLength={150}
+                    disabled={saving || isUpdatingDemand}
+                    value={form.titulo}
+                    onChange={(event) => {
+                      setForm({ ...form, titulo: event.target.value })
+                      clearFieldError('titulo')
+                    }}
+                    className={`form-control ${fieldErrors.titulo ? 'is-invalid' : ''}`}
+                    aria-invalid={fieldErrors.titulo ? 'true' : 'false'}
+                    aria-describedby={fieldErrors.titulo ? `edit-demand-titulo-error-${demand.id}` : undefined}
+                  />
+                  {fieldErrors.titulo && (
+                    <div id={`edit-demand-titulo-error-${demand.id}`} className="invalid-feedback">{fieldErrors.titulo}</div>
+                  )}
+                </div>
+                <div className="form-field form-field-full">
+                  <label htmlFor={`edit-demand-descricao-${demand.id}`}>Descrição</label>
+                  <textarea
+                    id={`edit-demand-descricao-${demand.id}`}
+                    maxLength={1000}
+                    rows={3}
+                    disabled={saving || isUpdatingDemand}
+                    value={form.descricao ?? ''}
+                    onChange={(event) => setForm({ ...form, descricao: event.target.value || null })}
+                    className="form-control"
+                  />
+                </div>
+                <div className="form-field">
+                  <label htmlFor={`edit-demand-tipo-${demand.id}`}>Tipo</label>
+                  <select
+                    id={`edit-demand-tipo-${demand.id}`}
+                    aria-label="Tipo da demanda"
+                    disabled={saving || isUpdatingDemand}
+                    value={form.tipo}
+                    onChange={(event) => setForm({ ...form, tipo: Number(event.target.value) })}
+                    className="form-control"
+                  >
+                    {typeLabels.map((label, index) => <option value={index} key={label}>{label}</option>)}
+                  </select>
+                </div>
+                <div className="form-field">
+                  <label htmlFor={`edit-demand-importancia-${demand.id}`}>Importância</label>
+                  <select
+                    id={`edit-demand-importancia-${demand.id}`}
+                    aria-label="Importância da demanda"
+                    disabled={saving || isUpdatingDemand}
+                    value={form.importancia}
+                    onChange={(event) => setForm({ ...form, importancia: Number(event.target.value) })}
+                    className="form-control"
+                  >
+                    {importanceLabels.map((label, index) => <option value={index} key={label}>{label}</option>)}
+                  </select>
+                </div>
+                <div className="form-field">
+                  <label htmlFor={`edit-demand-prazo-${demand.id}`}>Prazo</label>
+                  <input
+                    id={`edit-demand-prazo-${demand.id}`}
+                    type="date"
+                    aria-label="Prazo da demanda"
+                    disabled={saving || isUpdatingDemand}
+                    value={form.prazo ?? ''}
+                    onChange={(event) => setForm({ ...form, prazo: event.target.value || null })}
+                    className="form-control"
+                  />
+                </div>
+                <div className="form-field">
+                  <label htmlFor={`edit-demand-esforco-${demand.id}`}>Esforço estimado em minutos</label>
+                  <input
+                    id={`edit-demand-esforco-${demand.id}`}
+                    type="number"
+                    min={1}
+                    step={1}
+                    aria-label="Esforço da demanda"
+                    disabled={saving || isUpdatingDemand}
+                    value={form.esforcoEstimadoMinutos ?? ''}
+                    onChange={(event) => setForm({ ...form, esforcoEstimadoMinutos: event.target.value === '' ? null : Number(event.target.value) })}
+                    className="form-control"
+                  />
+                </div>
+                <div className="form-field">
+                  <label htmlFor={`edit-demand-situacao-${demand.id}`}>Situação</label>
+                  <select
+                    id={`edit-demand-situacao-${demand.id}`}
+                    aria-label="Situação da demanda"
+                    disabled={saving || isUpdatingDemand}
+                    value={form.situacao}
+                    onChange={(event) => setForm({ ...form, situacao: Number(event.target.value) })}
+                    className="form-control"
+                  >
+                    {statusLabels.map((label, index) => <option value={index} key={label}>{label}</option>)}
+                  </select>
+                </div>
               </div>
               {formError && <p role="alert" className="form-error">{formError}</p>}
               {outcomeUnknown && (
                 <div className="task-uncertain-guidance">
                   <p>A consulta reduz a incerteza, mas não garante que uma requisição anterior ainda em processamento não seja concluída depois.</p>
                   {!reconciliationComplete ? (
-                    <button className="text-button" type="button" disabled={controlsDisabled} onClick={() => void reconcileOutcome()}>
+                    <button className="text-button" type="button" disabled={controlsDisabled} onClick={reconcileOutcome}>
                       {isReconciling ? 'Consultando demandas…' : 'Consultar demandas antes de tentar novamente'}
                     </button>
                   ) : (
@@ -219,6 +335,7 @@ export default function ManageDemandsPanel({ state, onRetry, onUpdate, onLoadTas
                   )}
                 </div>
               )}
+              <ProcessingState message="Salvando..." isActive={saving || isUpdatingDemand} ariaLabel="Salvando alterações" />
               <div className="create-demand-form-actions">
                 <button className="button button-secondary" type="button" disabled={controlsDisabled || outcomeUnknown} onClick={() => { setEditingId(null); setForm(null); setOutcomeUnknown(false); setReconciliationComplete(false); onDemandOutcomeUnknownChange(false); }}>Cancelar</button>
                 <button className="button button-primary" type="submit" disabled={controlsDisabled || (outcomeUnknown && !reconciliationComplete)}>{saving || isUpdatingDemand ? 'Salvando…' : 'Salvar alterações'}</button>

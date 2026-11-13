@@ -119,6 +119,7 @@ export function setupFetch({
       horaFim: '12:00:00',
     },
   },
+  availabilityPostPersistsOnError = false,
   availabilityCreateGate,
   availabilityGetGate,
   availabilityGetError,
@@ -176,6 +177,7 @@ export function setupFetch({
   studySessionDeleteResponse = null,
   studySessionCreateNetworkFailures = 0,
   studySessionUpdateNetworkFailures = 0,
+  studySessionUpdateGate,
   studySessionDeleteNetworkFailures = 0,
   studySessionTransitionResponses = {},
   studySessionTransitionNetworkFailures = {},
@@ -428,7 +430,11 @@ export function setupFetch({
     if (path === '/api/disponibilidades-estudo' && init.method === 'POST') {
       availabilityPostRequests += 1
       if (availabilityCreateGate) await availabilityCreateGate
-      if (availabilityPostResponse.status >= 200 && availabilityPostResponse.status < 300) {
+      const postSucceeded =
+        availabilityPostResponse.status >= 200 &&
+        availabilityPostResponse.status < 300
+
+      if (postSucceeded || availabilityPostPersistsOnError) {
         currentAvailability = [...currentAvailability, availabilityPostResponse.data]
       }
       return jsonResponse(availabilityPostResponse.data, availabilityPostResponse.status)
@@ -568,6 +574,7 @@ export function setupFetch({
 
       if (init.method === 'PUT') {
         studySessionPutRequests += 1
+        if (studySessionUpdateGate) await studySessionUpdateGate
         if (remainingStudySessionUpdateNetworkFailures > 0) {
           remainingStudySessionUpdateNetworkFailures -= 1
           throw new TypeError('Failed to fetch')

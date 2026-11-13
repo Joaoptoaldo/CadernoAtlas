@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useRef } from 'react'
+import { useEffect, useCallback, useRef } from 'react'
 import { apiGet } from '../../apiClient'
 import { shiftDays } from '../../utils/planningFormatters'
 import type { LoadState } from '../shared/loadState'
@@ -22,10 +22,9 @@ interface UseWeekNavigationReturn {
   monday: Date
   mondayIso: string
   sundayIso: string
-  todayIso: string
   changeWeek: (days: number) => void
   selectCurrentWeek: () => void
-  refreshAvailabilityNow: () => Promise<void>
+  refreshAvailabilityNow: () => Promise<Availability[] | null>
 }
 
 export function toIsoDate(date: Date): string {
@@ -55,36 +54,47 @@ export function useWeekNavigation(options: UseWeekNavigationOptions): UseWeekNav
     getErrorMessage,
   } = options
 
-  const [todayIso] = useState(() => toIsoDate(new Date()))
-
   const mondayIso = toIsoDate(monday)
   const sundayIso = toIsoDate(shiftDays(monday, 6))
 
   // Request ID to track and discard stale responses
   const requestIdRef = useRef(0)
 
-  // Shared function to fetch availability for the current week
-  const fetchAvailabilityForCurrentWeek = useCallback(async (): Promise<void> => {
+  const fetchAvailabilityForCurrentWeek = useCallback(async (): Promise<Availability[] | null> => {
     const requestId = ++requestIdRef.current
     const controller = new AbortController()
     const query = new URLSearchParams({ dataDe: mondayIso, dataAte: sundayIso })
 
     try {
-      const data = await apiGet<Availability[]>(`/api/disponibilidades-estudo?${query.toString()}`, controller.signal)
-      // Only apply if this is still the latest request
-      if (requestId === requestIdRef.current) {
-        setAvailabilityState({ status: 'success', data, error: null })
+      const data = await apiGet<Availability[]>(
+        `/api/disponibilidades-estudo?${query.toString()}`,
+        controller.signal,
+      )
+
+      if (requestId !== requestIdRef.current) {
+        return null
       }
+
+      setAvailabilityState({ status: 'success', data, error: null })
+      return data
     } catch (error: unknown) {
-      if (error instanceof Error && error.name === 'AbortError') return
-      // Only apply error if this is still the latest request
-      if (requestId === requestIdRef.current) {
-        setAvailabilityState((previous) => ({
-          ...previous,
-          status: 'error',
-          error: getErrorMessage(error, 'Verifique se a API está em execução e tente novamente.'),
-        }))
+      if (error instanceof Error && error.name === 'AbortError') {
+        return null
       }
+
+      if (requestId !== requestIdRef.current) {
+        return null
+      }
+
+      setAvailabilityState((previous) => ({
+        ...previous,
+        status: 'error',
+        error: getErrorMessage(
+          error,
+          'Verifique se a API está em execução e tente novamente.',
+        ),
+      }))
+
       throw error
     }
   }, [mondayIso, sundayIso, setAvailabilityState, getErrorMessage])
@@ -134,20 +144,25 @@ export function useWeekNavigation(options: UseWeekNavigationOptions): UseWeekNav
     setMonday(currentWeek)
   }, [concurrencyLocks, clearPreview, mondayIso, setAvailabilityState, setMonday])
 
-  const refreshAvailabilityNow = useCallback(async () => {
+  const refreshAvailabilityNow = useCallback(async (): Promise<Availability[] | null> => {
     if (concurrencyLocks.dataMutationInProgressRef.current) {
       throw new Error('Reconciliação bloqueada por outra operação em andamento.')
     }
     clearPreview()
     setAvailabilityState((previous) => ({ ...previous, status: 'loading', error: null }))
-    await fetchAvailabilityForCurrentWeek()
-  }, [concurrencyLocks, clearPreview, setAvailabilityState, fetchAvailabilityForCurrentWeek])
+
+    return fetchAvailabilityForCurrentWeek()
+  }, [
+    concurrencyLocks,
+    clearPreview,
+    setAvailabilityState,
+    fetchAvailabilityForCurrentWeek,
+  ])
 
   return {
     monday,
     mondayIso,
     sundayIso,
-    todayIso,
     changeWeek,
     selectCurrentWeek,
     refreshAvailabilityNow,

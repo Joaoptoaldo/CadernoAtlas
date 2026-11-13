@@ -1,3 +1,4 @@
+import { useStudySessionUncertainEdits } from './useStudySessionUncertainEdits'
 import { useEffect, useState, useRef, useReducer, useCallback } from 'react'
 import { apiGet, isHttpError } from '../../apiClient'
 import { isMutationSyncError } from '../shared/mutationOutcome'
@@ -10,6 +11,7 @@ import {
   type StudySessionTransition,
 } from './studySessionTypes'
 import StudySessionForm from './StudySessionForm'
+import SessionConfirmModal from './SessionConfirmModal'
 
 const defaultGetErrorMessage = (error: unknown, fallback: string): string =>
   error instanceof Error && error.message ? error.message : fallback
@@ -68,7 +70,6 @@ function syncReducer(_state: SyncState, action: SyncAction): SyncState {
         sessionExistsSyncFailed: true,
       }
     default:
-      // Exhaustive check - will cause TypeScript error if new action types are added without handling
       const _exhaustive: never = action
       return _exhaustive
   }
@@ -111,7 +112,6 @@ export default function StudySessionDetail({
   onLoadTasks,
   onUpdate,
   onReconcile,
-  onEditOutcomeUnknownChange,
   onTransition,
   onDelete,
   isTransitioning,
@@ -120,11 +120,13 @@ export default function StudySessionDetail({
   onReconcileDelete,
   getErrorMessage,
 }: StudySessionDetailProps) {
+  const { isUncertainEdit } = useStudySessionUncertainEdits()
+  const hasUncertainEditForSession = isUncertainEdit(sessionId)
   const [session, setSession] = useState<StudySession | null>(null)
   const [status, setStatus] = useState<'loading' | 'success' | 'error'>('loading')
   const [error, setError] = useState<string | null>(null)
   const [errorStatus, setErrorStatus] = useState<number | null>(null)
-  const [editing, setEditing] = useState(false)
+  const [editing, setEditing] = useState(() => hasUncertainEditForSession)
   const [reloadToken, setReloadToken] = useState(0)
   const [transitioning, setTransitioning] = useState(false)
   const [transitionError, setTransitionError] = useState<string | null>(null)
@@ -143,11 +145,17 @@ export default function StudySessionDetail({
   const { isDeleteUncertain: isDeleteUncertainHook, clearDeleteUncertain } = useStudySessionUncertainDeletions()
   const hasDeleteUncertainForSession = isDeleteUncertainHook(sessionId) || isDeleteUncertainProp(sessionId)
 
+  // Modal de confirmação genérico
+  const [confirmAction, setConfirmAction] = useState<{
+    open: boolean
+    type: 'delete' | 'transition'
+    transition?: StudySessionTransition
+  } | null>(null)
+
   const handleDeleteSyncFailure = useCallback((message: string) => {
     dispatchSync({ type: 'SET_DELETE_SYNC_FAILED' })
-    onEditOutcomeUnknownChange(false)
     setTransitionError(message)
-  }, [onEditOutcomeUnknownChange])
+  }, [])
 
   const shouldShowDeleteWarning =
     hasDeleteUncertainForSession ||
@@ -206,44 +214,74 @@ export default function StudySessionDetail({
       return
     }
 
-    if (transition === 'cancelar' && !window.confirm('Cancelar esta sessão de estudo? Ela será marcada como cancelada.')) return
-    if (transition === 'concluir' && !window.confirm('Concluir esta sessão de estudo?')) return
+    // Abrir modal de confirmação para transições destrutivas
+    if (transition === 'cancelar' || transition === 'concluir') {
+      setConfirmAction({ open: true, type: 'transition', transition })
+      return
+    }
     setTransitioning(true)
     setTransitionError(null)
     dispatchSync({ type: 'RESET' })
-    onEditOutcomeUnknownChange(false)
     try {
       const updated = await onTransition(sessionId, transition)
       setSession(updated)
       // Sucesso - limpar estados de erro
       dispatchSync({ type: 'RESET' })
-      onEditOutcomeUnknownChange(false)
     } catch (transitionFailure: unknown) {
       const status = isHttpError(transitionFailure) ? transitionFailure.status : null
       if (isMutationSyncError(transitionFailure)) {
         // Operação confirmada, mas falha ao atualizar a lista
         dispatchSync({ type: 'SET_TRANSITION_SYNC_FAILED' })
-        onEditOutcomeUnknownChange(false)
         setTransitionError(transitionFailure.message)
       } else if (status === null || status === 408 || status === 429 || status >= 500) {
         // Resultado incerto - falha de rede ou timeout
         dispatchSync({ type: 'SET_OUTCOME_UNKNOWN' })
-        onEditOutcomeUnknownChange(true)
         setTransitionError('Não foi possível confirmar o resultado da operação. Consulte a lista antes de decidir se tentará novamente.')
       } else if (status === 404) {
         // 404 definitivo vindo da mutação: sessão não encontrada
         dispatchSync({ type: 'RESET' })
-        onEditOutcomeUnknownChange(false)
         setTransitionError('A sessão informada não foi encontrada.')
       } else {
         dispatchSync({ type: 'RESET' })
-        onEditOutcomeUnknownChange(false)
         setTransitionError(transitionFailure instanceof Error ? transitionFailure.message : 'Não foi possível atualizar a situação da sessão.')
       }
     } finally {
       setTransitioning(false)
     }
-  }, [hasUncertainForSession, onEditOutcomeUnknownChange, onTransition, sessionId])
+  }, [hasUncertainForSession, onTransition, sessionId])
+
+  const handleConfirmTransition = useCallback(async (transition: StudySessionTransition) => {
+    setConfirmAction(null)
+    setTransitioning(true)
+    setTransitionError(null)
+    dispatchSync({ type: 'RESET' })
+    try {
+      const updated = await onTransition(sessionId, transition)
+      setSession(updated)
+      // Sucesso - limpar estados de erro
+      dispatchSync({ type: 'RESET' })
+    } catch (transitionFailure: unknown) {
+      const status = isHttpError(transitionFailure) ? transitionFailure.status : null
+      if (isMutationSyncError(transitionFailure)) {
+        // Operação confirmada, mas falha ao atualizar a lista
+        dispatchSync({ type: 'SET_TRANSITION_SYNC_FAILED' })
+        setTransitionError(transitionFailure.message)
+      } else if (status === null || status === 408 || status === 429 || status >= 500) {
+        // Resultado incerto - falha de rede ou timeout
+        dispatchSync({ type: 'SET_OUTCOME_UNKNOWN' })
+        setTransitionError('Não foi possível confirmar o resultado da operação. Consulte a lista antes de decidir se tentará novamente.')
+      } else if (status === 404) {
+        // 404 definitivo vindo da mutação: sessão não encontrada
+        dispatchSync({ type: 'RESET' })
+        setTransitionError('A sessão informada não foi encontrada.')
+      } else {
+        dispatchSync({ type: 'RESET' })
+        setTransitionError(transitionFailure instanceof Error ? transitionFailure.message : 'Não foi possível atualizar a situação da sessão.')
+      }
+    } finally {
+      setTransitioning(false)
+    }
+  }, [onTransition, sessionId])
 
   const reconcileDelete = useCallback(async (): Promise<void> => {
     if (reconciling) return
@@ -258,7 +296,6 @@ export default function StudySessionDetail({
       clearUncertain(sessionId)
       clearDeleteUncertain(sessionId)
       dispatchSync({ type: 'RESET' })
-      onEditOutcomeUnknownChange(false)
       // Se ainda for planejada (situacao === 0), permitir nova tentativa
       if (individual.situacao !== 0) {
         setTransitionError('Esta sessão não está mais planejada e não pode ser excluída.')
@@ -279,7 +316,6 @@ export default function StudySessionDetail({
         clearUncertain(sessionId)
         clearDeleteUncertain(sessionId)
         dispatchSync({ type: 'RESET' })
-        onEditOutcomeUnknownChange(false)
         try {
           await reconcileDeleteAction()
           // Sucesso total - exclusão confirmada e lista sincronizada
@@ -305,7 +341,6 @@ export default function StudySessionDetail({
     sessionId,
     clearUncertain,
     clearDeleteUncertain,
-    onEditOutcomeUnknownChange,
     reconcileDeleteAction,
     onClose,
     handleDeleteSyncFailure,
@@ -324,18 +359,21 @@ export default function StudySessionDetail({
       return
     }
 
-    if (!window.confirm('Excluir esta sessão de estudo planejada? Esta ação não pode ser desfeita.')) return
+    // Abrir modal de confirmação em vez de window.confirm
+    setConfirmAction({ open: true, type: 'delete' })
+  }, [hasUncertainForSession, hasDeleteUncertainForSession])
+
+  const handleConfirmDelete = useCallback(async () => {
+    setConfirmAction(null)
     setTransitioning(true)
     setTransitionError(null)
     dispatchSync({ type: 'RESET' })
-    onEditOutcomeUnknownChange(false)
     try {
       await onDelete(sessionId)
       // Sucesso na exclusão:
       // 1. Limpar estados de erro e sincronização relacionados à operação
       dispatchSync({ type: 'RESET' })
       setTransitionError(null)
-      onEditOutcomeUnknownChange(false)
       // 2. Limpar informações temporárias de incerteza
       clearDeleteUncertain(sessionId)
       clearUncertain(sessionId)
@@ -352,25 +390,19 @@ export default function StudySessionDetail({
       } else if (status === null || status === 408 || status === 429 || status >= 500) {
         // Resultado incerto - falha de rede ou timeout
         dispatchSync({ type: 'SET_OUTCOME_UNKNOWN' })
-        onEditOutcomeUnknownChange(true)
         setTransitionError('Não foi possível confirmar o resultado da exclusão. Consulte a sessão antes de tentar novamente.')
       } else if (status === 409) {
         // 409: sessão não é planejada
         dispatchSync({ type: 'RESET' })
-        onEditOutcomeUnknownChange(false)
         setTransitionError(deleteFailure instanceof Error ? deleteFailure.message : 'Não é possível excluir esta sessão.')
       } else {
         dispatchSync({ type: 'RESET' })
-        onEditOutcomeUnknownChange(false)
         setTransitionError(deleteFailure instanceof Error ? deleteFailure.message : 'Não foi possível excluir a sessão.')
       }
     } finally {
       setTransitioning(false)
     }
   }, [
-    hasUncertainForSession,
-    hasDeleteUncertainForSession,
-    onEditOutcomeUnknownChange,
     onDelete,
     sessionId,
     clearDeleteUncertain,
@@ -391,7 +423,6 @@ export default function StudySessionDetail({
       // Bloqueios só são liberados depois que o estado atual é conhecido
       clearUncertain(sessionId)
       dispatchSync({ type: 'RESET' })
-      onEditOutcomeUnknownChange(false)
       try {
         await onReconcile()
       } catch {
@@ -406,7 +437,6 @@ export default function StudySessionDetail({
     reconciling,
     sessionId,
     clearUncertain,
-    onEditOutcomeUnknownChange,
     onReconcile,
     resolveErrorMessage,
   ])
@@ -437,7 +467,12 @@ export default function StudySessionDetail({
 
   if (status === 'loading') {
     return (
-      <div className="study-session-detail-overlay" role="dialog" aria-modal="true" aria-labelledby="detail-title">
+      <div
+        className="study-session-detail-overlay"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="detail-title"
+      >
         <div className="study-session-detail-panel">
           <div className="study-session-detail-header">
             <h2 id="detail-title">Carregando…</h2>
@@ -486,12 +521,13 @@ export default function StudySessionDetail({
     return null
   }
 
-  if (editing && session.situacao === 0) {
+  if ((editing && session.situacao === 0) || hasUncertainEditForSession) {
     return (
       <div className="study-session-detail-overlay" role="dialog" aria-modal="true" aria-labelledby="detail-title">
         <div className="study-session-detail-panel">
           <StudySessionForm
             mode="edit"
+            sessionId={session.id}
             initialValue={{
               titulo: session.titulo,
               dataPlanejada: session.dataPlanejada,
@@ -510,8 +546,7 @@ export default function StudySessionDetail({
             }}
             onCancel={() => setEditing(false)}
             onReconcile={onReconcile}
-            outcomeUnknown={false}
-            onOutcomeUnknownChange={onEditOutcomeUnknownChange}
+            onSessionReconciled={setSession}
           />
         </div>
       </div>
@@ -519,160 +554,186 @@ export default function StudySessionDetail({
   }
 
   return (
-    <div className="study-session-detail-overlay" role="dialog" aria-modal="true" aria-labelledby="detail-title">
-      <div className="study-session-detail-panel">
-        <div className="study-session-detail-header">
-          <h2 id="detail-title">{session.titulo}</h2>
-          <button className="icon-button" onClick={onClose} aria-label="Fechar">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <line x1="18" y1="6" x2="6" y2="18" />
-              <line x1="6" y1="6" x2="18" y2="18" />
-            </svg>
-          </button>
-        </div>
-        <div className="study-session-detail-content">
-          <dl className="study-session-detail-grid">
-            <div className="detail-row">
-              <dt>Situação</dt>
-              <dd>
-                <span className={`study-session-status ${getSituacaoPresentation(session.situacao).className}`}>
-                  {getSituacaoPresentation(session.situacao).label}
+    <>
+      <div
+        className="study-session-detail-overlay"
+        role={confirmAction === null ? 'dialog' : undefined}
+        aria-modal={confirmAction === null ? 'true' : undefined}
+        aria-labelledby="detail-title"
+        aria-hidden={confirmAction !== null}
+        inert={confirmAction !== null}
+      >
+        <div className="study-session-detail-panel">
+          <div className="study-session-detail-header">
+            <h2 id="detail-title">{session.titulo}</h2>
+            <button className="icon-button" onClick={onClose} aria-label="Fechar">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <line x1="18" y1="6" x2="6" y2="18" />
+                <line x1="6" y1="6" x2="18" y2="18" />
+              </svg>
+            </button>
+          </div>
+          <div className="study-session-detail-content">
+            <dl className="study-session-detail-grid">
+              <div className="detail-row">
+                <dt>Situação</dt>
+                <dd>
+                  <span className={`study-session-status ${getSituacaoPresentation(session.situacao).className}`}>
+                    {getSituacaoPresentation(session.situacao).label}
+                  </span>
+                </dd>
+              </div>
+              <div className="detail-row">
+                <dt>Data planejada</dt>
+                <dd>{formatDate(session.dataPlanejada)}</dd>
+              </div>
+              <div className="detail-row">
+                <dt>Horário de início</dt>
+                <dd>{formatTime(session.horaInicioPlanejada)}</dd>
+              </div>
+              <div className="detail-row">
+                <dt>Duração planejada</dt>
+                <dd>{formatDuration(session.duracaoPlanejadaMinutos)}</dd>
+              </div>
+              {session.duracaoRealMinutos !== null && (
+                <div className="detail-row">
+                  <dt>Duração real</dt>
+                  <dd>{formatDuration(session.duracaoRealMinutos)}</dd>
+                </div>
+              )}
+              {session.demandaAcademicaId !== null && (
+                <div className="detail-row">
+                  <dt>Demanda acadêmica</dt>
+                  <dd><span>#{session.demandaAcademicaId}</span> {demands.find((demand) => demand.id === session.demandaAcademicaId)?.titulo ?? 'Demanda acadêmica'}</dd>
+                </div>
+              )}
+              {session.tarefaDemandaId !== null && (
+                <div className="detail-row">
+                  <dt>Tarefa</dt>
+                  <dd>#{session.tarefaDemandaId}</dd>
+                </div>
+              )}
+              {session.observacoes && (
+                <div className="detail-row detail-row-full">
+                  <dt>Observações</dt>
+                  <dd>{session.observacoes}</dd>
+                </div>
+              )}
+              <div className="detail-row">
+                <dt>Criada em</dt>
+                <dd>{formatDateTime(session.criadoEm)}</dd>
+              </div>
+              {session.inicioRealEm && (
+                <div className="detail-row">
+                  <dt>Iniciada em</dt>
+                  <dd>{formatDateTime(session.inicioRealEm)}</dd>
+                </div>
+              )}
+              {session.concluidaEm && (
+                <div className="detail-row">
+                  <dt>Concluída em</dt>
+                  <dd>{formatDateTime(session.concluidaEm)}</dd>
+                </div>
+              )}
+              {session.canceladaEm && (
+                <div className="detail-row">
+                  <dt>Cancelada em</dt>
+                  <dd>{formatDateTime(session.canceladaEm)}</dd>
+                </div>
+              )}
+            </dl>
+            {shouldShowSyncGuidance && (
+              <div className="task-uncertain-guidance" role="status" aria-live="polite">
+                <p>{getGuidanceMessage()}</p>
+                <button
+                  className="text-button"
+                  type="button"
+                  disabled={reconciling}
+                  onClick={() => (shouldShowDeleteWarning ? reconcileDelete() : reconcile())}
+                >
+                  {getGuidanceButtonLabel()}
+                </button>
+              </div>
+            )}
+            <div className="study-session-detail-actions">
+              {session.situacao === 0 && (
+                <button
+                  className="button button-primary"
+                  type="button"
+                  disabled={isAnyMutationBlocked}
+                  onClick={() => handleTransition('iniciar')}
+                >
+                  {transitioning ? 'Iniciando…' : 'Iniciar sessão'}
+                </button>
+              )}
+              {session.situacao === 1 && (
+                <button
+                  className="button button-primary"
+                  type="button"
+                  disabled={isAnyMutationBlocked}
+                  onClick={() => handleTransition('concluir')}
+                >
+                  {transitioning ? 'Concluindo…' : 'Concluir sessão'}
+                </button>
+              )}
+              {(session.situacao === 0 || session.situacao === 1) && (
+                <button
+                  className="button button-secondary"
+                  type="button"
+                  disabled={isAnyMutationBlocked}
+                  onClick={() => handleTransition('cancelar')}
+                >
+                  Cancelar sessão
+                </button>
+              )}
+              {session.situacao === 0 && (
+                <button
+                  className="button button-secondary"
+                  type="button"
+                  disabled={isAnyMutationBlocked}
+                  onClick={() => setEditing(true)}
+                >
+                  Editar sessão
+                </button>
+              )}
+              {session.situacao === 0 && (
+                <button
+                  className="button button-secondary button-danger"
+                  type="button"
+                  disabled={isDeleteBlocked}
+                  onClick={handleDelete}
+                >
+                  {transitioning ? 'Excluindo…' : 'Excluir sessão'}
+                </button>
+              )}
+              {session.situacao !== 0 && (
+                <span className="study-session-edit-notice">
+                  Sessões {getSituacaoPresentation(session.situacao).label.toLowerCase()} não podem ser editadas.
                 </span>
-              </dd>
+              )}
+              {transitionError && <p className="form-error" role="alert">{transitionError}</p>}
+              <button className="button button-secondary" onClick={onClose}>Fechar</button>
             </div>
-            <div className="detail-row">
-              <dt>Data planejada</dt>
-              <dd>{formatDate(session.dataPlanejada)}</dd>
-            </div>
-            <div className="detail-row">
-              <dt>Horário de início</dt>
-              <dd>{formatTime(session.horaInicioPlanejada)}</dd>
-            </div>
-            <div className="detail-row">
-              <dt>Duração planejada</dt>
-              <dd>{formatDuration(session.duracaoPlanejadaMinutos)}</dd>
-            </div>
-            {session.duracaoRealMinutos !== null && (
-              <div className="detail-row">
-                <dt>Duração real</dt>
-                <dd>{formatDuration(session.duracaoRealMinutos)}</dd>
-              </div>
-            )}
-            {session.demandaAcademicaId !== null && (
-              <div className="detail-row">
-                <dt>Demanda acadêmica</dt>
-                <dd><span>#{session.demandaAcademicaId}</span> {demands.find((demand) => demand.id === session.demandaAcademicaId)?.titulo ?? 'Demanda acadêmica'}</dd>
-              </div>
-            )}
-            {session.tarefaDemandaId !== null && (
-              <div className="detail-row">
-                <dt>Tarefa</dt>
-                <dd>#{session.tarefaDemandaId}</dd>
-              </div>
-            )}
-            {session.observacoes && (
-              <div className="detail-row detail-row-full">
-                <dt>Observações</dt>
-                <dd>{session.observacoes}</dd>
-              </div>
-            )}
-            <div className="detail-row">
-              <dt>Criada em</dt>
-              <dd>{formatDateTime(session.criadoEm)}</dd>
-            </div>
-            {session.inicioRealEm && (
-              <div className="detail-row">
-                <dt>Iniciada em</dt>
-                <dd>{formatDateTime(session.inicioRealEm)}</dd>
-              </div>
-            )}
-            {session.concluidaEm && (
-              <div className="detail-row">
-                <dt>Concluída em</dt>
-                <dd>{formatDateTime(session.concluidaEm)}</dd>
-              </div>
-            )}
-            {session.canceladaEm && (
-              <div className="detail-row">
-                <dt>Cancelada em</dt>
-                <dd>{formatDateTime(session.canceladaEm)}</dd>
-              </div>
-            )}
-          </dl>
-          {shouldShowSyncGuidance && (
-            <div className="task-uncertain-guidance" role="status" aria-live="polite">
-              <p>{getGuidanceMessage()}</p>
-              <button
-                className="text-button"
-                type="button"
-                disabled={reconciling}
-                onClick={() => void (shouldShowDeleteWarning ? reconcileDelete() : reconcile())}
-              >
-                {getGuidanceButtonLabel()}
-              </button>
-            </div>
-          )}
-          <div className="study-session-detail-actions">
-            {session.situacao === 0 && (
-              <button
-                className="button button-primary"
-                type="button"
-                disabled={isAnyMutationBlocked}
-                onClick={() => void handleTransition('iniciar')}
-              >
-                {transitioning ? 'Iniciando…' : 'Iniciar sessão'}
-              </button>
-            )}
-            {session.situacao === 1 && (
-              <button
-                className="button button-primary"
-                type="button"
-                disabled={isAnyMutationBlocked}
-                onClick={() => void handleTransition('concluir')}
-              >
-                {transitioning ? 'Concluindo…' : 'Concluir sessão'}
-              </button>
-            )}
-            {(session.situacao === 0 || session.situacao === 1) && (
-              <button
-                className="button button-secondary"
-                type="button"
-                disabled={isAnyMutationBlocked}
-                onClick={() => void handleTransition('cancelar')}
-              >
-                Cancelar sessão
-              </button>
-            )}
-            {session.situacao === 0 && (
-              <button
-                className="button button-secondary"
-                type="button"
-                disabled={isAnyMutationBlocked}
-                onClick={() => setEditing(true)}
-              >
-                Editar sessão
-              </button>
-            )}
-            {session.situacao === 0 && (
-              <button
-                className="button button-secondary button-danger"
-                type="button"
-                disabled={isDeleteBlocked}
-                onClick={() => void handleDelete()}
-              >
-                {transitioning ? 'Excluindo…' : 'Excluir sessão'}
-              </button>
-            )}
-            {session.situacao !== 0 && (
-              <span className="study-session-edit-notice">
-                Sessões {getSituacaoPresentation(session.situacao).label.toLowerCase()} não podem ser editadas.
-              </span>
-            )}
-            {transitionError && <p className="form-error" role="alert">{transitionError}</p>}
-            <button className="button button-secondary" onClick={onClose}>Fechar</button>
           </div>
         </div>
       </div>
-    </div>
+
+      {confirmAction && (
+        <SessionConfirmModal
+          open={confirmAction.open}
+          type={confirmAction.type}
+          transition={confirmAction.transition}
+          onConfirm={() => {
+            if (confirmAction.type === 'delete') {
+              handleConfirmDelete()
+            } else if (confirmAction.transition) {
+              handleConfirmTransition(confirmAction.transition)
+            }
+          }}
+          onCancel={() => setConfirmAction(null)}
+          busy={transitioning}
+        />
+      )}
+    </>
   )
 }

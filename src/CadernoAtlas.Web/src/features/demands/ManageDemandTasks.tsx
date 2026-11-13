@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import StatusMessage from '../../components/ui/StatusMessage'
+import EmptyState from '../../components/ui/EmptyState'
 import CreateDemandTaskForm, { type CreateDemandTaskRequest } from './CreateDemandTaskForm'
+import ConfirmActionModal from '../../components/ui/ConfirmActionModal'
+import FieldError from '../../components/ui/FieldError'
 
 export interface DemandTask {
   id: number
@@ -108,6 +111,10 @@ export default function ManageDemandTasks({
     requiresReconciliation: boolean
     outcomeUnknown: boolean
   } | null>(null)
+  const [confirmAction, setConfirmAction] = useState<{
+    taskId: number
+    taskTitle: string
+  } | null>(null)
   const requestSequenceRef = useRef(0)
   const activeControllerRef = useRef<AbortController | null>(null)
   const creationConfirmedRef = useRef(false)
@@ -199,16 +206,20 @@ export default function ManageDemandTasks({
       taskReconciliationRequired
     ) return
 
-    const confirmed = window.confirm(
-      `Excluir a tarefa "${task.titulo}"?\n\nEsta ação não pode ser desfeita. As sessões de estudo vinculadas continuarão existindo, mas perderão o vínculo com esta tarefa.`,
-    )
-    if (!confirmed) return
+    // Abrir modal de confirmação em vez de window.confirm
+    setConfirmAction({ taskId: task.id, taskTitle: task.titulo })
+  }
 
-    deletingTaskIdRef.current = task.id
-    setDeletingTaskId(task.id)
+  async function handleConfirmDelete(): Promise<void> {
+    const { taskId } = confirmAction ?? {}
+    setConfirmAction(null)
+    if (!taskId) return
+
+    deletingTaskIdRef.current = taskId
+    setDeletingTaskId(taskId)
     setDeletionError(null)
     try {
-      await onDelete(demandId, task.id)
+      await onDelete(demandId, taskId)
       deletionConfirmedRef.current = true
       setDeletionConfirmed(true)
       setState({ status: 'loading' })
@@ -220,7 +231,7 @@ export default function ManageDemandTasks({
       const outcomeUnknown = status === null || status === 408 || status === 429 || status >= 500
       const requiresReconciliation = outcomeUnknown || status === 404 || status === 409
       setDeletionError({
-        taskId: task.id,
+        taskId,
         message: outcomeUnknown
           ? 'Não foi possível confirmar se a tarefa foi excluída. Consulte a lista antes de decidir se tentará novamente.'
           : error instanceof Error && error.message
@@ -250,114 +261,134 @@ export default function ManageDemandTasks({
   }
 
   return (
-    <section className="managed-tasks-panel" id={`demand-tasks-${demandId}`} aria-label={`Tarefas de ${demandTitle}`}>
-      {deletionError && (
-        <div className="task-delete-error" role="alert">
-          <p>{deletionError.message}</p>
-          {deletionError.requiresReconciliation && (
+    <>
+      <section className="managed-tasks-panel" id={`demand-tasks-${demandId}`} aria-label={`Tarefas de ${demandTitle}`}>
+        {deletionError && (
+          <div className="task-delete-error" role="alert">
+            <p>{deletionError.message}</p>
+            {deletionError.requiresReconciliation && (
+              <button
+                type="button"
+                className="text-button"
+                disabled={isDeletingTask || isCreatingTask || isUpdatingTask}
+                onClick={reconcileDeletion}
+              >
+                {deletionError.outcomeUnknown
+                  ? 'Consultar tarefas antes de tentar novamente'
+                  : 'Atualizar lista de tarefas'}
+              </button>
+            )}
+          </div>
+        )}
+        {canCreateTasks && (
+          <>
             <button
+              className="button button-secondary task-create-toggle"
               type="button"
-              className="text-button"
-              disabled={isDeletingTask || isCreatingTask || isUpdatingTask}
-              onClick={() => void reconcileDeletion()}
-            >
-              {deletionError.outcomeUnknown
-                ? 'Consultar tarefas antes de tentar novamente'
-                : 'Atualizar lista de tarefas'}
-            </button>
-          )}
-        </div>
-      )}
-      {canCreateTasks && (
-        <>
-          <button
-            className="button button-secondary task-create-toggle"
-            type="button"
-            aria-expanded={isCreateOpen}
-            aria-controls={isCreateOpen ? `create-task-form-${demandId}` : undefined}
-            disabled={mutationInProgress || taskReconciliationRequired || editingTaskId !== null}
-            onClick={() => setIsCreateOpen((open) => !open)}
-          >
-            {isCreateOpen ? 'Fechar cadastro' : 'Nova tarefa'}
-          </button>
-          {isCreateOpen && (
-            <CreateDemandTaskForm
-              key={demandId}
-              demandId={demandId}
+              aria-expanded={isCreateOpen}
+              aria-controls={isCreateOpen ? `create-task-form-${demandId}` : undefined}
               disabled={mutationInProgress || taskReconciliationRequired || editingTaskId !== null}
-              onCreate={onCreate}
-              onCreated={creationSucceeded}
-              onReconcile={reconcileTasks}
-            />
-          )}
-        </>
-      )}
-      {creationConfirmed && state.status === 'loading' && <p className="task-create-success" role="status">Tarefa criada. Atualizando a lista…</p>}
-      {deletionConfirmed && state.status === 'loading' && <p className="task-create-success" role="status">Tarefa excluída. Atualizando a lista…</p>}
-      {state.status === 'loading' && <p className="managed-tasks-loading" role="status">Carregando tarefas…</p>}
-      {state.status === 'error' && (
-        <StatusMessage
-          title={state.title}
-          description={state.message}
-          onRetry={isCreatingTask ? undefined : retryTasks}
-          compact
+              onClick={() => setIsCreateOpen((open) => !open)}
+            >
+              {isCreateOpen ? 'Fechar cadastro' : 'Nova tarefa'}
+            </button>
+            {isCreateOpen && (
+              <CreateDemandTaskForm
+                key={demandId}
+                demandId={demandId}
+                disabled={mutationInProgress || taskReconciliationRequired || editingTaskId !== null}
+                onCreate={onCreate}
+                onCreated={creationSucceeded}
+                onReconcile={reconcileTasks}
+              />
+            )}
+          </>
+        )}
+        {creationConfirmed && state.status === 'loading' && <p className="task-create-success" role="status">Tarefa criada. Atualizando a lista…</p>}
+        {deletionConfirmed && state.status === 'loading' && <p className="task-create-success" role="status">Tarefa excluída. Atualizando a lista…</p>}
+        {state.status === 'loading' && <p className="managed-tasks-loading" role="status">Carregando tarefas…</p>}
+        {state.status === 'error' && (
+          <StatusMessage
+            title={state.title}
+            description={state.message}
+            onRetry={isCreatingTask ? undefined : retryTasks}
+            compact
+            variant="danger"
+          />
+        )}
+        {state.status === 'success' && state.data.length === 0 && (
+          <EmptyState
+            title="Nenhuma tarefa cadastrada"
+            description="Nenhuma tarefa cadastrada para esta demanda."
+            icon="book"
+          />
+        )}
+        {state.status === 'success' && state.data.length > 0 && (
+          <ol className="managed-task-list">
+            {state.data.map((task, index) => (
+              <li className="managed-task-card" key={task.id}>
+                <div className="managed-task-heading">
+                  <h4>{task.titulo}</h4>
+                  <span className="managed-task-status">{situationLabels[task.situacao] ?? 'Situação desconhecida'}</span>
+                </div>
+                <p>{task.descricao || 'Descrição não informada'}</p>
+                <div className="managed-task-details">
+                  <span>Etapa {index + 1}</span>
+                  <span>{task.esforcoEstimadoMinutos == null ? 'Esforço não estimado' : `${task.esforcoEstimadoMinutos} min`}</span>
+                </div>
+                {editingTaskId === task.id ? (
+                  <EditDemandTaskForm
+                    task={task}
+                    initialOrder={index}
+                    demandId={demandId}
+                    disabled={mutationInProgress || taskReconciliationRequired}
+                    onCancel={() => setEditingTaskId(null)}
+                    onUpdate={onUpdate}
+                    onUpdated={updateSucceeded}
+                    onReconcile={reconcileTasks}
+                  />
+                ) : (
+                  canCreateTasks && (
+                    <div className="managed-task-actions">
+                      <button
+                        className="button button-secondary"
+                        type="button"
+                        disabled={mutationInProgress || taskReconciliationRequired || editingTaskId !== null || isCreateOpen}
+                        onClick={() => setEditingTaskId(task.id)}
+                      >
+                        Editar tarefa
+                      </button>
+                      <button
+                        className="button button-secondary"
+                        type="button"
+                        aria-label={`Excluir tarefa ${task.titulo}`}
+                        disabled={mutationInProgress || taskReconciliationRequired || editingTaskId !== null || isCreateOpen}
+                        onClick={() => deleteTask(task)}
+                      >
+                        {deletingTaskId === task.id ? 'Excluindo…' : 'Excluir tarefa'}
+                      </button>
+                    </div>
+                  )
+                )}
+              </li>
+            ))}
+          </ol>
+        )}
+      </section>
+
+      {confirmAction && (
+        <ConfirmActionModal
+          open={true}
+          title="Excluir tarefa"
+          message={`Excluir a tarefa "${confirmAction.taskTitle}"?\n\nEsta ação não pode ser desfeita. As sessões de estudo vinculadas continuarão existindo, mas perderão o vínculo com esta tarefa.`}
+          confirmLabel="Excluir"
+          confirmVariant="danger"
+          onConfirm={handleConfirmDelete}
+          onCancel={() => setConfirmAction(null)}
+          busy={deletingTaskId !== null}
         />
       )}
-      {state.status === 'success' && state.data.length === 0 && (
-        <p className="managed-tasks-empty">Nenhuma tarefa cadastrada para esta demanda.</p>
-      )}
-      {state.status === 'success' && state.data.length > 0 && (
-        <ol className="managed-task-list">
-          {state.data.map((task, index) => (
-            <li className="managed-task-card" key={task.id}>
-              <div className="managed-task-heading">
-                <h4>{task.titulo}</h4>
-                <span className="managed-task-status">{situationLabels[task.situacao] ?? 'Situação desconhecida'}</span>
-              </div>
-              <p>{task.descricao || 'Descrição não informada'}</p>
-              <div className="managed-task-details">
-                <span>Etapa {index + 1}</span>
-                <span>{task.esforcoEstimadoMinutos == null ? 'Esforço não estimado' : `${task.esforcoEstimadoMinutos} min`}</span>
-              </div>
-              {editingTaskId === task.id ? (
-                <EditDemandTaskForm
-                  task={task}
-                  initialOrder={index}
-                  demandId={demandId}
-                  disabled={mutationInProgress || taskReconciliationRequired}
-                  onCancel={() => setEditingTaskId(null)}
-                  onUpdate={onUpdate}
-                  onUpdated={updateSucceeded}
-                  onReconcile={reconcileTasks}
-                />
-              ) : (
-                canCreateTasks && (
-                  <div className="managed-task-actions">
-                    <button
-                      className="button button-secondary"
-                      type="button"
-                      disabled={mutationInProgress || taskReconciliationRequired || editingTaskId !== null || isCreateOpen}
-                      onClick={() => setEditingTaskId(task.id)}
-                    >
-                      Editar tarefa
-                    </button>
-                    <button
-                      className="button button-secondary"
-                      type="button"
-                      aria-label={`Excluir tarefa ${task.titulo}`}
-                      disabled={mutationInProgress || taskReconciliationRequired || editingTaskId !== null || isCreateOpen}
-                      onClick={() => void deleteTask(task)}
-                    >
-                      {deletingTaskId === task.id ? 'Excluindo…' : 'Excluir tarefa'}
-                    </button>
-                  </div>
-                )
-              )}
-            </li>
-          ))}
-        </ol>
-      )}
-    </section>
+    </>
   )
 }
 
@@ -386,6 +417,7 @@ function EditDemandTaskForm({
   const [esforco, setEsforco] = useState(task.esforcoEstimadoMinutos == null ? '' : String(task.esforcoEstimadoMinutos))
   const [situacao, setSituacao] = useState(String(task.situacao))
   const [saving, setSaving] = useState(false)
+  const [fieldErrors, setFieldErrors] = useState<{ titulo?: string; descricao?: string; ordem?: string; esforco?: string }>({})
   const [error, setError] = useState<string | null>(null)
   const [outcomeUnknown, setOutcomeUnknown] = useState(false)
   const [reconciled, setReconciled] = useState(false)
@@ -393,29 +425,42 @@ function EditDemandTaskForm({
   const savingRef = useRef(false)
   const controlsDisabled = disabled || saving
 
+  function clearFieldError(field: 'titulo' | 'descricao' | 'ordem' | 'esforco'): void {
+    setFieldErrors((prev) => {
+      if (!prev[field]) return prev
+      const next = { ...prev }
+      delete next[field]
+      return next
+    })
+  }
+
   async function submit(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault()
     if (savingRef.current || controlsDisabled || (outcomeUnknown && !reconciled)) return
     const trimmedTitle = titulo.trim()
     const effortValue = esforco.trim() === '' ? null : Number(esforco)
     const position = Number(ordem)
+    const newFieldErrors: { titulo?: string; descricao?: string; ordem?: string; esforco?: string } = {}
+
     if (trimmedTitle.length < 2 || trimmedTitle.length > 150) {
-      setError('O título deve ter entre 2 e 150 caracteres.')
-      return
+      newFieldErrors.titulo = 'O título deve ter entre 2 e 150 caracteres.'
     }
     if (descricao.length > 1000) {
-      setError('A descrição deve ter no máximo 1000 caracteres.')
-      return
+      newFieldErrors.descricao = 'A descrição deve ter no máximo 1000 caracteres.'
     }
     if (!Number.isInteger(position) || position < 1) {
-      setError('A posição deve ser um número inteiro maior que zero.')
-      return
+      newFieldErrors.ordem = 'A posição deve ser um número inteiro maior que zero.'
     }
     if (effortValue !== null && (!Number.isInteger(effortValue) || effortValue <= 0)) {
-      setError('O esforço estimado deve ser um número inteiro maior que zero.')
+      newFieldErrors.esforco = 'O esforço estimado deve ser um número inteiro maior que zero.'
+    }
+
+    if (Object.keys(newFieldErrors).length > 0) {
+      setFieldErrors(newFieldErrors)
       return
     }
 
+    setFieldErrors({})
     savingRef.current = true
     setSaving(true)
     setError(null)
@@ -466,26 +511,104 @@ function EditDemandTaskForm({
   }
 
   return (
-    <form className="create-task-form edit-task-form" onSubmit={(event) => void submit(event)}>
-      <label className="form-field">Título da tarefa
-        <input required minLength={2} maxLength={150} disabled={controlsDisabled} value={titulo} onChange={(event) => setTitulo(event.target.value)} />
-      </label>
-      <label className="form-field">Descrição da tarefa
-        <textarea maxLength={1000} rows={2} disabled={controlsDisabled} value={descricao} onChange={(event) => setDescricao(event.target.value)} />
-      </label>
-      <label className="form-field">Posição da tarefa
-        <input type="number" min={1} step={1} disabled={controlsDisabled} value={ordem} onChange={(event) => setOrdem(event.target.value)} />
-      </label>
-      <label className="form-field">Esforço estimado da tarefa em minutos
-        <input type="number" min={1} step={1} disabled={controlsDisabled} value={esforco} onChange={(event) => setEsforco(event.target.value)} />
-      </label>
-      <label className="form-field">Situação da tarefa
-        <select disabled={controlsDisabled} value={situacao} onChange={(event) => setSituacao(event.target.value)}>
+    <form className="create-task-form edit-task-form" onSubmit={(event) => void submit(event)} noValidate>
+      <div className="form-field">
+        <label htmlFor={`edit-titulo-${task.id}`}>Título da tarefa</label>
+        <input
+          id={`edit-titulo-${task.id}`}
+          required
+          minLength={2}
+          maxLength={150}
+          disabled={controlsDisabled}
+          value={titulo}
+          onChange={(event) => {
+            setTitulo(event.target.value)
+            clearFieldError('titulo')
+          }}
+          className={`form-control ${fieldErrors.titulo ? 'is-invalid' : ''}`}
+          aria-invalid={fieldErrors.titulo ? 'true' : 'false'}
+          aria-describedby={fieldErrors.titulo ? `edit-titulo-error-${task.id}` : undefined}
+        />
+        {fieldErrors.titulo && (
+          <FieldError id={`edit-titulo-error-${task.id}`} message={fieldErrors.titulo} />
+        )}
+      </div>
+      <div className="form-field">
+        <label htmlFor={`edit-descricao-${task.id}`}>Descrição da tarefa</label>
+        <textarea
+          id={`edit-descricao-${task.id}`}
+          maxLength={1000}
+          rows={2}
+          disabled={controlsDisabled}
+          value={descricao}
+          onChange={(event) => {
+            setDescricao(event.target.value)
+            clearFieldError('descricao')
+          }}
+          className={`form-control ${fieldErrors.descricao ? 'is-invalid' : ''}`}
+          aria-invalid={fieldErrors.descricao ? 'true' : 'false'}
+          aria-describedby={fieldErrors.descricao ? `edit-descricao-error-${task.id}` : undefined}
+        />
+        {fieldErrors.descricao && (
+          <FieldError id={`edit-descricao-error-${task.id}`} message={fieldErrors.descricao} />
+        )}
+      </div>
+      <div className="form-field">
+        <label htmlFor={`edit-ordem-${task.id}`}>Posição da tarefa</label>
+        <input
+          id={`edit-ordem-${task.id}`}
+          type="number"
+          min={1}
+          step={1}
+          disabled={controlsDisabled}
+          value={ordem}
+          onChange={(event) => {
+            setOrdem(event.target.value)
+            clearFieldError('ordem')
+          }}
+          className={`form-control ${fieldErrors.ordem ? 'is-invalid' : ''}`}
+          aria-invalid={fieldErrors.ordem ? 'true' : 'false'}
+          aria-describedby={fieldErrors.ordem ? `edit-ordem-error-${task.id}` : undefined}
+        />
+        {fieldErrors.ordem && (
+          <FieldError id={`edit-ordem-error-${task.id}`} message={fieldErrors.ordem} />
+        )}
+      </div>
+      <div className="form-field">
+        <label htmlFor={`edit-esforco-${task.id}`}>Esforço estimado da tarefa em minutos</label>
+        <input
+          id={`edit-esforco-${task.id}`}
+          type="number"
+          min={1}
+          step={1}
+          disabled={controlsDisabled}
+          value={esforco}
+          onChange={(event) => {
+            setEsforco(event.target.value)
+            clearFieldError('esforco')
+          }}
+          className={`form-control ${fieldErrors.esforco ? 'is-invalid' : ''}`}
+          aria-invalid={fieldErrors.esforco ? 'true' : 'false'}
+          aria-describedby={fieldErrors.esforco ? `edit-esforco-error-${task.id}` : undefined}
+        />
+        {fieldErrors.esforco && (
+          <FieldError id={`edit-esforco-error-${task.id}`} message={fieldErrors.esforco} />
+        )}
+      </div>
+      <div className="form-field">
+        <label htmlFor={`edit-situacao-${task.id}`}>Situação da tarefa</label>
+        <select
+          id={`edit-situacao-${task.id}`}
+          disabled={controlsDisabled}
+          value={situacao}
+          onChange={(event) => setSituacao(event.target.value)}
+          className="form-control"
+        >
           <option value="0">Pendente</option>
           <option value="1">Em andamento</option>
           <option value="2">Concluída</option>
         </select>
-      </label>
+      </div>
       {saving && <p role="status">Salvando tarefa…</p>}
       {error && <p role="alert">{error}</p>}
       {outcomeUnknown && (

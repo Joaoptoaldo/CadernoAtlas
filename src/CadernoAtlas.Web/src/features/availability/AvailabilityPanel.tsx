@@ -32,7 +32,6 @@ export default function AvailabilityPanel({
   isUpdatingTask,
   isDeletingTask,
   outcomeUnknown,
-  onOutcomeUnknownChange,
 }: AvailabilityPanelProps) {
   const taskMutationInProgress = isCreatingTask || isUpdatingTask || isDeletingTask
   const [isFormOpen, setIsFormOpen] = useState(false)
@@ -92,28 +91,30 @@ export default function AvailabilityPanel({
           onReconcile={onReconcile}
           disabled={isConfirming || isUpdatingDemand || taskMutationInProgress}
           outcomeUnknown={outcomeUnknown}
-          onOutcomeUnknownChange={onOutcomeUnknownChange}
         />
       )}
 
       {state.status === 'loading' ? (
-        <div className="loading-lines" aria-label="Carregando dados" role="status">
-          {Array.from({ length: 3 }, (_, index) => (
-            <div className="loading-row" key={index}>
-              <span className="skeleton skeleton-icon" />
-              <span className="loading-row-copy">
-                <span className="skeleton skeleton-title" />
-                <span className="skeleton skeleton-detail" />
-              </span>
-            </div>
-          ))}
+        <div className="loading-placeholder" aria-label="Carregando disponibilidade" role="status" aria-live="polite">
+          <div className="placeholder-glow">
+            {[...Array(3)].map((_, index) => (
+              <div key={index} className="d-flex gap-3 p-3 border rounded" aria-hidden="true">
+                <div className="placeholder placeholder-wave" style={{ width: '40px', height: '40px', borderRadius: '50%' }} />
+                <div className="d-flex flex-column justify-content-center gap-2 flex-1">
+                  <div className="placeholder placeholder-wave" style={{ width: '60%', height: '12px', borderRadius: '4px' }} />
+                  <div className="placeholder placeholder-wave" style={{ width: '40%', height: '10px', borderRadius: '4px' }} />
+                </div>
+              </div>
+            ))}
+          </div>
+          <span className="visually-hidden">Carregando disponibilidade</span>
         </div>
       ) : state.status === 'error' && !state.data ? (
-        <StatusMessage title="Não foi possível carregar os horários" description={state.error} onRetry={isUpdatingDemand || taskMutationInProgress ? undefined : onRetry} compact />
+        <StatusMessage title="Não foi possível carregar os horários" description={state.error} onRetry={isUpdatingDemand || taskMutationInProgress ? undefined : onRetry} compact variant="danger" />
       ) : (
         <>
           {state.status === 'error' && state.data && (
-            <StatusMessage title="Os horários podem estar desatualizados" description={state.error} onRetry={isUpdatingDemand || taskMutationInProgress ? undefined : onRetry} compact />
+            <StatusMessage title="Os horários podem estar desatualizados" description={state.error} onRetry={isUpdatingDemand || taskMutationInProgress ? undefined : onRetry} compact variant="warning" />
           )}
           <div className="availability-total">
             <span className="availability-total-number">{formatMinutes(totalMinutes)}</span>

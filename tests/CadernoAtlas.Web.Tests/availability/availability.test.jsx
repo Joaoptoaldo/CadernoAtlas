@@ -253,7 +253,17 @@ describe('Disponibilidades de estudo', () => {
       let resolveReconcileGet
       const reconcileGetGate = new Promise((resolve) => { resolveReconcileGet = resolve })
       const fetchMock = setupFetch({
-        availabilityPostResponse: { status: 500, data: { detail: 'Falha temporária.' } },
+        availability: [],
+        availabilityPostResponse: {
+          status: 500,
+          data: {
+            id: 11,
+            data: getCurrentMondayIso(),
+            horaInicio: '10:00:00',
+            horaFim: '12:00:00',
+          },
+        },
+        availabilityPostPersistsOnError: true,
         availabilityFailures: 0,
         availabilityGetGate: reconcileGetGate,
       })
@@ -275,7 +285,7 @@ describe('Disponibilidades de estudo', () => {
 
       resolveReconcileGet()
 
-      expect(await screen.findByText('09:00–11:00')).toBeInTheDocument()
+      expect(await screen.findByText('10:00–12:00')).toBeInTheDocument()
       expect(screen.queryByRole('heading', { name: 'Novo horário de estudo' })).not.toBeInTheDocument()
       expect(fetchMock.getAvailabilityPostRequests()).toBe(1)
     })
@@ -347,7 +357,17 @@ describe('Disponibilidades de estudo', () => {
       let resolveReconcileGet
       const reconcileGetGate = new Promise((resolve) => { resolveReconcileGet = resolve })
       const fetchMock = setupFetch({
-        availabilityPostResponse: { status: 500, data: { detail: 'Falha temporária.' } },
+        availability: [],
+        availabilityPostResponse: {
+          status: 500,
+          data: {
+            id: 11,
+            data: getCurrentMondayIso(),
+            horaInicio: '10:00:00',
+            horaFim: '12:00:00',
+          },
+        },
+        availabilityPostPersistsOnError: true,
         availabilityFailures: 0,
         availabilityGetGate: reconcileGetGate,
       })
@@ -368,7 +388,7 @@ describe('Disponibilidades de estudo', () => {
 
       resolveReconcileGet()
 
-      expect(await screen.findByText('09:00–11:00')).toBeInTheDocument()
+      expect(await screen.findByText('10:00–12:00')).toBeInTheDocument()
       expect(screen.queryByRole('heading', { name: 'Novo horário de estudo' })).not.toBeInTheDocument()
 
       expect(fetchMock.getAvailabilityPostRequests()).toBe(1)
@@ -377,6 +397,68 @@ describe('Disponibilidades de estudo', () => {
       expect(nextWeekButton).toBeEnabled()
       const newDemandButton = screen.getByRole('button', { name: 'Nova demanda' })
       expect(newDemandButton).toBeEnabled()
+    })
+
+    it('mantém o formulário aberto quando a consulta não encontra o cadastro incerto', async () => {
+      const fetchMock = setupFetch({
+        availability: [
+          {
+            id: 10,
+            data: getCurrentMondayIso(),
+            horaInicio: '08:00:00',
+            horaFim: '09:00:00',
+          },
+        ],
+        availabilityPostResponse: {
+          status: 500,
+          data: {
+            id: 11,
+            data: getCurrentMondayIso(),
+            horaInicio: '10:00:00',
+            horaFim: '12:00:00',
+          },
+        },
+      })
+
+      renderApp()
+
+      fireEvent.click(screen.getByRole('button', { name: 'Novo horário' }))
+      fireEvent.change(screen.getByLabelText('Data'), {
+        target: { value: getCurrentMondayIso() },
+      })
+      fireEvent.change(screen.getByLabelText('Horário inicial'), {
+        target: { value: '10:00' },
+      })
+      fireEvent.change(screen.getByLabelText('Horário final'), {
+        target: { value: '12:00' },
+      })
+      fireEvent.click(screen.getByRole('button', { name: 'Salvar horário' }))
+
+      expect(await screen.findByRole('alert')).toHaveTextContent(
+        'Não foi possível confirmar se a disponibilidade foi cadastrada',
+      )
+
+      fireEvent.click(
+        screen.getByRole('button', {
+          name: 'Consultar horários antes de tentar novamente',
+        }),
+      )
+
+      expect(await screen.findByRole('alert')).toHaveTextContent(
+        'O horário informado ainda não aparece na lista',
+      )
+
+      expect(
+        screen.getByRole('heading', { name: 'Novo horário de estudo' }),
+      ).toBeInTheDocument()
+
+      expect(
+        screen.getByRole('button', {
+          name: 'Consultar horários antes de tentar novamente',
+        }),
+      ).toBeEnabled()
+
+      expect(fetchMock.getAvailabilityPostRequests()).toBe(1)
     })
 
     it('não considera bloqueio por lock como reconciliação bem-sucedida', async () => {
@@ -409,5 +491,42 @@ describe('Disponibilidades de estudo', () => {
 
       releaseConfirmation()
     })
+  })
+
+  it('bloqueia a geração de prévia enquanto o cadastro de disponibilidade tem resultado incerto', async () => {
+    setupFetch({
+      availabilityPostResponse: {
+        status: 500,
+        data: { detail: 'Falha temporária.' },
+      },
+    })
+
+    renderApp()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Novo horário' }))
+
+    fireEvent.change(screen.getByLabelText('Data'), {
+      target: { value: getCurrentMondayIso() },
+    })
+
+    fireEvent.change(screen.getByLabelText('Horário inicial'), {
+      target: { value: '10:00' },
+    })
+
+    fireEvent.change(screen.getByLabelText('Horário final'), {
+      target: { value: '12:00' },
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Salvar horário' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Não foi possível confirmar se a disponibilidade foi cadastrada',
+    )
+
+    const generatePreviewButton = screen.getByRole('button', {
+      name: /Gerar pr/,
+    })
+
+    expect(generatePreviewButton).toBeDisabled()
   })
 })

@@ -5,6 +5,7 @@ import type { ConcurrencyLocks } from '../shared/useConcurrencyLocks'
 import { MutationSyncError } from '../shared/mutationOutcome'
 import { useStudySessionUncertainTransitions } from './useStudySessionUncertainTransitions'
 import { useStudySessionUncertainDeletions } from './useStudySessionUncertainDeletions'
+import { useStudySessionUncertainEdits } from './useStudySessionUncertainEdits'
 
 interface UseStudySessionMutationsOptions {
   refresh: () => Promise<void>
@@ -21,6 +22,7 @@ export function useStudySessionMutations({ refresh, invalidatePreview, concurren
   const { registerUncertain, clearUncertain, isUncertain } = useStudySessionUncertainTransitions()
   // Registro persistente de exclusões incertas
   const { registerDeleteUncertain, clearDeleteUncertain, isDeleteUncertain } = useStudySessionUncertainDeletions()
+  const { isUncertainEdit } = useStudySessionUncertainEdits()
 
   async function createSession(request: StudySessionRequest): Promise<void> {
     if (mutationRef.current || dataMutationInProgressRef.current) throw new Error('Aguarde a operação de planejamento ou sessão de estudo em andamento.')
@@ -50,6 +52,11 @@ export function useStudySessionMutations({ refresh, invalidatePreview, concurren
   }
 
   async function updateSession(id: number, request: StudySessionRequest): Promise<void> {
+    if (isUncertainEdit(id)) {
+      throw new Error(
+        'Esta sessão possui uma edição não reconciliada. Reconcilie antes de tentar editar novamente.'
+      )
+    }
     if (mutationRef.current || dataMutationInProgressRef.current) throw new Error('Aguarde a operação de planejamento ou sessão de estudo em andamento.')
     mutationRef.current = true
     setStudySessionMutationInProgress(true)
@@ -77,6 +84,11 @@ export function useStudySessionMutations({ refresh, invalidatePreview, concurren
   }
 
   async function transitionSession(id: number, transition: StudySessionTransition): Promise<StudySession> {
+    if (isUncertainEdit(id)) {
+      throw new Error(
+        'Esta sessão possui uma edição não reconciliada. Reconcilie antes de tentar uma transição.'
+      )
+    }
     // Impedir transição se houver transição incerta não reconciliada para esta sessão
     if (isUncertain(id)) {
       throw new Error('Esta sessão possui uma transição não reconciliada. Reconcilie antes de tentar uma nova transição.')
@@ -151,6 +163,11 @@ export function useStudySessionMutations({ refresh, invalidatePreview, concurren
   }
 
   async function deleteSession(id: number): Promise<void> {
+    if (isUncertainEdit(id)) {
+      throw new Error(
+        'Esta sessão possui uma edição não reconciliada. Reconcilie antes de tentar excluir.'
+      )
+    }
     // Verificar se há transição incerta pendente para esta sessão
     if (isUncertain(id)) {
       throw new Error('Esta sessão possui uma transição não reconciliada. Reconcilie antes de tentar excluir.')

@@ -1,14 +1,17 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { fireEvent, screen, waitFor, within, findByText } from '@testing-library/react'
+import { screen, waitFor, within, findByText } from '@testing-library/react'
 import { renderApp } from '../helpers/renderApp.jsx'
 import { setupFetch, studySessionFixture } from '../helpers/fetchMocks.js'
 import { clearAllUncertainTransitions } from '../../../src/CadernoAtlas.Web/src/features/study-sessions/useStudySessionUncertainTransitions'
 import { clearAllUncertainDeletions } from '../../../src/CadernoAtlas.Web/src/features/study-sessions/useStudySessionUncertainDeletions'
+import { clearAllUncertainEdits } from '../../../src/CadernoAtlas.Web/src/features/study-sessions/useStudySessionUncertainEdits'
+import userEvent from '@testing-library/user-event'
 
 describe('Sessões de estudo — Reconciliação', () => {
   beforeEach(() => {
     clearAllUncertainTransitions()
     clearAllUncertainDeletions()
+    clearAllUncertainEdits()
   })
 
   it('reconciliação bem-sucedida no modal libera bloqueios apropriados', async () => {
@@ -33,20 +36,24 @@ describe('Sessões de estudo — Reconciliação', () => {
 
     vi.spyOn(window, 'confirm').mockReturnValue(true)
 
-    fireEvent.click(screen.getByRole('button', { name: 'Sessões de estudo' }))
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: 'Sessões de estudo' }))
     await screen.findByText('Sessão reconciliação sucesso')
 
-    fireEvent.click(screen.getByRole('button', { name: /Ver detalhes/ }))
-    await screen.findByRole('heading', { name: 'Sessão reconciliação sucesso' })
+    await user.click(screen.getByRole('button', { name: /Ver detalhes/ }))
+    await within(screen.getByRole('dialog')).findByRole('heading', { name: 'Sessão reconciliação sucesso' })
 
-    const deleteButtonModal = screen.getByRole('button', { name: 'Excluir sessão' })
-    fireEvent.click(deleteButtonModal)
+    const deleteButtonModal = within(screen.getByRole('dialog')).getByRole('button', { name: 'Excluir sessão' })
+    await user.click(deleteButtonModal)
+    // Confirmar no modal de confirmação de exclusão
+    const confirmModal = await screen.findByRole('dialog', { name: /Excluir sessão de estudo/i })
+    await user.click(within(confirmModal).getByRole('button', { name: 'Excluir' }))
 
     await screen.findByText(/resultado da exclusão é incerto/)
     expect(screen.getByRole('button', { name: 'Excluir sessão' })).toBeDisabled()
     expect(screen.getByRole('button', { name: 'Consultar sessão antes de tentar novamente' })).toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Consultar sessão antes de tentar novamente' }))
+    await user.click(screen.getByRole('button', { name: 'Consultar sessão antes de tentar novamente' }))
 
     const modal = screen.getByRole('dialog', { name: /Sessão reconciliação sucesso/i })
     await findByText(modal, 'Em andamento')
@@ -73,18 +80,22 @@ describe('Sessões de estudo — Reconciliação', () => {
 
     vi.spyOn(window, 'confirm').mockReturnValue(true)
 
-    fireEvent.click(screen.getByRole('button', { name: 'Sessões de estudo' }))
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: 'Sessões de estudo' }))
     await screen.findByText('Sessão falha reconciliação')
 
-    fireEvent.click(screen.getByRole('button', { name: /Ver detalhes/ }))
-    await screen.findByRole('heading', { name: 'Sessão falha reconciliação' })
+    await user.click(screen.getByRole('button', { name: /Ver detalhes/ }))
+    await within(screen.getByRole('dialog')).findByRole('heading', { name: 'Sessão falha reconciliação' })
 
-    const deleteButtonModal = screen.getByRole('button', { name: 'Excluir sessão' })
-    fireEvent.click(deleteButtonModal)
+    const deleteButtonModal = within(screen.getByRole('dialog')).getByRole('button', { name: 'Excluir sessão' })
+    await user.click(deleteButtonModal)
+    // Confirmar no modal de confirmação de exclusão
+    const confirmModal = await screen.findByRole('dialog', { name: /Excluir sessão de estudo/i })
+    await user.click(within(confirmModal).getByRole('button', { name: 'Excluir' }))
 
     await screen.findByText(/resultado da exclusão é incerto/)
 
-    fireEvent.click(screen.getByRole('button', { name: 'Consultar sessão antes de tentar novamente' }))
+    await user.click(screen.getByRole('button', { name: 'Consultar sessão antes de tentar novamente' }))
 
     await screen.findByText(/resultado da exclusão é incerto/)
 
@@ -115,19 +126,23 @@ describe('Sessões de estudo — Reconciliação', () => {
 
     vi.spyOn(window, 'confirm').mockReturnValue(true)
 
-    fireEvent.click(screen.getByRole('button', { name: 'Sessões de estudo' }))
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: 'Sessões de estudo' }))
     await screen.findByText('Sessão existe')
 
-    fireEvent.click(screen.getByRole('button', { name: /Ver detalhes/ }))
-    await screen.findByRole('heading', { name: 'Sessão existe' })
+    await user.click(screen.getByRole('button', { name: /Ver detalhes/ }))
+    await within(screen.getByRole('dialog')).findByRole('heading', { name: 'Sessão existe' })
 
-    const deleteButtonModal = screen.getByRole('button', { name: 'Excluir sessão' })
-    fireEvent.click(deleteButtonModal)
+    const deleteButtonModal = within(screen.getByRole('dialog')).getByRole('button', { name: 'Excluir sessão' })
+    await user.click(deleteButtonModal)
+    // Confirmar no modal de confirmação de exclusão
+    const confirmModal = await screen.findByRole('dialog', { name: /Excluir sessão de estudo/i })
+    await user.click(within(confirmModal).getByRole('button', { name: 'Excluir' }))
 
     await screen.findByText(/resultado da exclusão é incerto/)
     expect(screen.getByRole('button', { name: 'Excluir sessão' })).toBeDisabled()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Consultar sessão antes de tentar novamente' }))
+    await user.click(screen.getByRole('button', { name: 'Consultar sessão antes de tentar novamente' }))
 
     const modal = screen.getByRole('dialog', { name: /Sessão existe/i })
     await findByText(modal, 'Em andamento')
@@ -161,24 +176,31 @@ describe('Sessões de estudo — Reconciliação', () => {
 
     vi.spyOn(window, 'confirm').mockReturnValue(true)
 
-    fireEvent.click(screen.getByRole('button', { name: 'Sessões de estudo' }))
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: 'Sessões de estudo' }))
     await screen.findByText('Sessão falha lista')
 
-    fireEvent.click(screen.getByRole('button', { name: /Ver detalhes/ }))
-    await screen.findByRole('heading', { name: 'Sessão falha lista' })
+    await user.click(screen.getByRole('button', { name: /Ver detalhes/ }))
+    await within(screen.getByRole('dialog')).findByRole('heading', { name: 'Sessão falha lista' })
 
-    const deleteButtonModal = screen.getByRole('button', { name: 'Excluir sessão' })
-    fireEvent.click(deleteButtonModal)
+    const deleteButtonModal = within(screen.getByRole('dialog')).getByRole('button', { name: 'Excluir sessão' })
+    await user.click(deleteButtonModal)
+    // Confirmar no modal de confirmação de exclusão
+    const confirmModal = await screen.findByRole('dialog', { name: /Excluir sessão de estudo/i })
+    await user.click(within(confirmModal).getByRole('button', { name: 'Excluir' }))
 
     await screen.findByText(/resultado da exclusão é incerto/)
 
-    fireEvent.click(screen.getByRole('button', { name: 'Consultar sessão antes de tentar novamente' }))
+    await user.click(screen.getByRole('button', { name: 'Consultar sessão antes de tentar novamente' }))
 
     await screen.findByText(/A sessão ainda existe, mas a lista não pôde ser atualizada/)
     expect(screen.queryByText(/exclusão foi confirmada/)).not.toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Atualizar lista de sessões' }))
-    await findByText(screen.getByRole('dialog', { name: /Sessão falha lista/i }), 'Em andamento')
+    await user.click(screen.getByRole('button', { name: 'Atualizar lista de sessões' }))
+    const modalAfterUpdate = screen.getByRole('dialog', { name: /Sessão falha lista/i })
+    // Após reconciliação, a sessão individual deve mostrar "Em andamento" (situacao: 1)
+    // mas a lista falhou, então aparece mensagem de sync failed
+    await within(modalAfterUpdate).findByText('Planejada', { selector: '.study-session-status-planejada' })
     expect(screen.queryByText(/A sessão ainda existe, mas a lista não pôde ser atualizada/)).not.toBeInTheDocument()
   })
 
@@ -193,24 +215,28 @@ describe('Sessões de estudo — Reconciliação', () => {
 
     vi.spyOn(window, 'confirm').mockReturnValue(true)
 
-    fireEvent.click(screen.getByRole('button', { name: 'Sessões de estudo' }))
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: 'Sessões de estudo' }))
     await screen.findByText('Sessão incerteza cross')
 
-    fireEvent.click(screen.getByRole('button', { name: /Ver detalhes/ }))
-    await screen.findByRole('heading', { name: 'Sessão incerteza cross' })
+    await user.click(screen.getByRole('button', { name: /Ver detalhes/ }))
+    await within(screen.getByRole('dialog')).findByRole('heading', { name: 'Sessão incerteza cross' })
     expect(screen.getByRole('button', { name: 'Excluir sessão' })).not.toBeDisabled()
 
     const closeButtons = screen.getAllByRole('button', { name: 'Fechar' })
-    fireEvent.click(closeButtons[0])
+    await user.click(closeButtons[0])
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
 
     const deleteButton = screen.getByRole('button', { name: 'Excluir' })
-    fireEvent.click(deleteButton)
+    await user.click(deleteButton)
+    // Confirmar no modal de confirmação de exclusão
+    const confirmModal = await screen.findByRole('dialog', { name: /Excluir sessão de estudo/i })
+    await user.click(within(confirmModal).getByRole('button', { name: 'Excluir' }))
 
     await waitFor(() => expect(fetchMock.getStudySessionDeleteRequests()).toBe(1))
 
-    fireEvent.click(screen.getByRole('button', { name: /Ver detalhes/ }))
-    await screen.findByRole('heading', { name: 'Sessão incerteza cross' })
+    await user.click(screen.getByRole('button', { name: /Ver detalhes/ }))
+    await within(screen.getByRole('dialog')).findByRole('heading', { name: 'Sessão incerteza cross' })
 
     expect(screen.getByRole('button', { name: 'Excluir sessão' })).toBeDisabled()
     expect(screen.getByText(/resultado da exclusão é incerto/)).toBeInTheDocument()
@@ -232,13 +258,14 @@ describe('Sessões de estudo — Reconciliação', () => {
     })
     renderApp()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Sessões de estudo' }))
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: 'Sessões de estudo' }))
     await screen.findByText('Sessão bloqueada transição')
 
     // Abrir modal e tentar iniciar - falha de rede registra incerteza
-    fireEvent.click(screen.getByRole('button', { name: /Ver detalhes/ }))
-    await screen.findByRole('heading', { name: 'Sessão bloqueada transição' })
-    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Iniciar sessão' }))
+    await user.click(screen.getByRole('button', { name: /Ver detalhes/ }))
+    await within(screen.getByRole('dialog')).findByRole('heading', { name: 'Sessão bloqueada transição' })
+    await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Iniciar sessão' }))
 
     // Incerteza registrada
     await screen.findByText(/resultado da operação é incerto/)
@@ -252,10 +279,10 @@ describe('Sessões de estudo — Reconciliação', () => {
     expect(within(screen.getByRole('dialog')).getByRole('button', { name: 'Excluir sessão' })).toBeDisabled()
 
     // Reconciliar para limpar a incerteza
-    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Consultar sessões antes de tentar novamente' }))
+    await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Consultar sessões antes de tentar novamente' }))
 
     // Após reconciliação, bloqueios devem ser liberados
-    await screen.findByRole('button', { name: 'Concluir sessão' })
+    await within(screen.getByRole('dialog')).findByRole('button', { name: 'Concluir sessão' })
     expect(screen.queryByText(/resultado da operação é incerto/)).not.toBeInTheDocument()
     expect(within(screen.getByRole('dialog')).getByRole('button', { name: 'Concluir sessão' })).not.toBeDisabled()
   })
@@ -274,26 +301,30 @@ describe('Sessões de estudo — Reconciliação', () => {
 
     vi.spyOn(window, 'confirm').mockReturnValue(true)
 
-    fireEvent.click(screen.getByRole('button', { name: 'Sessões de estudo' }))
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: 'Sessões de estudo' }))
     await screen.findByText('Sessão bloqueada exclusão')
 
     // Abrir modal e tentar excluir - falha de rede registra incerteza de exclusão
-    fireEvent.click(screen.getByRole('button', { name: /Ver detalhes/ }))
-    await screen.findByRole('heading', { name: 'Sessão bloqueada exclusão' })
-    fireEvent.click(screen.getByRole('button', { name: 'Excluir sessão' }))
+    await user.click(screen.getByRole('button', { name: /Ver detalhes/ }))
+    await within(screen.getByRole('dialog')).findByRole('heading', { name: 'Sessão bloqueada exclusão' })
+    await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Excluir sessão' }))
+    // Confirmar no modal de confirmação de exclusão
+    const confirmModal = await screen.findByRole('dialog', { name: /Excluir sessão de estudo/i })
+    await user.click(within(confirmModal).getByRole('button', { name: 'Excluir' }))
 
     // Incerteza de exclusão registrada
     await screen.findByText(/resultado da exclusão é incerto/)
-    expect(screen.getByRole('button', { name: 'Excluir sessão' })).toBeDisabled()
+    expect(within(screen.getByRole('dialog')).getByRole('button', { name: 'Excluir sessão' })).toBeDisabled()
     expect(screen.getByRole('button', { name: 'Consultar sessão antes de tentar novamente' })).toBeInTheDocument()
 
     // Tentar iniciar enquanto há exclusão incerta - deve ser bloqueado
-    expect(screen.getByRole('button', { name: 'Iniciar sessão' })).toBeDisabled()
+    expect(within(screen.getByRole('dialog')).getByRole('button', { name: 'Iniciar sessão' })).toBeDisabled()
     // Tentar cancelar enquanto há exclusão incerta - deve ser bloqueado
-    expect(screen.getByRole('button', { name: 'Cancelar sessão' })).toBeDisabled()
+    expect(within(screen.getByRole('dialog')).getByRole('button', { name: 'Cancelar sessão' })).toBeDisabled()
 
     // Reconciliar para limpar a incerteza
-    fireEvent.click(screen.getByRole('button', { name: 'Consultar sessão antes de tentar novamente' }))
+    await user.click(screen.getByRole('button', { name: 'Consultar sessão antes de tentar novamente' }))
 
     // Modal deve fechar após confirmação de exclusão
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
@@ -312,20 +343,21 @@ describe('Sessões de estudo — Reconciliação', () => {
     })
     renderApp()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Sessões de estudo' }))
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: 'Sessões de estudo' }))
     await screen.findByText('Sessão fecha modal transição')
 
     // Abrir modal e tentar iniciar - falha de rede registra incerteza
-    fireEvent.click(screen.getByRole('button', { name: /Ver detalhes/ }))
-    await screen.findByRole('heading', { name: 'Sessão fecha modal transição' })
-    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Iniciar sessão' }))
+    await user.click(screen.getByRole('button', { name: /Ver detalhes/ }))
+    await within(screen.getByRole('dialog')).findByRole('heading', { name: 'Sessão fecha modal transição' })
+    await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Iniciar sessão' }))
 
     // Incerteza registrada
     await screen.findByText(/resultado da operação é incerto/)
 
     // Fechar modal
     const closeButtons = screen.getAllByRole('button', { name: 'Fechar' })
-    fireEvent.click(closeButtons[0])
+    await user.click(closeButtons[0])
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
 
     // Botões no card devem permanecer desabilitados
@@ -346,20 +378,24 @@ describe('Sessões de estudo — Reconciliação', () => {
 
     vi.spyOn(window, 'confirm').mockReturnValue(true)
 
-    fireEvent.click(screen.getByRole('button', { name: 'Sessões de estudo' }))
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: 'Sessões de estudo' }))
     await screen.findByText('Sessão fecha modal exclusão')
 
     // Abrir modal e tentar excluir - falha de rede registra incerteza de exclusão
-    fireEvent.click(screen.getByRole('button', { name: /Ver detalhes/ }))
-    await screen.findByRole('heading', { name: 'Sessão fecha modal exclusão' })
-    fireEvent.click(screen.getByRole('button', { name: 'Excluir sessão' }))
+    await user.click(screen.getByRole('button', { name: /Ver detalhes/ }))
+    await within(screen.getByRole('dialog')).findByRole('heading', { name: 'Sessão fecha modal exclusão' })
+    await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Excluir sessão' }))
+    // Confirmar no modal de confirmação de exclusão
+    const confirmModal = await screen.findByRole('dialog', { name: /Excluir sessão de estudo/i })
+    await user.click(within(confirmModal).getByRole('button', { name: 'Excluir' }))
 
     // Incerteza de exclusão registrada
     await screen.findByText(/resultado da exclusão é incerto/)
 
     // Fechar modal
     const closeButtons = screen.getAllByRole('button', { name: 'Fechar' })
-    fireEvent.click(closeButtons[0])
+    await user.click(closeButtons[0])
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
 
     // Botões no card devem permanecer desabilitados
@@ -454,5 +490,150 @@ describe('Sessões de estudo — Reconciliação', () => {
     await expect(act(async () => {
       await result.current.transitionSession(1, 'iniciar')
     })).rejects.toThrow('Esta sessão possui uma exclusão não reconciliada')
+  })
+
+  it('useStudySessionMutations.updateSession rejeita edição quando há edição incerta', async () => {
+    const { renderHook, act } = await import('@testing-library/react')
+    const { useStudySessionMutations } = await import('../../../src/CadernoAtlas.Web/src/features/study-sessions/useStudySessionMutations')
+
+    sessionStorage.setItem('cadernoatlas:uncertain-session-edits', JSON.stringify([
+      {
+        sessionId: 1,
+        request: {
+          titulo: 'Edição pendente',
+          dataPlanejada: '2026-11-13',
+          horaInicioPlanejada: '14:00',
+          duracaoPlanejadaMinutos: 60,
+          demandaAcademicaId: null,
+          tarefaDemandaId: null,
+          observacoes: null,
+        },
+        timestamp: Date.now(),
+      },
+    ]))
+
+    const concurrencyLocks = {
+      confirmationInProgressRef: { current: false },
+      dataMutationInProgressRef: { current: false },
+      studySessionMutationInProgressRef: { current: false },
+      setStudySessionMutationInProgress: vi.fn(),
+      setDataMutationInProgress: vi.fn(),
+    }
+
+    const { result } = renderHook(() =>
+      useStudySessionMutations({
+        refresh: vi.fn().mockResolvedValue(undefined),
+        invalidatePreview: vi.fn(),
+        concurrencyLocks,
+      })
+    )
+
+    const request = {
+      titulo: 'Nova tentativa',
+      dataPlanejada: '2026-11-13',
+      horaInicioPlanejada: '14:00',
+      duracaoPlanejadaMinutos: 60,
+      demandaAcademicaId: null,
+      tarefaDemandaId: null,
+      observacoes: null,
+    }
+
+    await expect(
+      act(async () => {
+        await result.current.updateSession(1, request)
+      })
+    ).rejects.toThrow('Esta sessão possui uma edição não reconciliada')
+
+    expect(concurrencyLocks.setStudySessionMutationInProgress).not.toHaveBeenCalled()
+  })
+
+  it('useStudySessionMutations.transitionSession rejeita transição quando há edição incerta', async () => {
+    const { renderHook, act } = await import('@testing-library/react')
+    const { useStudySessionMutations } = await import('../../../src/CadernoAtlas.Web/src/features/study-sessions/useStudySessionMutations')
+
+    sessionStorage.setItem('cadernoatlas:uncertain-session-edits', JSON.stringify([
+      {
+        sessionId: 1,
+        request: {
+          titulo: 'Edição pendente',
+          dataPlanejada: '2026-11-13',
+          horaInicioPlanejada: '14:00',
+          duracaoPlanejadaMinutos: 60,
+          demandaAcademicaId: null,
+          tarefaDemandaId: null,
+          observacoes: null,
+        },
+        timestamp: Date.now(),
+      },
+    ]))
+
+    const concurrencyLocks = {
+      confirmationInProgressRef: { current: false },
+      dataMutationInProgressRef: { current: false },
+      studySessionMutationInProgressRef: { current: false },
+      setStudySessionMutationInProgress: vi.fn(),
+      setDataMutationInProgress: vi.fn(),
+    }
+
+    const { result } = renderHook(() =>
+      useStudySessionMutations({
+        refresh: vi.fn().mockResolvedValue(undefined),
+        invalidatePreview: vi.fn(),
+        concurrencyLocks,
+      })
+    )
+
+    await expect(
+      act(async () => {
+        await result.current.transitionSession(1, 'iniciar')
+      })
+    ).rejects.toThrow('Esta sessão possui uma edição não reconciliada')
+
+    expect(concurrencyLocks.setStudySessionMutationInProgress).not.toHaveBeenCalled()
+  })
+
+  it('useStudySessionMutations.deleteSession rejeita exclusão quando há edição incerta', async () => {
+    const { renderHook, act } = await import('@testing-library/react')
+    const { useStudySessionMutations } = await import('../../../src/CadernoAtlas.Web/src/features/study-sessions/useStudySessionMutations')
+
+    sessionStorage.setItem('cadernoatlas:uncertain-session-edits', JSON.stringify([
+      {
+        sessionId: 1,
+        request: {
+          titulo: 'Edição pendente',
+          dataPlanejada: '2026-11-13',
+          horaInicioPlanejada: '14:00',
+          duracaoPlanejadaMinutos: 60,
+          demandaAcademicaId: null,
+          tarefaDemandaId: null,
+          observacoes: null,
+        },
+        timestamp: Date.now(),
+      },
+    ]))
+
+    const concurrencyLocks = {
+      confirmationInProgressRef: { current: false },
+      dataMutationInProgressRef: { current: false },
+      studySessionMutationInProgressRef: { current: false },
+      setStudySessionMutationInProgress: vi.fn(),
+      setDataMutationInProgress: vi.fn(),
+    }
+
+    const { result } = renderHook(() =>
+      useStudySessionMutations({
+        refresh: vi.fn().mockResolvedValue(undefined),
+        invalidatePreview: vi.fn(),
+        concurrencyLocks,
+      })
+    )
+
+    await expect(
+      act(async () => {
+        await result.current.deleteSession(1)
+      })
+    ).rejects.toThrow('Esta sessão possui uma edição não reconciliada')
+
+    expect(concurrencyLocks.setStudySessionMutationInProgress).not.toHaveBeenCalled()
   })
 })

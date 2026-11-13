@@ -107,13 +107,13 @@ describe('Tarefas de demandas — Criação', () => {
     const title = screen.getByLabelText('Título da tarefa')
     fireEvent.change(title, { target: { value: '  x ' } })
     fireEvent.submit(title.closest('form'))
-    expect(await screen.findByRole('alert')).toHaveTextContent('entre 2 e 150 caracteres')
+    expect(await screen.findByText((content) => content.includes('entre 2 e 150 caracteres'))).toBeInTheDocument()
     expect(fetchMock.getTaskPostRequests()).toBe(0)
 
     fireEvent.change(title, { target: { value: 'Tarefa válida' } })
     fireEvent.change(screen.getByLabelText('Esforço estimado em minutos (opcional)'), { target: { value: '1.5' } })
     fireEvent.submit(title.closest('form'))
-    expect(await screen.findByRole('alert')).toHaveTextContent('número inteiro maior que zero')
+    expect(await screen.findByText((content) => content.includes('número inteiro maior que zero'))).toBeInTheDocument()
     expect(fetchMock.getTaskPostRequests()).toBe(0)
   })
 

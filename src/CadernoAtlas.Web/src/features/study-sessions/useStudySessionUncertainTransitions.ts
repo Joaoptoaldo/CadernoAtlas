@@ -112,26 +112,54 @@ export function useStudySessionUncertainTransitions() {
     }
   }, [forceUpdate])
 
-  const registerUncertain = useCallback((sessionId: number, transition: StudySessionTransition): void => {
-    const expectedStatus = transition === 'iniciar' ? 1 : transition === 'concluir' ? 2 : 3
-    setUncertainTransitions((prev) => {
-      const exists = prev.some((t) => t.sessionId === sessionId && t.transition === transition)
-      if (exists) return prev
-      const next = [...prev, { sessionId, transition, expectedStatus, timestamp: Date.now() }]
-      saveToStorage(next)
-      return next
-    })
-  }, [])
+  const registerUncertain = useCallback(
+    (sessionId: number, transition: StudySessionTransition): void => {
+      const current = loadFromStorage()
 
-  const clearUncertain = useCallback((sessionId: number, transition?: StudySessionTransition): void => {
-    setUncertainTransitions((prev) => {
-      const next = prev.filter((t) =>
-        t.sessionId !== sessionId || (transition !== undefined && t.transition !== transition)
+      const exists = current.some(
+        (item) => item.sessionId === sessionId && item.transition === transition
       )
+
+      if (exists) return
+
+      const expectedStatus =
+        transition === 'iniciar' ? 1 : transition === 'concluir' ? 2 : 3
+
+      const next = [
+        ...current,
+        {
+          sessionId,
+          transition,
+          expectedStatus,
+          timestamp: Date.now(),
+        },
+      ]
+
+      // Persistir e notificar fora da função de atualização do React.
       saveToStorage(next)
-      return next
-    })
-  }, [])
+      setUncertainTransitions(next)
+    },
+    []
+  )
+
+  const clearUncertain = useCallback(
+    (sessionId: number, transition?: StudySessionTransition): void => {
+      const current = loadFromStorage()
+
+      const next = current.filter(
+        (item) =>
+          item.sessionId !== sessionId ||
+          (transition !== undefined && item.transition !== transition)
+      )
+
+      if (next.length === current.length) return
+
+      // Persistir e notificar fora da função de atualização do React.
+      saveToStorage(next)
+      setUncertainTransitions(next)
+    },
+    []
+  )
 
   const isUncertain = useCallback(
     (sessionId: number, transition?: StudySessionTransition): boolean => {

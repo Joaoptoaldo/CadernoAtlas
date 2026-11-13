@@ -1,5 +1,7 @@
 import { useRef, useState, type FormEvent } from 'react'
 import { isMutationSyncError } from '../shared/mutationOutcome'
+import FieldError from '../../components/ui/FieldError'
+import ProcessingState from '../../components/ui/ProcessingState'
 
 export type DemandType = 0 | 1 | 2 | 3 | 4
 export type DemandImportance = 0 | 1 | 2
@@ -22,6 +24,13 @@ interface CreateDemandFormProps {
   outcomeUnknown?: boolean
 }
 
+interface FieldErrors {
+  title?: string
+  type?: string
+  importance?: string
+  effort?: string
+}
+
 export default function CreateDemandForm({
   onCreate,
   onCancel,
@@ -36,6 +45,7 @@ export default function CreateDemandForm({
   const [dueDate, setDueDate] = useState('')
   const [importance, setImportance] = useState('')
   const [effort, setEffort] = useState('')
+  const [fieldErrors, setFieldErrors] = useState<FieldErrors>({})
   const [error, setError] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [isReconciling, setIsReconciling] = useState(false)
@@ -43,6 +53,15 @@ export default function CreateDemandForm({
   const [synchronizationFailed, setSynchronizationFailed] = useState(false)
   const submissionInProgressRef = useRef(false)
   const controlsDisabled = disabled || isSubmitting || isReconciling
+
+  function clearFieldError(field: keyof FieldErrors): void {
+    setFieldErrors((prev) => {
+      if (!prev[field]) return prev
+      const next = { ...prev }
+      delete next[field]
+      return next
+    })
+  }
 
   function getHttpStatus(error: unknown): number | null {
     if (typeof error !== 'object' || error === null || !('status' in error)) return null
@@ -59,25 +78,28 @@ export default function CreateDemandForm({
 
     const trimmedTitle = title.trim()
     const effortMinutes = effort.trim() === '' ? null : Number(effort)
+    const newFieldErrors: FieldErrors = {}
 
     if (trimmedTitle.length < 2) {
-      setError('O título deve ter pelo menos 2 caracteres.')
-      return
+      newFieldErrors.title = 'O título deve ter pelo menos 2 caracteres.'
     }
-
     if (type === '' || importance === '') {
-      setError('Selecione o tipo e a importância da demanda.')
-      return
+      if (type === '') newFieldErrors.type = 'Selecione o tipo.'
+      if (importance === '') newFieldErrors.importance = 'Selecione a importância.'
     }
-
     if (
       effortMinutes !== null &&
       (!Number.isInteger(effortMinutes) || effortMinutes <= 0)
     ) {
-      setError('O esforço estimado deve ser um número inteiro maior que zero.')
+      newFieldErrors.effort = 'O esforço estimado deve ser um número inteiro maior que zero.'
+    }
+
+    if (Object.keys(newFieldErrors).length > 0) {
+      setFieldErrors(newFieldErrors)
       return
     }
 
+    setFieldErrors({})
     const request: CreateDemandRequest = {
       titulo: trimmedTitle,
       descricao: description.trim() || null,
@@ -146,33 +168,50 @@ export default function CreateDemandForm({
   }
 
   return (
-    <form id="create-demand-form" className="create-demand-form" onSubmit={handleSubmit}>
+    <form id="create-demand-form" className="create-demand-form" onSubmit={handleSubmit} noValidate>
       <div className="create-demand-form-heading">
         <h3 id="create-demand-title">Nova demanda acadêmica</h3>
         <p>Registre uma prova, um trabalho ou outra atividade importante.</p>
       </div>
 
       <div className="create-demand-form-grid">
-        <label className="form-field form-field-full">
-          Título
+        <div className="form-field form-field-full">
+          <label htmlFor="create-demand-title-input">Título</label>
           <input
+            id="create-demand-title-input"
             autoFocus
             required
             minLength={2}
             disabled={controlsDisabled}
             value={title}
-            onChange={(event) => setTitle(event.target.value)}
+            onChange={(event) => {
+              setTitle(event.target.value)
+              clearFieldError('title')
+            }}
             placeholder="Ex.: Prova de Anatomia"
+            className={`form-control ${fieldErrors.title ? 'is-invalid' : ''}`}
+            aria-invalid={fieldErrors.title ? 'true' : 'false'}
+            aria-describedby={fieldErrors.title ? 'create-demand-title-error' : undefined}
           />
-        </label>
+          {fieldErrors.title && (
+            <FieldError id="create-demand-title-error" message={fieldErrors.title} />
+          )}
+        </div>
 
-        <label className="form-field">
-          Tipo
+        <div className="form-field">
+          <label htmlFor="create-demand-type-input">Tipo</label>
           <select
+            id="create-demand-type-input"
             required
             disabled={controlsDisabled}
             value={type}
-            onChange={(event) => setType(event.target.value)}
+            onChange={(event) => {
+              setType(event.target.value)
+              clearFieldError('type')
+            }}
+            className={`form-control ${fieldErrors.type ? 'is-invalid' : ''}`}
+            aria-invalid={fieldErrors.type ? 'true' : 'false'}
+            aria-describedby={fieldErrors.type ? 'create-demand-type-error' : undefined}
           >
             <option value="">Selecione o tipo</option>
             <option value="0">Prova</option>
@@ -181,56 +220,83 @@ export default function CreateDemandForm({
             <option value="3">TCC</option>
             <option value="4">Outro</option>
           </select>
-        </label>
+          {fieldErrors.type && (
+            <FieldError id="create-demand-type-error" message={fieldErrors.type} />
+          )}
+        </div>
 
-        <label className="form-field">
-          Importância
+        <div className="form-field">
+          <label htmlFor="create-demand-importance-input">Importância</label>
           <select
+            id="create-demand-importance-input"
             required
             disabled={controlsDisabled}
             value={importance}
-            onChange={(event) => setImportance(event.target.value)}
+            onChange={(event) => {
+              setImportance(event.target.value)
+              clearFieldError('importance')
+            }}
+            className={`form-control ${fieldErrors.importance ? 'is-invalid' : ''}`}
+            aria-invalid={fieldErrors.importance ? 'true' : 'false'}
+            aria-describedby={fieldErrors.importance ? 'create-demand-importance-error' : undefined}
           >
             <option value="">Selecione a importância</option>
             <option value="0">Baixa</option>
             <option value="1">Média</option>
             <option value="2">Alta</option>
           </select>
-        </label>
+          {fieldErrors.importance && (
+            <FieldError id="create-demand-importance-error" message={fieldErrors.importance} />
+          )}
+        </div>
 
-        <label className="form-field">
-          Prazo (opcional)
+        <div className="form-field">
+          <label htmlFor="create-demand-dueDate-input">Prazo (opcional)</label>
           <input
+            id="create-demand-dueDate-input"
             type="date"
             disabled={controlsDisabled}
             value={dueDate}
             onChange={(event) => setDueDate(event.target.value)}
+            className="form-control"
           />
-        </label>
+        </div>
 
-        <label className="form-field">
-          Esforço estimado em minutos (opcional)
+        <div className="form-field">
+          <label htmlFor="create-demand-effort-input">Esforço estimado em minutos (opcional)</label>
           <input
+            id="create-demand-effort-input"
             type="number"
             disabled={controlsDisabled}
             min={1}
             step={1}
             value={effort}
-            onChange={(event) => setEffort(event.target.value)}
+            onChange={(event) => {
+              setEffort(event.target.value)
+              clearFieldError('effort')
+            }}
             placeholder="Ex.: 90"
+            className={`form-control ${fieldErrors.effort ? 'is-invalid' : ''}`}
+            aria-invalid={fieldErrors.effort ? 'true' : 'false'}
+            aria-describedby={fieldErrors.effort ? 'create-demand-effort-error' : undefined}
           />
-        </label>
+          {fieldErrors.effort && (
+            <FieldError id="create-demand-effort-error" message={fieldErrors.effort} />
+          )}
+        </div>
 
-        <label className="form-field form-field-full">
-          Descrição (opcional)
+        <div className="form-field form-field-full">
+          <label htmlFor="create-demand-description-input">Descrição (opcional)</label>
           <textarea
+            id="create-demand-description-input"
             rows={3}
             disabled={controlsDisabled}
             value={description}
             onChange={(event) => setDescription(event.target.value)}
             placeholder="Detalhes que ajudem a identificar a demanda."
+            className="form-control"
           />
-        </label>
+        </div>
       </div>
 
       {error && (
@@ -238,10 +304,11 @@ export default function CreateDemandForm({
           {error}
         </p>
       )}
+      <ProcessingState message="Salvando..." isActive={isSubmitting} ariaLabel="Salvando demanda" />
       {(outcomeUnknown || synchronizationFailed) && (
         <div className="task-uncertain-guidance">
           <p>{synchronizationFailed ? 'A demanda foi criada, mas a lista não pôde ser atualizada. Consulte a lista novamente; não é necessário cadastrá-la outra vez.' : 'A consulta reduz a incerteza, mas não garante que uma requisição anterior ainda em processamento não seja concluída depois.'}</p>
-          <button className="text-button" type="button" disabled={controlsDisabled} onClick={() => void reconcileOutcome()}>
+          <button className="text-button" type="button" disabled={controlsDisabled} onClick={reconcileOutcome}>
             {isReconciling ? 'Consultando demandas…' : synchronizationFailed ? 'Atualizar lista de demandas' : 'Consultar demandas antes de tentar novamente'}
           </button>
         </div>
