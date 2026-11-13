@@ -177,6 +177,7 @@ export function setupFetch({
   studySessionDeleteResponse = null,
   studySessionCreateNetworkFailures = 0,
   studySessionUpdateNetworkFailures = 0,
+  studySessionUpdateGate,
   studySessionDeleteNetworkFailures = 0,
   studySessionTransitionResponses = {},
   studySessionTransitionNetworkFailures = {},
@@ -573,6 +574,7 @@ export function setupFetch({
 
       if (init.method === 'PUT') {
         studySessionPutRequests += 1
+        if (studySessionUpdateGate) await studySessionUpdateGate
         if (remainingStudySessionUpdateNetworkFailures > 0) {
           remainingStudySessionUpdateNetworkFailures -= 1
           throw new TypeError('Failed to fetch')

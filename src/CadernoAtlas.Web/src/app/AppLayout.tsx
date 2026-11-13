@@ -16,5 +16,5 @@ const breadcrumbBySection: Record<NavigationSection, ReactNode> = {
 }
 
 export default function AppLayout({ activeSection, onNavigate, children }: AppLayoutProps) {
-  return <div className="app-shell"><a className="skip-link" href="#planejamento">Pular para o conteúdo</a><Navigation activeSection={activeSection} onNavigate={onNavigate} /><main className="main-area" id="planejamento" tabIndex={-1}><header className="topbar"><span className="breadcrumb">{breadcrumbBySection[activeSection]}</span><div className="topbar-status"><span className="status-dot" /> Dados da API</div></header><div className="page-content">{children}</div></main></div>
+  return <div className="app-shell"><a className="skip-link" href="#planejamento">Pular para o conteúdo</a><Navigation activeSection={activeSection} onNavigate={onNavigate} /><main className="main-area" id="planejamento" tabIndex={-1}><header className="topbar"><span className="app-breadcrumb">{breadcrumbBySection[activeSection]}</span><div className="topbar-status"><span className="status-dot" /> Dados da API</div></header><div className="page-content">{children}</div></main></div>
 }

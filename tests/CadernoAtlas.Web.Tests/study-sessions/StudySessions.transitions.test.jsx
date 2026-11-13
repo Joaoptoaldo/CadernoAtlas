@@ -791,7 +791,7 @@ describe('Sessões de estudo — Transições', () => {
     expect(fetchMock.getStudySessionPutRequests()).toBe(1)
   })
 
-  it('libera a edição e preserva os dados quando o GET individual não confirma a alteração', async () => {
+  it('mantém a edição bloqueada quando o GET individual não confirma a alteração', async () => {
     const planned = {
       ...studySessionFixture,
       id: 1,
@@ -853,7 +853,7 @@ describe('Sessões de estudo — Transições', () => {
       })
     )
 
-    // A consulta confirma que o servidor ainda possui os dados anteriores.
+    // A consulta não confirma o payload; o PUT original ainda pode estar em processamento.
     expect(
       await within(form).findByText(/dados atuais são diferentes dos enviados/i)
     ).toBeInTheDocument()
@@ -861,29 +861,76 @@ describe('Sessões de estudo — Transições', () => {
     // O formulário permanece aberto e preserva o que o usuário tentou salvar.
     expect(titleInput).toHaveValue(attemptedTitle)
 
-    // A incerteza foi esclarecida: uma nova tentativa pode ser feita.
+    // A incerteza permanece até uma confirmação inequívoca.
     expect(
       within(form).getByRole('button', { name: 'Salvar alterações' })
-    ).toBeEnabled()
+    ).toBeDisabled()
 
     expect(
-      within(form).queryByRole('button', {
+      within(form).getByRole('button', {
         name: 'Consultar sessões antes de tentar novamente',
       })
-    ).not.toBeInTheDocument()
+    ).toBeInTheDocument()
 
     // As operações da sessão também deixam de ficar bloqueadas.
     const card = screen.getByText(planned.titulo).closest('article')
 
-    expect(within(card).getByRole('button', { name: 'Iniciar' })).toBeEnabled()
-    expect(within(card).getByRole('button', { name: 'Cancelar' })).toBeEnabled()
-    expect(within(card).getByRole('button', { name: 'Excluir' })).toBeEnabled()
+    expect(within(card).getByRole('button', { name: 'Iniciar' })).toBeDisabled()
+    expect(within(card).getByRole('button', { name: 'Cancelar' })).toBeDisabled()
+    expect(within(card).getByRole('button', { name: 'Excluir' })).toBeDisabled()
 
     const remainingEdits = JSON.parse(
       sessionStorage.getItem('cadernoatlas:uncertain-session-edits') ?? '[]'
     )
 
-    expect(remainingEdits).toHaveLength(0)
+    expect(remainingEdits).toHaveLength(1)
+    expect(fetchMock.getStudySessionPutRequests()).toBe(1)
+  })
+
+  it('não permite uma segunda edição enquanto o PUT original está pendente', async () => {
+    let releaseUpdate
+    const updateGate = new Promise((resolve) => { releaseUpdate = resolve })
+    const planned = {
+      ...studySessionFixture,
+      id: 1,
+      demandaAcademicaId: null,
+      tarefaDemandaId: null,
+      titulo: 'Sessão com PUT pendente',
+      situacao: 0,
+    }
+
+    const fetchMock = setupFetch({
+      studySessions: [planned],
+      studySessionUpdateGate: updateGate,
+      studySessionUpdateNetworkFailures: 1,
+    })
+
+    const user = userEvent.setup()
+    renderApp()
+
+    await user.click(screen.getByRole('button', { name: 'Sessões de estudo' }))
+    await screen.findByText(planned.titulo)
+    await user.click(screen.getByRole('button', { name: `Ver detalhes da sessão ${planned.titulo}` }))
+
+    const modal = await screen.findByRole('dialog')
+    await user.click(within(modal).getByRole('button', { name: 'Editar sessão' }))
+
+    const form = within(modal)
+      .getByRole('heading', { name: 'Editar sessão de estudo' })
+      .closest('form')
+    const titleInput = within(form).getByLabelText('Título')
+
+    await user.clear(titleInput)
+    await user.type(titleInput, 'Primeira edição')
+    await user.click(within(form).getByRole('button', { name: 'Salvar alterações' }))
+
+    await waitFor(() => expect(fetchMock.getStudySessionPutRequests()).toBe(1))
+    expect(within(form).getByRole('button', { name: 'Salvando…' })).toBeDisabled()
+    expect(fetchMock.getStudySessionPutRequests()).toBe(1)
+
+    releaseUpdate()
+
+    await within(form).findByText(/resultado da operação é incerto/i)
     expect(fetchMock.getStudySessionPutRequests()).toBe(1)
   })
 

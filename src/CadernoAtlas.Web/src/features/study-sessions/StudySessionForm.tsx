@@ -246,13 +246,14 @@ export default function StudySessionForm({
 
     const editWasApplied = matchesStudySessionRequest(currentSession, submitted)
 
-    // A consulta individual respondeu: agora existe informação atual do servidor.
-    clearUncertainEdit(sessionId)
-    setOutcomeUnknown(false)
-    onOutcomeUnknownChange(false)
-    setSynchronizationFailed(false)
-
     if (editWasApplied) {
+      // A consulta individual confirmou o payload original; só agora é seguro
+      // liberar outra edição.
+      clearUncertainEdit(sessionId)
+      setOutcomeUnknown(false)
+      onOutcomeUnknownChange(false)
+      setSynchronizationFailed(false)
+
       try {
         await onReconcile()
         onCancel()
@@ -267,8 +268,8 @@ export default function StudySessionForm({
       return
     }
 
-    // O estado atual não corresponde ao payload enviado.
-    // Manter os dados no formulário para revisão e eventual nova tentativa.
+    // O PUT original ainda pode estar em processamento. Manter a incerteza
+    // registrada e o formulário bloqueado evita uma atualização concorrente.
     let refreshWarning = ''
 
     try {
@@ -279,9 +280,11 @@ export default function StudySessionForm({
     }
 
     setError(
-      'A sessão foi consultada, mas os dados atuais são diferentes dos enviados. A alteração não está refletida no estado atual. Revise os dados abaixo e salve novamente somente se ainda desejar aplicá-los.' +
+      'A sessão foi consultada, mas os dados atuais são diferentes dos enviados. O resultado da edição continua incerto; aguarde a confirmação antes de tentar novamente.' +
         refreshWarning
     )
+    setOutcomeUnknown(true)
+    onOutcomeUnknownChange(true)
   }
 
   async function reconcile(): Promise<void> {

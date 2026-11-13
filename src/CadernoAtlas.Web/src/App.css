@@ -37,8 +37,8 @@
 
 .main-area { min-height: 100vh; margin-left: 244px; }
 .topbar { display: flex; align-items: center; justify-content: space-between; min-height: 63px; padding: 0 clamp(23px, 4vw, 56px); background: rgba(255,255,255,.7); border-bottom: 1px solid var(--border); }
-.breadcrumb { color: #89928e; font-size: 11.5px; }
-.breadcrumb span { padding: 0 8px; color: #c3cac5; }
+.app-breadcrumb { color: #89928e; font-size: 11.5px; }
+.app-breadcrumb span { padding: 0 8px; color: #c3cac5; }
 .topbar-status { display: flex; align-items: center; gap: 7px; color: #75817b; font-size: 10.5px; }
 .status-dot { width: 7px; height: 7px; border-radius: 100%; background: #73a99a; box-shadow: 0 0 0 3px #e8f3ef; }
 .page-content { width: min(1370px, 100%); margin: 0 auto; padding: 38px clamp(23px, 4vw, 56px) 22px; }
@@ -212,7 +212,7 @@ h1 { margin: 0; color: var(--green-deep); font-size: clamp(26px, 2.5vw, 33px); f
   .brand-mark { width: 30px; height: 30px; }
   .main-area { margin-left: 55px; }
   .topbar { min-height: 51px; padding: 0 13px; }
-  .breadcrumb { max-width: 70%; font-size: 9px; }
+  .app-breadcrumb { max-width: 70%; font-size: 9px; }
   .topbar-status { gap: 5px; font-size: 9px; }
   .page-content { padding: 26px 13px 15px; }
   .page-heading { align-items: start; flex-direction: column; margin-bottom: 20px; }
