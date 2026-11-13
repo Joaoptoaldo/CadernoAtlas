@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import StatusMessage from '../../components/ui/StatusMessage'
+import EmptyState from '../../components/ui/EmptyState'
 import CreateDemandTaskForm, { type CreateDemandTaskRequest } from './CreateDemandTaskForm'
 import ConfirmActionModal from '../../components/ui/ConfirmActionModal'
+import FieldError from '../../components/ui/FieldError'
 
 export interface DemandTask {
   id: number
@@ -311,10 +313,15 @@ export default function ManageDemandTasks({
             description={state.message}
             onRetry={isCreatingTask ? undefined : retryTasks}
             compact
+            variant="danger"
           />
         )}
         {state.status === 'success' && state.data.length === 0 && (
-          <p className="managed-tasks-empty">Nenhuma tarefa cadastrada para esta demanda.</p>
+          <EmptyState
+            title="Nenhuma tarefa cadastrada"
+            description="Nenhuma tarefa cadastrada para esta demanda."
+            icon="book"
+          />
         )}
         {state.status === 'success' && state.data.length > 0 && (
           <ol className="managed-task-list">
@@ -410,6 +417,7 @@ function EditDemandTaskForm({
   const [esforco, setEsforco] = useState(task.esforcoEstimadoMinutos == null ? '' : String(task.esforcoEstimadoMinutos))
   const [situacao, setSituacao] = useState(String(task.situacao))
   const [saving, setSaving] = useState(false)
+  const [fieldErrors, setFieldErrors] = useState<{ titulo?: string; descricao?: string; ordem?: string; esforco?: string }>({})
   const [error, setError] = useState<string | null>(null)
   const [outcomeUnknown, setOutcomeUnknown] = useState(false)
   const [reconciled, setReconciled] = useState(false)
@@ -417,29 +425,42 @@ function EditDemandTaskForm({
   const savingRef = useRef(false)
   const controlsDisabled = disabled || saving
 
+  function clearFieldError(field: 'titulo' | 'descricao' | 'ordem' | 'esforco'): void {
+    setFieldErrors((prev) => {
+      if (!prev[field]) return prev
+      const next = { ...prev }
+      delete next[field]
+      return next
+    })
+  }
+
   async function submit(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault()
     if (savingRef.current || controlsDisabled || (outcomeUnknown && !reconciled)) return
     const trimmedTitle = titulo.trim()
     const effortValue = esforco.trim() === '' ? null : Number(esforco)
     const position = Number(ordem)
+    const newFieldErrors: { titulo?: string; descricao?: string; ordem?: string; esforco?: string } = {}
+
     if (trimmedTitle.length < 2 || trimmedTitle.length > 150) {
-      setError('O título deve ter entre 2 e 150 caracteres.')
-      return
+      newFieldErrors.titulo = 'O título deve ter entre 2 e 150 caracteres.'
     }
     if (descricao.length > 1000) {
-      setError('A descrição deve ter no máximo 1000 caracteres.')
-      return
+      newFieldErrors.descricao = 'A descrição deve ter no máximo 1000 caracteres.'
     }
     if (!Number.isInteger(position) || position < 1) {
-      setError('A posição deve ser um número inteiro maior que zero.')
-      return
+      newFieldErrors.ordem = 'A posição deve ser um número inteiro maior que zero.'
     }
     if (effortValue !== null && (!Number.isInteger(effortValue) || effortValue <= 0)) {
-      setError('O esforço estimado deve ser um número inteiro maior que zero.')
+      newFieldErrors.esforco = 'O esforço estimado deve ser um número inteiro maior que zero.'
+    }
+
+    if (Object.keys(newFieldErrors).length > 0) {
+      setFieldErrors(newFieldErrors)
       return
     }
 
+    setFieldErrors({})
     savingRef.current = true
     setSaving(true)
     setError(null)
@@ -490,26 +511,104 @@ function EditDemandTaskForm({
   }
 
   return (
-    <form className="create-task-form edit-task-form" onSubmit={(event) => void submit(event)}>
-      <label className="form-field">Título da tarefa
-        <input required minLength={2} maxLength={150} disabled={controlsDisabled} value={titulo} onChange={(event) => setTitulo(event.target.value)} />
-      </label>
-      <label className="form-field">Descrição da tarefa
-        <textarea maxLength={1000} rows={2} disabled={controlsDisabled} value={descricao} onChange={(event) => setDescricao(event.target.value)} />
-      </label>
-      <label className="form-field">Posição da tarefa
-        <input type="number" min={1} step={1} disabled={controlsDisabled} value={ordem} onChange={(event) => setOrdem(event.target.value)} />
-      </label>
-      <label className="form-field">Esforço estimado da tarefa em minutos
-        <input type="number" min={1} step={1} disabled={controlsDisabled} value={esforco} onChange={(event) => setEsforco(event.target.value)} />
-      </label>
-      <label className="form-field">Situação da tarefa
-        <select disabled={controlsDisabled} value={situacao} onChange={(event) => setSituacao(event.target.value)}>
+    <form className="create-task-form edit-task-form" onSubmit={(event) => void submit(event)} noValidate>
+      <div className="form-field">
+        <label htmlFor={`edit-titulo-${task.id}`}>Título da tarefa</label>
+        <input
+          id={`edit-titulo-${task.id}`}
+          required
+          minLength={2}
+          maxLength={150}
+          disabled={controlsDisabled}
+          value={titulo}
+          onChange={(event) => {
+            setTitulo(event.target.value)
+            clearFieldError('titulo')
+          }}
+          className={`form-control ${fieldErrors.titulo ? 'is-invalid' : ''}`}
+          aria-invalid={fieldErrors.titulo ? 'true' : 'false'}
+          aria-describedby={fieldErrors.titulo ? `edit-titulo-error-${task.id}` : undefined}
+        />
+        {fieldErrors.titulo && (
+          <FieldError id={`edit-titulo-error-${task.id}`} message={fieldErrors.titulo} />
+        )}
+      </div>
+      <div className="form-field">
+        <label htmlFor={`edit-descricao-${task.id}`}>Descrição da tarefa</label>
+        <textarea
+          id={`edit-descricao-${task.id}`}
+          maxLength={1000}
+          rows={2}
+          disabled={controlsDisabled}
+          value={descricao}
+          onChange={(event) => {
+            setDescricao(event.target.value)
+            clearFieldError('descricao')
+          }}
+          className={`form-control ${fieldErrors.descricao ? 'is-invalid' : ''}`}
+          aria-invalid={fieldErrors.descricao ? 'true' : 'false'}
+          aria-describedby={fieldErrors.descricao ? `edit-descricao-error-${task.id}` : undefined}
+        />
+        {fieldErrors.descricao && (
+          <FieldError id={`edit-descricao-error-${task.id}`} message={fieldErrors.descricao} />
+        )}
+      </div>
+      <div className="form-field">
+        <label htmlFor={`edit-ordem-${task.id}`}>Posição da tarefa</label>
+        <input
+          id={`edit-ordem-${task.id}`}
+          type="number"
+          min={1}
+          step={1}
+          disabled={controlsDisabled}
+          value={ordem}
+          onChange={(event) => {
+            setOrdem(event.target.value)
+            clearFieldError('ordem')
+          }}
+          className={`form-control ${fieldErrors.ordem ? 'is-invalid' : ''}`}
+          aria-invalid={fieldErrors.ordem ? 'true' : 'false'}
+          aria-describedby={fieldErrors.ordem ? `edit-ordem-error-${task.id}` : undefined}
+        />
+        {fieldErrors.ordem && (
+          <FieldError id={`edit-ordem-error-${task.id}`} message={fieldErrors.ordem} />
+        )}
+      </div>
+      <div className="form-field">
+        <label htmlFor={`edit-esforco-${task.id}`}>Esforço estimado da tarefa em minutos</label>
+        <input
+          id={`edit-esforco-${task.id}`}
+          type="number"
+          min={1}
+          step={1}
+          disabled={controlsDisabled}
+          value={esforco}
+          onChange={(event) => {
+            setEsforco(event.target.value)
+            clearFieldError('esforco')
+          }}
+          className={`form-control ${fieldErrors.esforco ? 'is-invalid' : ''}`}
+          aria-invalid={fieldErrors.esforco ? 'true' : 'false'}
+          aria-describedby={fieldErrors.esforco ? `edit-esforco-error-${task.id}` : undefined}
+        />
+        {fieldErrors.esforco && (
+          <FieldError id={`edit-esforco-error-${task.id}`} message={fieldErrors.esforco} />
+        )}
+      </div>
+      <div className="form-field">
+        <label htmlFor={`edit-situacao-${task.id}`}>Situação da tarefa</label>
+        <select
+          id={`edit-situacao-${task.id}`}
+          disabled={controlsDisabled}
+          value={situacao}
+          onChange={(event) => setSituacao(event.target.value)}
+          className="form-control"
+        >
           <option value="0">Pendente</option>
           <option value="1">Em andamento</option>
           <option value="2">Concluída</option>
         </select>
-      </label>
+      </div>
       {saving && <p role="status">Salvando tarefa…</p>}
       {error && <p role="alert">{error}</p>}
       {outcomeUnknown && (

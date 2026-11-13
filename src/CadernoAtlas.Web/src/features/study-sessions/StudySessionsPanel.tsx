@@ -1,5 +1,6 @@
 import { useMemo, useState, useCallback, useRef } from 'react'
 import StatusMessage from '../../components/ui/StatusMessage'
+import EmptyState from '../../components/ui/EmptyState'
 import StudySessionForm from './StudySessionForm'
 import StudySessionDetail from './StudySessionDetail'
 import SessionConfirmModal from './SessionConfirmModal'
@@ -293,6 +294,7 @@ export default function StudySessionsPanel({
           title="Não foi possível carregar as sessões de estudo"
           description={state.error ?? 'Tente novamente.'}
           onRetry={onRetry}
+          variant="danger"
         />
       )}
       {state.status === 'error' && state.data && (
@@ -301,13 +303,15 @@ export default function StudySessionsPanel({
           description={state.error ?? 'Tente novamente.'}
           onRetry={onRetry}
           compact
+          variant="warning"
         />
       )}
       {state.data && filteredSessions.length === 0 && (
-        <div className="empty-state">
-          <h3>Nenhuma sessão de estudo encontrada</h3>
-          <p>{hasFilters ? 'Ajuste os filtros ou aguarde novas sessões serem criadas.' : 'As sessões de estudo aparecerão aqui quando forem cadastradas.'}</p>
-        </div>
+        <EmptyState
+          title="Nenhuma sessão de estudo encontrada"
+          description={hasFilters ? 'Ajuste os filtros ou aguarde novas sessões serem criadas.' : 'As sessões de estudo aparecerão aqui quando forem cadastradas.'}
+          icon="book"
+        />
       )}
       {filteredSessions.map((session) => {
         const situacaoPresentation = getSituacaoPresentation(session.situacao)

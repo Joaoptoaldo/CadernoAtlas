@@ -148,14 +148,6 @@ h1 { margin: 0; color: var(--green-deep); font-size: clamp(26px, 2.5vw, 33px); f
 .status-copy p { margin: 5px 0 0; color: #927f76; font-size: 9.5px; line-height: 1.55; }
 .text-button { margin-top: 8px; padding: 0; color: #33786b; background: none; border: 0; font-size: 10px; font-weight: 700; }
 .text-button:hover { text-decoration: underline; }
-.loading-lines { display: grid; gap: 10px; }
-.loading-row { display: flex; gap: 11px; padding: 13px; border: 1px solid #edf0eb; border-radius: 10px; }
-.skeleton { display: block; background: linear-gradient(100deg, #eff2ee 20%, #f8f9f7 45%, #eff2ee 70%); background-size: 200% 100%; animation: skeleton-pulse 1.4s ease-in-out infinite; border-radius: 6px; }
-.skeleton-icon { width: 34px; height: 34px; flex: 0 0 auto; border-radius: 9px; }
-.loading-row-copy { display: flex; flex: 1; flex-direction: column; justify-content: center; gap: 9px; }
-.skeleton-title { width: 66%; height: 10px; }
-.skeleton-detail { width: 43%; height: 8px; }
-@keyframes skeleton-pulse { 0% { background-position: 100% 0; } 100% { background-position: -100% 0; } }
 .page-footer { display: flex; justify-content: space-between; gap: 15px; margin-top: 25px; padding: 16px 1px 5px; color: #9ba49d; border-top: 1px solid #e8ebe6; font-size: 9px; line-height: 1.7; }
 .footer-separator { padding: 0 4px; color: #c2cac3; }
 .demand-filters { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 18px; }

@@ -17,7 +17,7 @@ A migração total do CSS legado para Bootstrap seria de alto custo e risco (reg
    - Sobrescreve componentes Bootstrap via **class-based CSS variables** (`.btn-primary { --bs-btn-bg: ... }`, `.progress-bar { --bs-progress-bar-bg: ... }`, `.form-control { --bs-form-control-border-color: ... }`), conforme documentação Bootstrap 5.3+.
    - **Zero cores hardcoded** (`#0d6efd`, `red`, etc.) no código.
 
-4. **Proibido** importar `bootstrap.min.css` ou `bootstrap.min.js` no bundle. O CSS do Bootstrap já está embutido no `index.css` via variáveis. O JS do Bootstrap não é necessário (usamos componentes React nativos para modais, dropdowns, etc.).
+4. **Bootstrap CSS** é importado oficialmente via `import 'bootstrap/dist/css/bootstrap.min.css'` em `main.tsx` (antes do `index.css`). O `index.css` define o **tema unificado** sobrescrevendo variáveis CSS `--bs-*` e usando class-based CSS variables para personalizar componentes Bootstrap. **Não** importar `bootstrap.min.js` — usamos componentes React nativos para modais, dropdowns, etc.
 
 5. **Migração futura** (sob demanda):
    - Ao alterar um componente legado, avaliar se vale migrar para Bootstrap na mesma PR.
@@ -48,9 +48,11 @@ A migração total do CSS legado para Bootstrap seria de alto custo e risco (reg
 
 ## Implementação
 
-- `src/index.css`: Variáveis `--bs-*` + sobrescritas class-based (`.btn-primary`, `.btn-danger`, `.progress-bar`, `.form-control`, `.form-select`, `a`, `.btn-secondary`, `.btn-outline-secondary`).
-- Novos componentes (`Dashboard.tsx`, `ConfirmActionModal.tsx`, `SessionConfirmModal.tsx`) usam classes Bootstrap.
+- `main.tsx`: Importa `bootstrap/dist/css/bootstrap.min.css` antes do `index.css`.
+- `src/index.css`: Variáveis `--bs-*` (cores, bordas, corpo) + sobrescritas class-based (`.btn-primary`, `.btn-danger`, `.btn-secondary`, `.btn-outline-secondary`, `.progress-bar`, `.form-control`, `.form-select`, `a`, `.alert-danger`, `.alert-warning`).
+- Novos componentes (`Dashboard.tsx`, `ConfirmActionModal.tsx`, `SessionConfirmModal.tsx`, `StatusMessage.tsx`) usam classes Bootstrap (`.alert`, `.card`, `.row`, `.col-*`, `.table`, `.progress`, `.badge`, `.form-control`, `.form-select`, `.btn`, `.modal`).
 - Componentes legados (`StudySessionsPanel.tsx`, `StudySessionDetail.tsx`, `ManageDemandsPanel.tsx`, etc.) mantêm classes legadas.
+- `StatusMessage.tsx` adaptado para usar `.alert`, `.alert-danger`, `.alert-warning` com tema unificado; CSS customizado apenas para composição (ícones, espaçamento, variante compacta).
 
 ## Revisão
 

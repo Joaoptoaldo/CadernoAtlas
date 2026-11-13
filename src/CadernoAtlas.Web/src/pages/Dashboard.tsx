@@ -1,6 +1,8 @@
 import { useStudySessionsData } from '../features/study-sessions/useStudySessionsData'
 import type { LoadState } from '../features/shared/loadState'
 import type { StudySessionListItem } from '../features/study-sessions/studySessionTypes'
+import StatusMessage from '../components/ui/StatusMessage'
+import EmptyState from '../components/ui/EmptyState'
 
 interface DashboardProps {
   sessionsState: LoadState<StudySessionListItem[]>
@@ -66,12 +68,12 @@ export function Dashboard({ sessionsState, weekStart, onNavigateToSessions, onRe
     return (
       <div className="dashboard-scope">
         <div className="container-fluid py-3">
-          <div className="alert alert-danger" role="alert">
-            <strong>Erro ao carregar sessões:</strong> {errorMessage ?? 'Tente novamente.'}
-            <button className="btn btn-sm btn-outline-danger ms-3" type="button" onClick={onRetry}>
-              Recarregar
-            </button>
-          </div>
+          <StatusMessage
+            title="Erro ao carregar sessões"
+            description={errorMessage ?? 'Tente novamente.'}
+            onRetry={onRetry}
+            variant="danger"
+          />
         </div>
       </div>
     )
@@ -80,7 +82,7 @@ export function Dashboard({ sessionsState, weekStart, onNavigateToSessions, onRe
   return (
     <div className="dashboard-scope">
       <div className="container-fluid py-3">
-        <h1 className="h3 mb-3">Visão geral</h1>
+        <h2 className="h3 mb-3">Visão geral</h2>
 
         {/* Linha de KPIs */}
         <div className="row g-3 mb-4" aria-label="Indicadores principais">
@@ -138,9 +140,11 @@ export function Dashboard({ sessionsState, weekStart, onNavigateToSessions, onRe
               </div>
               <div className="card-body p-0">
                 {upcomingSessions.length === 0 ? (
-                  <div className="p-4 text-center text-muted">
-                    Nenhuma sessão planejada para esta semana.
-                  </div>
+                  <EmptyState
+                    title="Nenhuma sessão planejada para esta semana"
+                    description="Cadastre sua primeira sessão de estudo para começar."
+                    icon="calendar"
+                  />
                 ) : (
                   <div className="table-responsive">
                     <table className="table table-hover align-middle mb-0" aria-label="Próximas sessões planejadas">
