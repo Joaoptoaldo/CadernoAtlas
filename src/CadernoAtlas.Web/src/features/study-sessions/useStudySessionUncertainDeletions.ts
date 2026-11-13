@@ -89,21 +89,35 @@ export function useStudySessionUncertainDeletions() {
   }, [forceUpdate])
 
   const registerDeleteUncertain = useCallback((sessionId: number): void => {
-    setUncertainDeletions((prev) => {
-      const exists = prev.some((d) => d.sessionId === sessionId)
-      if (exists) return prev
-      const next = [...prev, { sessionId, timestamp: Date.now() }]
-      saveToStorage(next)
-      return next
-    })
+    const current = loadFromStorage()
+
+    const exists = current.some(
+      (deletion) => deletion.sessionId === sessionId
+    )
+
+    if (exists) return
+
+    const next = [
+      ...current,
+      { sessionId, timestamp: Date.now() },
+    ]
+
+    // Persistir e notificar fora da função de atualização do React.
+    saveToStorage(next)
+    setUncertainDeletions(next)
   }, [])
 
   const clearDeleteUncertain = useCallback((sessionId: number): void => {
-    setUncertainDeletions((prev) => {
-      const next = prev.filter((d) => d.sessionId !== sessionId)
-      saveToStorage(next)
-      return next
-    })
+    const current = loadFromStorage()
+    const next = current.filter(
+      (deletion) => deletion.sessionId !== sessionId
+    )
+
+    if (next.length === current.length) return
+
+    // Persistir e notificar fora da função de atualização do React.
+    saveToStorage(next)
+    setUncertainDeletions(next)
   }, [])
 
   const isDeleteUncertain = useCallback(

@@ -12,6 +12,7 @@ export interface PlanningConfirmationRequest {
 
 interface UsePlanningWorkflowOptions {
   mondayIso: string
+  availabilityOutcomeUnknown: boolean
   concurrencyLocks: Pick<
     ConcurrencyLocks,
     'confirmationInProgressRef' | 'demandUpdateInProgressRef' | 'demandCreationInProgressRef' | 'availabilityCreationInProgressRef' | 'taskMutationInProgressRef' | 'studySessionMutationInProgressRef' | 'dataMutationInProgressRef' | 'setDataMutationInProgress'
@@ -36,6 +37,7 @@ export function usePlanningWorkflow(options: UsePlanningWorkflowOptions): UsePla
   const {
     mondayIso,
     concurrencyLocks,
+    availabilityOutcomeUnknown,
     onRefreshAllDataOnly,
     onRefreshStudySessions,
     getErrorMessage,
@@ -72,6 +74,7 @@ export function usePlanningWorkflow(options: UsePlanningWorkflowOptions): UsePla
 
   const generatePreview = useCallback(async () => {
     if (
+      availabilityOutcomeUnknown ||
       demandCreationInProgressRef.current ||
       availabilityCreationInProgressRef.current ||
       confirmationInProgressRef.current ||
@@ -99,12 +102,26 @@ export function usePlanningWorkflow(options: UsePlanningWorkflowOptions): UsePla
         error: getErrorMessage(error, 'Verifique se a API está disponível e tente novamente.'),
       })
     }
-  }, [mondayIso, demandCreationInProgressRef, availabilityCreationInProgressRef, confirmationInProgressRef, demandUpdateInProgressRef, taskMutationInProgressRef, studySessionMutationInProgressRef, dataMutationInProgressRef, getErrorMessage, hasUncertainTransitions])
+  }, [
+    mondayIso,
+    availabilityOutcomeUnknown,
+    demandCreationInProgressRef,
+    availabilityCreationInProgressRef,
+    confirmationInProgressRef,
+    demandUpdateInProgressRef,
+    taskMutationInProgressRef,
+    studySessionMutationInProgressRef,
+    dataMutationInProgressRef,
+    getErrorMessage,
+    hasUncertainTransitions,
+  ])
 
   const confirmPreview = useCallback(async () => {
     const proposta = previewState.data
     if (
       !proposta ||
+      availabilityOutcomeUnknown ||
+      dataMutationInProgressRef.current ||
       confirmationInProgressRef.current ||
       demandUpdateInProgressRef.current ||
       demandCreationInProgressRef.current ||
@@ -189,7 +206,23 @@ export function usePlanningWorkflow(options: UsePlanningWorkflowOptions): UsePla
       confirmationInProgressRef.current = false
       setDataMutationInProgress(false)
     }
-  }, [previewState.data, confirmState, confirmationInProgressRef, demandUpdateInProgressRef, demandCreationInProgressRef, availabilityCreationInProgressRef, taskMutationInProgressRef, studySessionMutationInProgressRef, setDataMutationInProgress, getErrorMessage, onRefreshAllDataOnly, onRefreshStudySessions, hasUncertainTransitions])
+  }, [
+    previewState.data,
+    confirmState,
+    availabilityOutcomeUnknown,
+    confirmationInProgressRef,
+    demandUpdateInProgressRef,
+    demandCreationInProgressRef,
+    availabilityCreationInProgressRef,
+    taskMutationInProgressRef,
+    studySessionMutationInProgressRef,
+    dataMutationInProgressRef,
+    setDataMutationInProgress,
+    getErrorMessage,
+    onRefreshAllDataOnly,
+    onRefreshStudySessions,
+    hasUncertainTransitions,
+  ])
 
   return {
     previewState,

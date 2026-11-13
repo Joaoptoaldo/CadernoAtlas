@@ -59,6 +59,7 @@ export default defineConfig({
     include: [
       '../../tests/CadernoAtlas.Web.Tests/**/*.test.{js,jsx}',
     ],
+    fileParallelism: false,
     environment: 'jsdom',
     setupFiles: ['./vitest.setup.js'],
     clearMocks: true,

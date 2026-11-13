@@ -1,18 +1,27 @@
+import { useStudySessionUncertainEdits } from './useStudySessionUncertainEdits'
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { apiGet, isHttpError } from '../../apiClient'
 import { isMutationSyncError } from '../shared/mutationOutcome'
-import type { StudySessionDemand, StudySessionListItem, StudySessionRequest, StudySessionTask } from './studySessionTypes'
+import type {
+  StudySession,
+  StudySessionDemand,
+  StudySessionListItem,
+  StudySessionRequest,
+  StudySessionTask,
+} from './studySessionTypes'
 
 interface StudySessionFormProps {
   mode: 'create' | 'edit'
+  sessionId?: number
   initialValue?: StudySessionRequest
   demands: StudySessionDemand[]
   onLoadTasks: (demandId: number, signal: AbortSignal) => Promise<StudySessionTask[]>
   onSubmit: (request: StudySessionRequest) => Promise<void>
   onCancel: () => void
   onReconcile: () => Promise<StudySessionListItem[] | void>
-  outcomeUnknown: boolean
-  onOutcomeUnknownChange: (value: boolean) => void
+  onSessionReconciled?: (session: StudySession) => void
+  outcomeUnknown?: boolean
+  onOutcomeUnknownChange?: (value: boolean) => void
 }
 
 const emptyRequest: StudySessionRequest = {
@@ -29,32 +38,69 @@ function getErrorMessage(error: unknown, fallback: string): string {
   return error instanceof Error && error.message ? error.message : fallback
 }
 
+function matchesStudySessionRequest(
+  session: StudySession,
+  request: StudySessionRequest
+): boolean {
+  const currentObservations = session.observacoes?.trim() || null
+  const submittedObservations = request.observacoes?.trim() || null
+
+  return (
+    session.titulo.trim() === request.titulo.trim() &&
+    session.dataPlanejada === request.dataPlanejada &&
+    session.horaInicioPlanejada.slice(0, 5) === request.horaInicioPlanejada.slice(0, 5) &&
+    session.duracaoPlanejadaMinutos === request.duracaoPlanejadaMinutos &&
+    session.demandaAcademicaId === request.demandaAcademicaId &&
+    session.tarefaDemandaId === request.tarefaDemandaId &&
+    currentObservations === submittedObservations
+  )
+}
+
 export default function StudySessionForm({
   mode,
+  sessionId,
   initialValue,
   demands,
   onLoadTasks,
   onSubmit,
   onCancel,
   onReconcile,
-  outcomeUnknown: initialOutcomeUnknown,
-  onOutcomeUnknownChange,
+  onSessionReconciled,
+  outcomeUnknown: initialOutcomeUnknown = false,
+  onOutcomeUnknownChange = () => {},
 }: StudySessionFormProps) {
-  const [form, setForm] = useState<StudySessionRequest>(() => {
-    if (!initialValue) return emptyRequest
-    return initialValue.tarefaDemandaId === null
-      ? initialValue
-      : { ...initialValue, demandaAcademicaId: null }
+    const {
+    getUncertainEditForSession,
+    registerUncertainEdit,
+    clearUncertainEdit,
+  } = useStudySessionUncertainEdits()
+
+  const persistedUncertainEdit =
+    mode === 'edit' && sessionId !== undefined
+      ? getUncertainEditForSession(sessionId)
+      : null
+    const [form, setForm] = useState<StudySessionRequest>(() => {
+    const recoveredRequest = persistedUncertainEdit?.request ?? initialValue
+
+    if (!recoveredRequest) return emptyRequest
+
+    return recoveredRequest.tarefaDemandaId === null
+      ? recoveredRequest
+      : { ...recoveredRequest, demandaAcademicaId: null }
   })
   const [tasks, setTasks] = useState<StudySessionTask[]>([])
   const [tasksStatus, setTasksStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle')
   const [error, setError] = useState<string | null>(null)
-  const [outcomeUnknown, setOutcomeUnknown] = useState(initialOutcomeUnknown)
+    const [outcomeUnknown, setOutcomeUnknown] = useState(
+    initialOutcomeUnknown || persistedUncertainEdit !== null
+  )
   const [synchronizationFailed, setSynchronizationFailed] = useState(false)
   const [reconciling, setReconciling] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const submitRef = useRef(false)
-  const lastSubmittedRequestRef = useRef<StudySessionRequest | null>(null)
+    const lastSubmittedRequestRef = useRef<StudySessionRequest | null>(
+    persistedUncertainEdit?.request ?? null
+  )
   const existingSessionIdsRef = useRef<Set<number>>(new Set())
   const tasksRequestRef = useRef(0)
   const controlsDisabled = submitting || reconciling
@@ -136,7 +182,13 @@ export default function StudySessionForm({
     onOutcomeUnknownChange(false)
     try {
       await onSubmit(submittedData)
-      // Operação confirmada com sucesso - fechar o formulário
+
+      // A edição foi confirmada; remover qualquer registro de incerteza anterior.
+      if (mode === 'edit' && sessionId !== undefined) {
+        clearUncertainEdit(sessionId)
+      }
+
+      // Operação confirmada com sucesso - fechar o formulário.
       onCancel()
     } catch (submitError: unknown) {
       const status = isHttpError(submitError) ? submitError.status : null
@@ -146,12 +198,17 @@ export default function StudySessionForm({
         setOutcomeUnknown(false)
         onOutcomeUnknownChange(false)
         setError(submitError.message)
-      } else if (status === null || status === 408 || status === 429 || status >= 500) {
-        // Resultado incerto - falha de rede ou timeout
-        setOutcomeUnknown(true)
-        onOutcomeUnknownChange(true)
-        setSynchronizationFailed(false)
-        setError('Não foi possível confirmar o resultado da operação. Consulte a lista antes de decidir se tentará novamente.')
+    } else if (status === null || status === 408 || status === 429 || status >= 500) {
+      // Resultado incerto - falha de rede ou timeout.
+      // Em edições, preservar a operação original para recuperação posterior.
+      if (mode === 'edit' && sessionId !== undefined) {
+        registerUncertainEdit(sessionId, submittedData)
+      }
+
+      setOutcomeUnknown(true)
+      onOutcomeUnknownChange(true)
+      setSynchronizationFailed(false)
+      setError('Não foi possível confirmar o resultado da operação. Consulte a lista antes de decidir se tentará novamente.')
       } else if (status === 404) {
         setError('A sessão ou o vínculo informado não foi encontrado.')
       } else if (status === 409) {
@@ -167,11 +224,78 @@ export default function StudySessionForm({
     }
   }
 
+  async function reconcileEdit(sessionId: number): Promise<void> {
+    const submitted =
+      lastSubmittedRequestRef.current ??
+      getUncertainEditForSession(sessionId)?.request ??
+      null
+
+    if (!submitted) {
+      setError(
+        'Não foi possível recuperar os dados originais da edição. O bloqueio foi mantido para evitar uma nova tentativa sem confirmação.'
+      )
+      return
+    }
+
+    const currentSession = await apiGet<StudySession>(
+      `/api/sessoes-estudo/${sessionId}`
+    )
+
+    // Atualizar também os detalhes exibidos no componente pai.
+    onSessionReconciled?.(currentSession)
+
+    const editWasApplied = matchesStudySessionRequest(currentSession, submitted)
+
+    // A consulta individual respondeu: agora existe informação atual do servidor.
+    clearUncertainEdit(sessionId)
+    setOutcomeUnknown(false)
+    onOutcomeUnknownChange(false)
+    setSynchronizationFailed(false)
+
+    if (editWasApplied) {
+      try {
+        await onReconcile()
+        onCancel()
+      } catch {
+        // A edição foi confirmada, mas a listagem ainda precisa ser sincronizada.
+        setSynchronizationFailed(true)
+        setError(
+          'A edição foi confirmada pelo servidor, mas a lista não pôde ser atualizada. Atualize a lista antes de continuar; não é necessário reenviar a edição.'
+        )
+      }
+
+      return
+    }
+
+    // O estado atual não corresponde ao payload enviado.
+    // Manter os dados no formulário para revisão e eventual nova tentativa.
+    let refreshWarning = ''
+
+    try {
+      await onReconcile()
+    } catch {
+      refreshWarning =
+        ' A listagem também não pôde ser atualizada.'
+    }
+
+    setError(
+      'A sessão foi consultada, mas os dados atuais são diferentes dos enviados. A alteração não está refletida no estado atual. Revise os dados abaixo e salve novamente somente se ainda desejar aplicá-los.' +
+        refreshWarning
+    )
+  }
+
   async function reconcile(): Promise<void> {
     if (reconciling) return
+
     setReconciling(true)
     setError(null)
+
     try {
+      if (mode === 'edit' && sessionId !== undefined && outcomeUnknown) {
+        await reconcileEdit(sessionId)
+        return
+      }
+
       const wasSyncFailed = synchronizationFailed
       const reconcileResult = await onReconcile()
 
@@ -232,7 +356,15 @@ export default function StudySessionForm({
         setError('Não foi possível confirmar a criação da sessão na lista consultada. O resultado continua incerto; não reenvie para evitar duplicidade.')
       }
     } catch (reconcileError: unknown) {
-      setError(getErrorMessage(reconcileError, 'Não foi possível consultar as sessões. Tente novamente.'))
+      const message =
+        reconcileError instanceof TypeError
+          ? 'Não foi possível consultar as sessões. Verifique sua conexão e tente novamente.'
+          : getErrorMessage(
+              reconcileError,
+              'Não foi possível consultar as sessões. Tente novamente.'
+            )
+
+      setError(message)
     } finally {
       setReconciling(false)
     }

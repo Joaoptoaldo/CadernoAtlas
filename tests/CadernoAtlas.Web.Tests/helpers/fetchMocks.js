@@ -119,6 +119,7 @@ export function setupFetch({
       horaFim: '12:00:00',
     },
   },
+  availabilityPostPersistsOnError = false,
   availabilityCreateGate,
   availabilityGetGate,
   availabilityGetError,
@@ -428,7 +429,11 @@ export function setupFetch({
     if (path === '/api/disponibilidades-estudo' && init.method === 'POST') {
       availabilityPostRequests += 1
       if (availabilityCreateGate) await availabilityCreateGate
-      if (availabilityPostResponse.status >= 200 && availabilityPostResponse.status < 300) {
+      const postSucceeded =
+        availabilityPostResponse.status >= 200 &&
+        availabilityPostResponse.status < 300
+
+      if (postSucceeded || availabilityPostPersistsOnError) {
         currentAvailability = [...currentAvailability, availabilityPostResponse.data]
       }
       return jsonResponse(availabilityPostResponse.data, availabilityPostResponse.status)

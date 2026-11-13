@@ -28,7 +28,6 @@ export interface UseDemandMutationsOptions {
   refreshAllDemands: () => Promise<void>
   reconcileAllDemands: () => Promise<import('./ManageDemandsPanel').AcademicDemandRecord[]>
   setDemandState: React.Dispatch<React.SetStateAction<LoadState<any>>>
-  setAllDemandsState: React.Dispatch<React.SetStateAction<LoadState<any>>>
   setDemandReloadToken: React.Dispatch<React.SetStateAction<number>>
 }
 
@@ -52,7 +51,6 @@ export function useDemandMutations(options: UseDemandMutationsOptions): UseDeman
     refreshAllDemands,
     reconcileAllDemands,
     setDemandState,
-    setAllDemandsState,
     setDemandReloadToken,
   } = options
 
@@ -62,14 +60,12 @@ export function useDemandMutations(options: UseDemandMutationsOptions): UseDeman
     availabilityCreationInProgressRef,
     confirmationInProgressRef,
     taskMutationInProgressRef,
-    dataMutationInProgressRef: providedDataMutationInProgressRef,
+    dataMutationInProgressRef,
     setDemandCreationInProgress,
     setDemandUpdateInProgress,
     setTaskMutationInProgress,
-    setDataMutationInProgress: providedSetDataMutationInProgress,
+    setDataMutationInProgress,
   } = concurrencyLocks
-  const dataMutationInProgressRef = providedDataMutationInProgressRef ?? { current: false }
-  const setDataMutationInProgress = providedSetDataMutationInProgress ?? (() => {})
 
   const [isCreatingDemand, setIsCreatingDemand] = useState(false)
   const [isUpdatingDemand, setIsUpdatingDemand] = useState(false)
@@ -175,7 +171,6 @@ export function useDemandMutations(options: UseDemandMutationsOptions): UseDeman
     invalidatePreview,
     setDemandState,
     setDemandReloadToken,
-    setAllDemandsState,
     reconcileAllDemands,
     setDemandUpdateInProgress,
     dataMutationInProgressRef,

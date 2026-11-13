@@ -4,12 +4,14 @@ import { renderApp } from '../helpers/renderApp.jsx'
 import { setupFetch, studySessionFixture } from '../helpers/fetchMocks.js'
 import { clearAllUncertainTransitions } from '../../../src/CadernoAtlas.Web/src/features/study-sessions/useStudySessionUncertainTransitions'
 import { clearAllUncertainDeletions } from '../../../src/CadernoAtlas.Web/src/features/study-sessions/useStudySessionUncertainDeletions'
+import { clearAllUncertainEdits } from '../../../src/CadernoAtlas.Web/src/features/study-sessions/useStudySessionUncertainEdits'
 import userEvent from '@testing-library/user-event'
 
 describe('Sessões de estudo — Reconciliação', () => {
   beforeEach(() => {
     clearAllUncertainTransitions()
     clearAllUncertainDeletions()
+    clearAllUncertainEdits()
   })
 
   it('reconciliação bem-sucedida no modal libera bloqueios apropriados', async () => {
@@ -488,5 +490,150 @@ describe('Sessões de estudo — Reconciliação', () => {
     await expect(act(async () => {
       await result.current.transitionSession(1, 'iniciar')
     })).rejects.toThrow('Esta sessão possui uma exclusão não reconciliada')
+  })
+
+  it('useStudySessionMutations.updateSession rejeita edição quando há edição incerta', async () => {
+    const { renderHook, act } = await import('@testing-library/react')
+    const { useStudySessionMutations } = await import('../../../src/CadernoAtlas.Web/src/features/study-sessions/useStudySessionMutations')
+
+    sessionStorage.setItem('cadernoatlas:uncertain-session-edits', JSON.stringify([
+      {
+        sessionId: 1,
+        request: {
+          titulo: 'Edição pendente',
+          dataPlanejada: '2026-11-13',
+          horaInicioPlanejada: '14:00',
+          duracaoPlanejadaMinutos: 60,
+          demandaAcademicaId: null,
+          tarefaDemandaId: null,
+          observacoes: null,
+        },
+        timestamp: Date.now(),
+      },
+    ]))
+
+    const concurrencyLocks = {
+      confirmationInProgressRef: { current: false },
+      dataMutationInProgressRef: { current: false },
+      studySessionMutationInProgressRef: { current: false },
+      setStudySessionMutationInProgress: vi.fn(),
+      setDataMutationInProgress: vi.fn(),
+    }
+
+    const { result } = renderHook(() =>
+      useStudySessionMutations({
+        refresh: vi.fn().mockResolvedValue(undefined),
+        invalidatePreview: vi.fn(),
+        concurrencyLocks,
+      })
+    )
+
+    const request = {
+      titulo: 'Nova tentativa',
+      dataPlanejada: '2026-11-13',
+      horaInicioPlanejada: '14:00',
+      duracaoPlanejadaMinutos: 60,
+      demandaAcademicaId: null,
+      tarefaDemandaId: null,
+      observacoes: null,
+    }
+
+    await expect(
+      act(async () => {
+        await result.current.updateSession(1, request)
+      })
+    ).rejects.toThrow('Esta sessão possui uma edição não reconciliada')
+
+    expect(concurrencyLocks.setStudySessionMutationInProgress).not.toHaveBeenCalled()
+  })
+
+  it('useStudySessionMutations.transitionSession rejeita transição quando há edição incerta', async () => {
+    const { renderHook, act } = await import('@testing-library/react')
+    const { useStudySessionMutations } = await import('../../../src/CadernoAtlas.Web/src/features/study-sessions/useStudySessionMutations')
+
+    sessionStorage.setItem('cadernoatlas:uncertain-session-edits', JSON.stringify([
+      {
+        sessionId: 1,
+        request: {
+          titulo: 'Edição pendente',
+          dataPlanejada: '2026-11-13',
+          horaInicioPlanejada: '14:00',
+          duracaoPlanejadaMinutos: 60,
+          demandaAcademicaId: null,
+          tarefaDemandaId: null,
+          observacoes: null,
+        },
+        timestamp: Date.now(),
+      },
+    ]))
+
+    const concurrencyLocks = {
+      confirmationInProgressRef: { current: false },
+      dataMutationInProgressRef: { current: false },
+      studySessionMutationInProgressRef: { current: false },
+      setStudySessionMutationInProgress: vi.fn(),
+      setDataMutationInProgress: vi.fn(),
+    }
+
+    const { result } = renderHook(() =>
+      useStudySessionMutations({
+        refresh: vi.fn().mockResolvedValue(undefined),
+        invalidatePreview: vi.fn(),
+        concurrencyLocks,
+      })
+    )
+
+    await expect(
+      act(async () => {
+        await result.current.transitionSession(1, 'iniciar')
+      })
+    ).rejects.toThrow('Esta sessão possui uma edição não reconciliada')
+
+    expect(concurrencyLocks.setStudySessionMutationInProgress).not.toHaveBeenCalled()
+  })
+
+  it('useStudySessionMutations.deleteSession rejeita exclusão quando há edição incerta', async () => {
+    const { renderHook, act } = await import('@testing-library/react')
+    const { useStudySessionMutations } = await import('../../../src/CadernoAtlas.Web/src/features/study-sessions/useStudySessionMutations')
+
+    sessionStorage.setItem('cadernoatlas:uncertain-session-edits', JSON.stringify([
+      {
+        sessionId: 1,
+        request: {
+          titulo: 'Edição pendente',
+          dataPlanejada: '2026-11-13',
+          horaInicioPlanejada: '14:00',
+          duracaoPlanejadaMinutos: 60,
+          demandaAcademicaId: null,
+          tarefaDemandaId: null,
+          observacoes: null,
+        },
+        timestamp: Date.now(),
+      },
+    ]))
+
+    const concurrencyLocks = {
+      confirmationInProgressRef: { current: false },
+      dataMutationInProgressRef: { current: false },
+      studySessionMutationInProgressRef: { current: false },
+      setStudySessionMutationInProgress: vi.fn(),
+      setDataMutationInProgress: vi.fn(),
+    }
+
+    const { result } = renderHook(() =>
+      useStudySessionMutations({
+        refresh: vi.fn().mockResolvedValue(undefined),
+        invalidatePreview: vi.fn(),
+        concurrencyLocks,
+      })
+    )
+
+    await expect(
+      act(async () => {
+        await result.current.deleteSession(1)
+      })
+    ).rejects.toThrow('Esta sessão possui uma edição não reconciliada')
+
+    expect(concurrencyLocks.setStudySessionMutationInProgress).not.toHaveBeenCalled()
   })
 })

@@ -32,7 +32,6 @@ export default function AvailabilityPanel({
   isUpdatingTask,
   isDeletingTask,
   outcomeUnknown,
-  onOutcomeUnknownChange,
 }: AvailabilityPanelProps) {
   const taskMutationInProgress = isCreatingTask || isUpdatingTask || isDeletingTask
   const [isFormOpen, setIsFormOpen] = useState(false)
@@ -92,7 +91,6 @@ export default function AvailabilityPanel({
           onReconcile={onReconcile}
           disabled={isConfirming || isUpdatingDemand || taskMutationInProgress}
           outcomeUnknown={outcomeUnknown}
-          onOutcomeUnknownChange={onOutcomeUnknownChange}
         />
       )}
 

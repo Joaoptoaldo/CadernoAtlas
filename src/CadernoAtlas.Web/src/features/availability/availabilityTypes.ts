@@ -27,5 +27,4 @@ export interface AvailabilityPanelProps {
   isUpdatingTask: boolean
   isDeletingTask: boolean
   outcomeUnknown: boolean
-  onOutcomeUnknownChange: (value: boolean) => void
 }

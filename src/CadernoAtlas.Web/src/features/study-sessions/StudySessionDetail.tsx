@@ -1,3 +1,4 @@
+import { useStudySessionUncertainEdits } from './useStudySessionUncertainEdits'
 import { useEffect, useState, useRef, useReducer, useCallback } from 'react'
 import { apiGet, isHttpError } from '../../apiClient'
 import { isMutationSyncError } from '../shared/mutationOutcome'
@@ -111,7 +112,6 @@ export default function StudySessionDetail({
   onLoadTasks,
   onUpdate,
   onReconcile,
-  onEditOutcomeUnknownChange,
   onTransition,
   onDelete,
   isTransitioning,
@@ -120,11 +120,13 @@ export default function StudySessionDetail({
   onReconcileDelete,
   getErrorMessage,
 }: StudySessionDetailProps) {
+  const { isUncertainEdit } = useStudySessionUncertainEdits()
+  const hasUncertainEditForSession = isUncertainEdit(sessionId)
   const [session, setSession] = useState<StudySession | null>(null)
   const [status, setStatus] = useState<'loading' | 'success' | 'error'>('loading')
   const [error, setError] = useState<string | null>(null)
   const [errorStatus, setErrorStatus] = useState<number | null>(null)
-  const [editing, setEditing] = useState(false)
+  const [editing, setEditing] = useState(() => hasUncertainEditForSession)
   const [reloadToken, setReloadToken] = useState(0)
   const [transitioning, setTransitioning] = useState(false)
   const [transitionError, setTransitionError] = useState<string | null>(null)
@@ -152,9 +154,8 @@ export default function StudySessionDetail({
 
   const handleDeleteSyncFailure = useCallback((message: string) => {
     dispatchSync({ type: 'SET_DELETE_SYNC_FAILED' })
-    onEditOutcomeUnknownChange(false)
     setTransitionError(message)
-  }, [onEditOutcomeUnknownChange])
+  }, [])
 
   const shouldShowDeleteWarning =
     hasDeleteUncertainForSession ||
@@ -221,78 +222,66 @@ export default function StudySessionDetail({
     setTransitioning(true)
     setTransitionError(null)
     dispatchSync({ type: 'RESET' })
-    onEditOutcomeUnknownChange(false)
     try {
       const updated = await onTransition(sessionId, transition)
       setSession(updated)
       // Sucesso - limpar estados de erro
       dispatchSync({ type: 'RESET' })
-      onEditOutcomeUnknownChange(false)
     } catch (transitionFailure: unknown) {
       const status = isHttpError(transitionFailure) ? transitionFailure.status : null
       if (isMutationSyncError(transitionFailure)) {
         // Operação confirmada, mas falha ao atualizar a lista
         dispatchSync({ type: 'SET_TRANSITION_SYNC_FAILED' })
-        onEditOutcomeUnknownChange(false)
         setTransitionError(transitionFailure.message)
       } else if (status === null || status === 408 || status === 429 || status >= 500) {
         // Resultado incerto - falha de rede ou timeout
         dispatchSync({ type: 'SET_OUTCOME_UNKNOWN' })
-        onEditOutcomeUnknownChange(true)
         setTransitionError('Não foi possível confirmar o resultado da operação. Consulte a lista antes de decidir se tentará novamente.')
       } else if (status === 404) {
         // 404 definitivo vindo da mutação: sessão não encontrada
         dispatchSync({ type: 'RESET' })
-        onEditOutcomeUnknownChange(false)
         setTransitionError('A sessão informada não foi encontrada.')
       } else {
         dispatchSync({ type: 'RESET' })
-        onEditOutcomeUnknownChange(false)
         setTransitionError(transitionFailure instanceof Error ? transitionFailure.message : 'Não foi possível atualizar a situação da sessão.')
       }
     } finally {
       setTransitioning(false)
     }
-  }, [hasUncertainForSession, onEditOutcomeUnknownChange, onTransition, sessionId])
+  }, [hasUncertainForSession, onTransition, sessionId])
 
   const handleConfirmTransition = useCallback(async (transition: StudySessionTransition) => {
     setConfirmAction(null)
     setTransitioning(true)
     setTransitionError(null)
     dispatchSync({ type: 'RESET' })
-    onEditOutcomeUnknownChange(false)
     try {
       const updated = await onTransition(sessionId, transition)
       setSession(updated)
       // Sucesso - limpar estados de erro
       dispatchSync({ type: 'RESET' })
-      onEditOutcomeUnknownChange(false)
     } catch (transitionFailure: unknown) {
       const status = isHttpError(transitionFailure) ? transitionFailure.status : null
       if (isMutationSyncError(transitionFailure)) {
         // Operação confirmada, mas falha ao atualizar a lista
         dispatchSync({ type: 'SET_TRANSITION_SYNC_FAILED' })
-        onEditOutcomeUnknownChange(false)
         setTransitionError(transitionFailure.message)
       } else if (status === null || status === 408 || status === 429 || status >= 500) {
         // Resultado incerto - falha de rede ou timeout
         dispatchSync({ type: 'SET_OUTCOME_UNKNOWN' })
-        onEditOutcomeUnknownChange(true)
         setTransitionError('Não foi possível confirmar o resultado da operação. Consulte a lista antes de decidir se tentará novamente.')
       } else if (status === 404) {
         // 404 definitivo vindo da mutação: sessão não encontrada
         dispatchSync({ type: 'RESET' })
-        onEditOutcomeUnknownChange(false)
         setTransitionError('A sessão informada não foi encontrada.')
       } else {
         dispatchSync({ type: 'RESET' })
-        onEditOutcomeUnknownChange(false)
         setTransitionError(transitionFailure instanceof Error ? transitionFailure.message : 'Não foi possível atualizar a situação da sessão.')
       }
     } finally {
       setTransitioning(false)
     }
-  }, [onEditOutcomeUnknownChange, onTransition, sessionId])
+  }, [onTransition, sessionId])
 
   const reconcileDelete = useCallback(async (): Promise<void> => {
     if (reconciling) return
@@ -307,7 +296,6 @@ export default function StudySessionDetail({
       clearUncertain(sessionId)
       clearDeleteUncertain(sessionId)
       dispatchSync({ type: 'RESET' })
-      onEditOutcomeUnknownChange(false)
       // Se ainda for planejada (situacao === 0), permitir nova tentativa
       if (individual.situacao !== 0) {
         setTransitionError('Esta sessão não está mais planejada e não pode ser excluída.')
@@ -328,7 +316,6 @@ export default function StudySessionDetail({
         clearUncertain(sessionId)
         clearDeleteUncertain(sessionId)
         dispatchSync({ type: 'RESET' })
-        onEditOutcomeUnknownChange(false)
         try {
           await reconcileDeleteAction()
           // Sucesso total - exclusão confirmada e lista sincronizada
@@ -354,7 +341,6 @@ export default function StudySessionDetail({
     sessionId,
     clearUncertain,
     clearDeleteUncertain,
-    onEditOutcomeUnknownChange,
     reconcileDeleteAction,
     onClose,
     handleDeleteSyncFailure,
@@ -382,14 +368,12 @@ export default function StudySessionDetail({
     setTransitioning(true)
     setTransitionError(null)
     dispatchSync({ type: 'RESET' })
-    onEditOutcomeUnknownChange(false)
     try {
       await onDelete(sessionId)
       // Sucesso na exclusão:
       // 1. Limpar estados de erro e sincronização relacionados à operação
       dispatchSync({ type: 'RESET' })
       setTransitionError(null)
-      onEditOutcomeUnknownChange(false)
       // 2. Limpar informações temporárias de incerteza
       clearDeleteUncertain(sessionId)
       clearUncertain(sessionId)
@@ -406,23 +390,19 @@ export default function StudySessionDetail({
       } else if (status === null || status === 408 || status === 429 || status >= 500) {
         // Resultado incerto - falha de rede ou timeout
         dispatchSync({ type: 'SET_OUTCOME_UNKNOWN' })
-        onEditOutcomeUnknownChange(true)
         setTransitionError('Não foi possível confirmar o resultado da exclusão. Consulte a sessão antes de tentar novamente.')
       } else if (status === 409) {
         // 409: sessão não é planejada
         dispatchSync({ type: 'RESET' })
-        onEditOutcomeUnknownChange(false)
         setTransitionError(deleteFailure instanceof Error ? deleteFailure.message : 'Não é possível excluir esta sessão.')
       } else {
         dispatchSync({ type: 'RESET' })
-        onEditOutcomeUnknownChange(false)
         setTransitionError(deleteFailure instanceof Error ? deleteFailure.message : 'Não foi possível excluir a sessão.')
       }
     } finally {
       setTransitioning(false)
     }
   }, [
-    onEditOutcomeUnknownChange,
     onDelete,
     sessionId,
     clearDeleteUncertain,
@@ -443,7 +423,6 @@ export default function StudySessionDetail({
       // Bloqueios só são liberados depois que o estado atual é conhecido
       clearUncertain(sessionId)
       dispatchSync({ type: 'RESET' })
-      onEditOutcomeUnknownChange(false)
       try {
         await onReconcile()
       } catch {
@@ -458,7 +437,6 @@ export default function StudySessionDetail({
     reconciling,
     sessionId,
     clearUncertain,
-    onEditOutcomeUnknownChange,
     onReconcile,
     resolveErrorMessage,
   ])
@@ -543,12 +521,13 @@ export default function StudySessionDetail({
     return null
   }
 
-  if (editing && session.situacao === 0) {
+  if ((editing && session.situacao === 0) || hasUncertainEditForSession) {
     return (
       <div className="study-session-detail-overlay" role="dialog" aria-modal="true" aria-labelledby="detail-title">
         <div className="study-session-detail-panel">
           <StudySessionForm
             mode="edit"
+            sessionId={session.id}
             initialValue={{
               titulo: session.titulo,
               dataPlanejada: session.dataPlanejada,
@@ -567,8 +546,7 @@ export default function StudySessionDetail({
             }}
             onCancel={() => setEditing(false)}
             onReconcile={onReconcile}
-            outcomeUnknown={false}
-            onOutcomeUnknownChange={onEditOutcomeUnknownChange}
+            onSessionReconciled={setSession}
           />
         </div>
       </div>

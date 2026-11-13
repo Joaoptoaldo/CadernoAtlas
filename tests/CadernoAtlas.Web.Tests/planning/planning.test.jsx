@@ -1,7 +1,8 @@
-import { describe, expect, it } from 'vitest'
-import { fireEvent, screen, waitFor, within } from '@testing-library/react'
+import { describe, expect, it, vi } from 'vitest'
+import { act, fireEvent, renderHook, screen, waitFor, within } from '@testing-library/react'
 import { renderApp } from '../helpers/renderApp.jsx'
 import { setupFetch, buildPreview, getCurrentMondayIso } from '../helpers/fetchMocks.js'
+import { usePlanningWorkflow } from '../../../src/CadernoAtlas.Web/src/features/planning/usePlanningWorkflow'
 
 describe('Planejamento semanal e acessibilidade', () => {
   it('oferece um link para pular ao conteúdo principal', () => {
@@ -609,5 +610,63 @@ describe('Planejamento semanal e acessibilidade', () => {
     ).toBeInTheDocument()
 
     expect(fetchMock.getConfirmationPostRequests()).toBe(1)
+  })
+
+  it('bloqueia a confirmação quando uma disponibilidade tem resultado incerto', async () => {
+    const fetchMock = setupFetch()
+
+    const dataMutationInProgressRef = { current: false }
+
+    const concurrencyLocks = {
+      confirmationInProgressRef: { current: false },
+      demandUpdateInProgressRef: { current: false },
+      demandCreationInProgressRef: { current: false },
+      availabilityCreationInProgressRef: { current: false },
+      taskMutationInProgressRef: { current: false },
+      studySessionMutationInProgressRef: { current: false },
+      dataMutationInProgressRef,
+      setDataMutationInProgress: (value) => {
+        dataMutationInProgressRef.current = value
+      },
+    }
+
+    const onRefreshAllDataOnly = vi.fn()
+    const onRefreshStudySessions = vi.fn().mockResolvedValue(undefined)
+
+    const { result, rerender } = renderHook(
+      ({ availabilityOutcomeUnknown }) =>
+        usePlanningWorkflow({
+          mondayIso: getCurrentMondayIso(),
+          concurrencyLocks,
+          availabilityOutcomeUnknown,
+          onRefreshAllDataOnly,
+          onRefreshStudySessions,
+          getErrorMessage: (error, fallback) =>
+            error instanceof Error ? error.message : fallback,
+          hasUncertainTransitions: () => false,
+        }),
+      {
+        initialProps: { availabilityOutcomeUnknown: false },
+      },
+    )
+
+    // Primeiro, cria uma proposta válida.
+    await act(async () => {
+      await result.current.generatePreview()
+    })
+
+    expect(result.current.previewState.status).toBe('success')
+
+    // Depois, simula uma disponibilidade com resultado incerto.
+    rerender({ availabilityOutcomeUnknown: true })
+
+    // Tenta confirmar diretamente, sem depender do botão da interface.
+    await act(async () => {
+      await result.current.confirmPreview()
+    })
+
+    expect(fetchMock.getConfirmationPostRequests()).toBe(0)
+    expect(result.current.confirmState.status).toBe('idle')
+    expect(dataMutationInProgressRef.current).toBe(false)
   })
 })

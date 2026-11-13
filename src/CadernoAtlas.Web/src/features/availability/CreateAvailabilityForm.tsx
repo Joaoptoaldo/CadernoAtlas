@@ -15,7 +15,6 @@ interface CreateAvailabilityFormProps {
   onReconcile: () => Promise<void>
   disabled: boolean
   outcomeUnknown: boolean
-  onOutcomeUnknownChange: (value: boolean) => void
 }
 
 export default function CreateAvailabilityForm({
@@ -27,7 +26,6 @@ export default function CreateAvailabilityForm({
   onReconcile,
   disabled,
   outcomeUnknown,
-  onOutcomeUnknownChange,
 }: CreateAvailabilityFormProps) {
   const initialDate =
     todayIso >= weekStart && todayIso <= weekEnd
@@ -78,7 +76,6 @@ export default function CreateAvailabilityForm({
     submissionInProgressRef.current = true
     setError(null)
     setIsSubmitting(true)
-    onOutcomeUnknownChange(false)
 
     try {
       await onCreate({
@@ -96,7 +93,6 @@ export default function CreateAvailabilityForm({
       if (isLocalConcurrencyError) {
         setError(getApiMessage(submissionError, 'Não foi possível cadastrar a disponibilidade. Tente novamente.'))
       } else if (status === null || status === 408 || status === 429 || status >= 500) {
-        onOutcomeUnknownChange(true)
         setError('Não foi possível confirmar se a disponibilidade foi cadastrada. Consulte a lista antes de decidir se tentará novamente.')
       } else if (status === 404) {
         setError('A semana consultada não está mais disponível.')
@@ -119,8 +115,6 @@ export default function CreateAvailabilityForm({
     setError(null)
     try {
       await onReconcile()
-      // Reconciliação bem-sucedida: liberar estado incerto global e fechar formulário
-      onOutcomeUnknownChange(false)
       onCancel()
     } catch (reconcileError) {
       // Falha na reconciliação: manter estado incerto, formulário aberto, mostrar erro

@@ -1,4 +1,4 @@
-import { useRef, useCallback } from 'react'
+import { useRef, useCallback, useMemo } from 'react'
 
 export interface ConcurrencyLocks {
   demandCreationInProgressRef: React.MutableRefObject<boolean>
@@ -54,7 +54,7 @@ export function useConcurrencyLocks(): ConcurrencyLocks {
     dataMutationInProgressRef.current = value
   }, [])
 
-  return {
+  return useMemo(() => ({
     demandCreationInProgressRef,
     demandUpdateInProgressRef,
     availabilityCreationInProgressRef,
@@ -69,5 +69,20 @@ export function useConcurrencyLocks(): ConcurrencyLocks {
     setTaskMutationInProgress,
     setStudySessionMutationInProgress,
     setDataMutationInProgress,
-  }
+  }), [
+    demandCreationInProgressRef,
+    demandUpdateInProgressRef,
+    availabilityCreationInProgressRef,
+    confirmationInProgressRef,
+    taskMutationInProgressRef,
+    studySessionMutationInProgressRef,
+    dataMutationInProgressRef,
+    setDemandCreationInProgress,
+    setDemandUpdateInProgress,
+    setAvailabilityCreationInProgress,
+    setConfirmationInProgress,
+    setTaskMutationInProgress,
+    setStudySessionMutationInProgress,
+    setDataMutationInProgress,
+  ])
 }

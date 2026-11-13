@@ -4,12 +4,14 @@ import { renderApp } from '../helpers/renderApp.jsx'
 import { setupFetch, studySessionFixture } from '../helpers/fetchMocks.js'
 import { clearAllUncertainTransitions } from '../../../src/CadernoAtlas.Web/src/features/study-sessions/useStudySessionUncertainTransitions'
 import { clearAllUncertainDeletions } from '../../../src/CadernoAtlas.Web/src/features/study-sessions/useStudySessionUncertainDeletions'
+import { clearAllUncertainEdits } from '../../../src/CadernoAtlas.Web/src/features/study-sessions/useStudySessionUncertainEdits'
 import userEvent from '@testing-library/user-event'
 
 describe('Sessões de estudo — Transições', () => {
   beforeEach(() => {
     clearAllUncertainTransitions()
     clearAllUncertainDeletions()
+    clearAllUncertainEdits()
   })
 
   it('inicia sessão planejada e atualiza listagem e detalhes', async () => {
@@ -527,5 +529,514 @@ describe('Sessões de estudo — Transições', () => {
     const activeModal = await screen.findByRole('dialog')
     expect(within(activeModal).queryByRole('button', { name: 'Editar sessão' })).not.toBeInTheDocument()
     expect(within(activeModal).getByText(/não podem ser editadas/)).toBeInTheDocument()
+  })
+
+  it('persiste o ID e o payload quando a edição termina com falha de rede', async () => {
+    const planned = {
+      ...studySessionFixture,
+      id: 1,
+      demandaAcademicaId: null,
+      tarefaDemandaId: null,
+      titulo: 'Sessão editável com falha',
+      situacao: 0,
+    }
+
+    const fetchMock = setupFetch({
+      studySessions: [planned],
+      studySessionUpdateNetworkFailures: 1,
+    })
+
+    const user = userEvent.setup()
+    renderApp()
+
+    await user.click(screen.getByRole('button', { name: 'Sessões de estudo' }))
+    await screen.findByText(planned.titulo)
+
+    await user.click(
+      screen.getByRole('button', {
+        name: `Ver detalhes da sessão ${planned.titulo}`,
+      })
+    )
+
+    const modal = await screen.findByRole('dialog')
+
+    await user.click(
+      within(modal).getByRole('button', { name: 'Editar sessão' })
+    )
+
+    const form = within(modal)
+      .getByRole('heading', { name: 'Editar sessão de estudo' })
+      .closest('form')
+
+    const titleInput = within(form).getByLabelText('Título')
+    await user.clear(titleInput)
+    await user.type(titleInput, 'Sessão atualizada com falha')
+
+    await user.click(
+      within(form).getByRole('button', { name: 'Salvar alterações' })
+    )
+
+    await within(form).findByText(/resultado da operação é incerto/i)
+
+    const storedEdits = JSON.parse(
+      sessionStorage.getItem('cadernoatlas:uncertain-session-edits') ?? '[]'
+    )
+
+    expect(storedEdits).toHaveLength(1)
+    expect(storedEdits[0]).toMatchObject({
+      sessionId: planned.id,
+      request: {
+        titulo: 'Sessão atualizada com falha',
+      },
+    })
+    expect(storedEdits[0].timestamp).toEqual(expect.any(Number))
+
+    expect(
+      within(form).getByRole('button', { name: 'Salvar alterações' })
+    ).toBeDisabled()
+
+    const card = screen.getByText(planned.titulo).closest('article')
+
+    expect(within(card).getByRole('button', { name: 'Iniciar' })).toBeDisabled()
+    expect(within(card).getByRole('button', { name: 'Cancelar' })).toBeDisabled()
+    expect(within(card).getByRole('button', { name: 'Excluir' })).toBeDisabled()
+
+    expect(fetchMock.getStudySessionPutRequests()).toBe(1)
+  })
+
+  it('recupera uma edição incerta após desmontar e montar novamente a página', async () => {
+    const planned = {
+      ...studySessionFixture,
+      id: 1,
+      demandaAcademicaId: null,
+      tarefaDemandaId: null,
+      titulo: 'Sessão antes da edição',
+      situacao: 0,
+    }
+
+    const fetchMock = setupFetch({
+      studySessions: [planned],
+      studySessionUpdateNetworkFailures: 1,
+    })
+
+    const user = userEvent.setup()
+    renderApp()
+
+    await user.click(screen.getByRole('button', { name: 'Sessões de estudo' }))
+    await screen.findByText(planned.titulo)
+
+    await user.click(
+      screen.getByRole('button', {
+        name: `Ver detalhes da sessão ${planned.titulo}`,
+      })
+    )
+
+    let modal = await screen.findByRole('dialog')
+
+    await user.click(
+      within(modal).getByRole('button', { name: 'Editar sessão' })
+    )
+
+    let form = within(modal)
+      .getByRole('heading', { name: 'Editar sessão de estudo' })
+      .closest('form')
+
+    const submittedTitle = 'Sessão editada com resultado incerto'
+    await user.clear(within(form).getByLabelText('Título'))
+    await user.type(within(form).getByLabelText('Título'), submittedTitle)
+
+    await user.click(
+      within(form).getByRole('button', { name: 'Salvar alterações' })
+    )
+
+    await within(form).findByText(/resultado da operação é incerto/i)
+
+    expect(
+      JSON.parse(sessionStorage.getItem('cadernoatlas:uncertain-session-edits'))
+    ).toHaveLength(1)
+
+    // Navegar para outra página desmonta StudySessionsPage e seus estados locais.
+    await user.click(
+      screen.getByRole('button', { name: 'Planejamento semanal' })
+    )
+
+    expect(
+      screen.queryByRole('heading', { name: 'Sessões de estudo' })
+    ).not.toBeInTheDocument()
+
+    // Voltar à página de sessões.
+    await user.click(screen.getByRole('button', { name: 'Sessões de estudo' }))
+    await screen.findByText(planned.titulo)
+
+    // Os botões do card continuam bloqueados após a remontagem.
+    const card = screen.getByText(planned.titulo).closest('article')
+    expect(within(card).getByRole('button', { name: 'Iniciar' })).toBeDisabled()
+    expect(within(card).getByRole('button', { name: 'Cancelar' })).toBeDisabled()
+    expect(within(card).getByRole('button', { name: 'Excluir' })).toBeDisabled()
+
+    // Abrir novamente os detalhes deve recuperar o formulário automaticamente.
+    await user.click(
+      within(card).getByRole('button', {
+        name: `Ver detalhes da sessão ${planned.titulo}`,
+      })
+    )
+
+    modal = await screen.findByRole('dialog')
+    form = await within(modal)
+      .findByRole('heading', { name: 'Editar sessão de estudo' })
+      .then((heading) => heading.closest('form'))
+
+    expect(within(form).getByLabelText('Título')).toHaveValue(submittedTitle)
+
+    expect(
+      within(form).getByRole('button', { name: 'Salvar alterações' })
+    ).toBeDisabled()
+
+    expect(
+      within(form).getByRole('button', {
+        name: 'Consultar sessões antes de tentar novamente',
+      })
+    ).toBeInTheDocument()
+
+    expect(fetchMock.getStudySessionPutRequests()).toBe(1)
+  })
+
+  it('reconcilia edição incerta quando o GET individual confirma os dados enviados', async () => {
+    const planned = {
+      ...studySessionFixture,
+      id: 1,
+      demandaAcademicaId: null,
+      tarefaDemandaId: null,
+      titulo: 'Sessão antes da reconciliação',
+      situacao: 0,
+    }
+
+    const updated = {
+      ...planned,
+      titulo: 'Sessão atualizada no servidor',
+    }
+
+    const fetchMock = setupFetch({
+      studySessions: [planned],
+      studySessionUpdateNetworkFailures: 1,
+      studySessionDetailsQueues: {
+        '1': [
+          { status: 200, data: planned },
+          { status: 200, data: updated },
+        ],
+      },
+      studySessionListQueues: {
+        '/api/sessoes-estudo': [
+          { data: [planned] },
+          { data: [planned] },
+          { data: [updated] },
+        ],
+      },
+    })
+
+    const user = userEvent.setup()
+    renderApp()
+
+    await user.click(screen.getByRole('button', { name: 'Sessões de estudo' }))
+    await screen.findByText(planned.titulo)
+
+    await user.click(
+      screen.getByRole('button', {
+        name: `Ver detalhes da sessão ${planned.titulo}`,
+      })
+    )
+
+    const modal = await screen.findByRole('dialog')
+
+    await user.click(
+      within(modal).getByRole('button', { name: 'Editar sessão' })
+    )
+
+    const form = within(modal)
+      .getByRole('heading', { name: 'Editar sessão de estudo' })
+      .closest('form')
+
+    await user.clear(within(form).getByLabelText('Título'))
+    await user.type(
+      within(form).getByLabelText('Título'),
+      updated.titulo
+    )
+
+    await user.click(
+      within(form).getByRole('button', { name: 'Salvar alterações' })
+    )
+
+    await within(form).findByText(/resultado da operação é incerto/i)
+
+    await user.click(
+      within(form).getByRole('button', {
+        name: 'Consultar sessões antes de tentar novamente',
+      })
+    )
+
+    // O formulário deve fechar porque o GET individual confirmou a edição.
+    await within(modal).findByRole('button', { name: 'Editar sessão' })
+
+    // O modal também deve apresentar os dados atualizados.
+    expect(
+      within(modal).getByRole('heading', { name: updated.titulo })
+    ).toBeInTheDocument()
+
+    const remainingEdits = JSON.parse(
+      sessionStorage.getItem('cadernoatlas:uncertain-session-edits') ?? '[]'
+    )
+
+    expect(remainingEdits).toHaveLength(0)
+
+    expect(fetchMock.getStudySessionPutRequests()).toBe(1)
+  })
+
+  it('libera a edição e preserva os dados quando o GET individual não confirma a alteração', async () => {
+    const planned = {
+      ...studySessionFixture,
+      id: 1,
+      demandaAcademicaId: null,
+      tarefaDemandaId: null,
+      titulo: 'Sessão original no servidor',
+      situacao: 0,
+    }
+
+    const attemptedTitle = 'Título preenchido pelo usuário'
+
+    const fetchMock = setupFetch({
+      studySessions: [planned],
+      studySessionUpdateNetworkFailures: 1,
+      studySessionDetailsQueues: {
+        '1': [
+          { status: 200, data: planned },
+          { status: 200, data: planned },
+        ],
+      },
+    })
+
+    const user = userEvent.setup()
+    renderApp()
+
+    await user.click(screen.getByRole('button', { name: 'Sessões de estudo' }))
+    await screen.findByText(planned.titulo)
+
+    await user.click(
+      screen.getByRole('button', {
+        name: `Ver detalhes da sessão ${planned.titulo}`,
+      })
+    )
+
+    const modal = await screen.findByRole('dialog')
+
+    await user.click(
+      within(modal).getByRole('button', { name: 'Editar sessão' })
+    )
+
+    const form = within(modal)
+      .getByRole('heading', { name: 'Editar sessão de estudo' })
+      .closest('form')
+
+    const titleInput = within(form).getByLabelText('Título')
+
+    await user.clear(titleInput)
+    await user.type(titleInput, attemptedTitle)
+
+    await user.click(
+      within(form).getByRole('button', { name: 'Salvar alterações' })
+    )
+
+    await within(form).findByText(/resultado da operação é incerto/i)
+
+    await user.click(
+      within(form).getByRole('button', {
+        name: 'Consultar sessões antes de tentar novamente',
+      })
+    )
+
+    // A consulta confirma que o servidor ainda possui os dados anteriores.
+    expect(
+      await within(form).findByText(/dados atuais são diferentes dos enviados/i)
+    ).toBeInTheDocument()
+
+    // O formulário permanece aberto e preserva o que o usuário tentou salvar.
+    expect(titleInput).toHaveValue(attemptedTitle)
+
+    // A incerteza foi esclarecida: uma nova tentativa pode ser feita.
+    expect(
+      within(form).getByRole('button', { name: 'Salvar alterações' })
+    ).toBeEnabled()
+
+    expect(
+      within(form).queryByRole('button', {
+        name: 'Consultar sessões antes de tentar novamente',
+      })
+    ).not.toBeInTheDocument()
+
+    // As operações da sessão também deixam de ficar bloqueadas.
+    const card = screen.getByText(planned.titulo).closest('article')
+
+    expect(within(card).getByRole('button', { name: 'Iniciar' })).toBeEnabled()
+    expect(within(card).getByRole('button', { name: 'Cancelar' })).toBeEnabled()
+    expect(within(card).getByRole('button', { name: 'Excluir' })).toBeEnabled()
+
+    const remainingEdits = JSON.parse(
+      sessionStorage.getItem('cadernoatlas:uncertain-session-edits') ?? '[]'
+    )
+
+    expect(remainingEdits).toHaveLength(0)
+    expect(fetchMock.getStudySessionPutRequests()).toBe(1)
+  })
+
+  it('preserva a edição incerta quando a consulta individual falha', async () => {
+    const planned = {
+      ...studySessionFixture,
+      id: 1,
+      demandaAcademicaId: null,
+      tarefaDemandaId: null,
+      titulo: 'Sessão com consulta indisponível',
+      situacao: 0,
+    }
+
+    const attemptedTitle = 'Título que precisa ser recuperado'
+
+    const fetchMock = setupFetch({
+      studySessions: [planned],
+      studySessionUpdateNetworkFailures: 1,
+      studySessionDetailsQueues: {
+        '1': [
+          { status: 200, data: planned },
+          { error: new TypeError('Failed to fetch') },
+        ],
+      },
+    })
+
+    const user = userEvent.setup()
+    renderApp()
+
+    await user.click(screen.getByRole('button', { name: 'Sessões de estudo' }))
+    await screen.findByText(planned.titulo)
+
+    await user.click(
+      screen.getByRole('button', {
+        name: `Ver detalhes da sessão ${planned.titulo}`,
+      })
+    )
+
+    const modal = await screen.findByRole('dialog')
+
+    await user.click(
+      within(modal).getByRole('button', { name: 'Editar sessão' })
+    )
+
+    const form = within(modal)
+      .getByRole('heading', { name: 'Editar sessão de estudo' })
+      .closest('form')
+
+    const titleInput = within(form).getByLabelText('Título')
+
+    await user.clear(titleInput)
+    await user.type(titleInput, attemptedTitle)
+
+    await user.click(
+      within(form).getByRole('button', { name: 'Salvar alterações' })
+    )
+
+    await within(form).findByText(/resultado da operação é incerto/i)
+
+    await user.click(
+      within(form).getByRole('button', {
+        name: 'Consultar sessões antes de tentar novamente',
+      })
+    )
+
+    await within(form).findByText(/Não foi possível consultar as sessões/i)
+
+    expect(titleInput).toHaveValue(attemptedTitle)
+
+    expect(
+      within(form).getByRole('button', { name: 'Salvar alterações' })
+    ).toBeDisabled()
+
+    expect(
+      within(form).getByRole('button', {
+        name: 'Consultar sessões antes de tentar novamente',
+      })
+    ).toBeInTheDocument()
+
+    const storedEdits = JSON.parse(
+      sessionStorage.getItem('cadernoatlas:uncertain-session-edits') ?? '[]'
+    )
+
+    expect(storedEdits).toHaveLength(1)
+    expect(storedEdits[0]).toMatchObject({
+      sessionId: planned.id,
+      request: { titulo: attemptedTitle },
+    })
+
+    const card = screen.getByText(planned.titulo).closest('article')
+
+    expect(within(card).getByRole('button', { name: 'Iniciar' })).toBeDisabled()
+    expect(within(card).getByRole('button', { name: 'Cancelar' })).toBeDisabled()
+    expect(within(card).getByRole('button', { name: 'Excluir' })).toBeDisabled()
+
+    expect(fetchMock.getStudySessionPutRequests()).toBe(1)
+  })
+
+  it('isola a edição incerta por sessão sem bloquear outras sessões', async () => {
+    const first = {
+      ...studySessionFixture,
+      id: 1,
+      titulo: 'Sessão com edição incerta',
+      situacao: 0,
+    }
+
+    const second = {
+      ...studySessionFixture,
+      id: 2,
+      titulo: 'Sessão independente',
+      situacao: 0,
+    }
+
+    sessionStorage.setItem(
+      'cadernoatlas:uncertain-session-edits',
+      JSON.stringify([
+        {
+          sessionId: first.id,
+          request: {
+            titulo: 'Título pendente',
+            dataPlanejada: '2026-11-13',
+            horaInicioPlanejada: '14:00',
+            duracaoPlanejadaMinutos: 60,
+            demandaAcademicaId: null,
+            tarefaDemandaId: null,
+            observacoes: null,
+          },
+          timestamp: Date.now(),
+        },
+      ])
+    )
+
+    setupFetch({ studySessions: [first, second] })
+
+    const user = userEvent.setup()
+    renderApp()
+
+    await user.click(screen.getByRole('button', { name: 'Sessões de estudo' }))
+
+    await screen.findByText(first.titulo)
+    await screen.findByText(second.titulo)
+
+    const firstCard = screen.getByText(first.titulo).closest('article')
+    const secondCard = screen.getByText(second.titulo).closest('article')
+
+    // A sessão com edição incerta permanece bloqueada.
+    expect(within(firstCard).getByRole('button', { name: 'Iniciar' })).toBeDisabled()
+    expect(within(firstCard).getByRole('button', { name: 'Cancelar' })).toBeDisabled()
+    expect(within(firstCard).getByRole('button', { name: 'Excluir' })).toBeDisabled()
+
+    // A outra sessão continua operável.
+    expect(within(secondCard).getByRole('button', { name: 'Iniciar' })).toBeEnabled()
+    expect(within(secondCard).getByRole('button', { name: 'Cancelar' })).toBeEnabled()
+    expect(within(secondCard).getByRole('button', { name: 'Excluir' })).toBeEnabled()
   })
 })

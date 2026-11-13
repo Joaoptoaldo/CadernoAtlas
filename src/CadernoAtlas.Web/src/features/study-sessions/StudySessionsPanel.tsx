@@ -1,3 +1,4 @@
+import { useStudySessionUncertainEdits } from './useStudySessionUncertainEdits'
 import { useMemo, useState, useCallback, useRef } from 'react'
 import StatusMessage from '../../components/ui/StatusMessage'
 import EmptyState from '../../components/ui/EmptyState'
@@ -43,7 +44,6 @@ export default function StudySessionsPanel({
   onCreationOutcomeUnknownChange,
   onUpdate,
   onReconcileEdit,
-  onEditOutcomeUnknownChange,
   onTransition,
   onDelete,
   isTransitioning,
@@ -63,6 +63,8 @@ export default function StudySessionsPanel({
   const [deletingSessionIds, setDeletingSessionIds] = useState<Set<number>>(new Set())
   // useRef para proteção síncrona contra duplo clique - verifica antes do render
   const processingDeleteRef = useRef<Set<number>>(new Set())
+  // useStudySessionUncertainEdits para verificar se há edições incertas
+  const { isUncertainEdit } = useStudySessionUncertainEdits()
 
   // Modal de confirmação
   const [confirmAction, setConfirmAction] = useState<{
@@ -383,10 +385,31 @@ export default function StudySessionsPanel({
               </button>
               {session.situacao === 0 && (
                 <>
-                  <button type="button" className="button button-primary button-small" disabled={isTransitioning || transitioningSessionId !== null || deleteSyncFailed.has(session.id) || isUncertain(session.id) || isDeleteUncertain(session.id)} onClick={() => handleTransition(session.id, 'iniciar')}>
+                  <button type="button" className="button button-primary button-small"
+                  disabled={
+                    isTransitioning ||
+                    transitioningSessionId !== null ||
+                    deleteSyncFailed.has(session.id) ||
+                    isUncertain(session.id) ||
+                    isDeleteUncertain(session.id) ||
+                    isUncertainEdit(session.id)
+                  }
+                  onClick={() => handleTransition(session.id, 'iniciar')}>
                     {transitioningSessionId === session.id ? 'Iniciando…' : 'Iniciar'}
                   </button>
-                  <button type="button" className="button button-secondary button-small" disabled={isTransitioning || transitioningSessionId !== null || deleteSyncFailed.has(session.id) || isUncertain(session.id) || isDeleteUncertain(session.id)} onClick={() => handleTransition(session.id, 'cancelar')}>
+                  <button
+                    type="button"
+                    className="button button-secondary button-small"
+                    disabled={
+                      isTransitioning ||
+                      transitioningSessionId !== null ||
+                      deleteSyncFailed.has(session.id) ||
+                      isUncertain(session.id) ||
+                      isDeleteUncertain(session.id) ||
+                      isUncertainEdit(session.id)
+                    }
+                    onClick={() => handleTransition(session.id, 'cancelar')}
+                  >
                     Cancelar
                   </button>
                   {deleteSyncFailed.has(session.id) ? (
@@ -401,7 +424,15 @@ export default function StudySessionsPanel({
                     <button
                       type="button"
                       className="button button-secondary button-small button-danger"
-                      disabled={isTransitioning || transitioningSessionId !== null || deletingSessionIds.has(session.id) || isUncertain(session.id) || isDeleteUncertain(session.id) || deleteSyncFailed.has(session.id)}
+                      disabled={
+                        isTransitioning ||
+                        transitioningSessionId !== null ||
+                        deletingSessionIds.has(session.id) ||
+                        isUncertain(session.id) ||
+                        isDeleteUncertain(session.id) ||
+                        deleteSyncFailed.has(session.id) ||
+                        isUncertainEdit(session.id)
+                      }
                       onClick={() => handleDelete(session.id)}
                     >
                       {deletingSessionIds.has(session.id) ? 'Excluindo…' : 'Excluir'}
@@ -411,10 +442,28 @@ export default function StudySessionsPanel({
               )}
               {session.situacao === 1 && (
                 <>
-                  <button type="button" className="button button-primary button-small" disabled={isTransitioning || transitioningSessionId !== null || deleteSyncFailed.has(session.id) || isUncertain(session.id) || isDeleteUncertain(session.id)} onClick={() => handleTransition(session.id, 'concluir')}>
+                  <button type="button" className="button button-primary button-small"
+                  disabled={
+                    isTransitioning ||
+                    transitioningSessionId !== null ||
+                    deleteSyncFailed.has(session.id) ||
+                    isUncertain(session.id) ||
+                    isDeleteUncertain(session.id) ||
+                    isUncertainEdit(session.id)
+                  }
+                  onClick={() => handleTransition(session.id, 'concluir')}>
                     {transitioningSessionId === session.id ? 'Concluindo…' : 'Concluir'}
                   </button>
-                  <button type="button" className="button button-secondary button-small" disabled={isTransitioning || transitioningSessionId !== null || deleteSyncFailed.has(session.id) || isUncertain(session.id) || isDeleteUncertain(session.id)} onClick={() => handleTransition(session.id, 'cancelar')}>
+                  <button type="button" className="button button-secondary button-small"
+                  disabled={
+                    isTransitioning ||
+                    transitioningSessionId !== null ||
+                    deleteSyncFailed.has(session.id) ||
+                    isUncertain(session.id) ||
+                    isDeleteUncertain(session.id) ||
+                    isUncertainEdit(session.id)
+                  }
+                  onClick={() => handleTransition(session.id, 'cancelar')}>
                     Cancelar
                   </button>
                 </>
@@ -435,7 +484,6 @@ export default function StudySessionsPanel({
           onLoadTasks={onLoadTasks}
           onUpdate={onUpdate}
           onReconcile={onReconcileEdit}
-          onEditOutcomeUnknownChange={onEditOutcomeUnknownChange}
           onTransition={onTransition}
           onDelete={onDelete}
           isTransitioning={isTransitioning}

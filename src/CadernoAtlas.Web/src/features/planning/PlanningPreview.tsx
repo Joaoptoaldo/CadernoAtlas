@@ -51,6 +51,7 @@ export type ConfirmState =
   | { status: 'success'; data: ConfirmationData; error: null }
 
 export interface PlanningPreviewProps {
+  availabilityOutcomeUnknown: boolean
   previewState: PreviewState
   confirmState: ConfirmState
   isConfirming: boolean
@@ -97,6 +98,7 @@ function Icon({ name, size = 18 }: IconProps) {
 }
 
 export default function PlanningPreview({
+  availabilityOutcomeUnknown,
   previewState,
   confirmState,
   isConfirming,
@@ -156,7 +158,16 @@ export default function PlanningPreview({
                 ? `${previewState.error} ${confirmState.error}`
                 : previewState.error}
             </p>
-            <button className="text-button" onClick={generatePreview} disabled={isUpdatingDemand || isCreatingTask || isUpdatingTask || isDeletingTask || isStudySessionMutating}>Tentar novamente</button>
+            <button className="text-button" onClick={generatePreview}
+            disabled={
+              availabilityOutcomeUnknown ||
+              isUpdatingDemand ||
+              isCreatingTask ||
+              isUpdatingTask ||
+              isDeletingTask ||
+              isStudySessionMutating
+            }
+            >Tentar novamente</button>
           </div>
         </div>
       )}
@@ -199,7 +210,7 @@ export default function PlanningPreview({
                 <strong>O planejamento não foi confirmado</strong>
                 <p>{confirmState.error}</p>
                 {confirmState.canRetry && (
-                  <button className="text-button" onClick={confirmPreview} disabled={isStudySessionMutating}>Tentar novamente</button>
+                  <button className="text-button" onClick={confirmPreview} disabled={availabilityOutcomeUnknown || isStudySessionMutating}>Tentar novamente</button>
                 )}
               </div>
             </div>
@@ -214,14 +225,47 @@ export default function PlanningPreview({
 
           {previewState.status === 'success' && (
             <div className="planning-actions">
-              <button className="button button-secondary" onClick={clearPreview} disabled={isConfirming || isUpdatingDemand || isCreatingTask || isUpdatingTask || isDeletingTask || isStudySessionMutating}>Descartar prévia</button>
-              <button className="button button-primary confirm-button" onClick={confirmPreview} disabled={isConfirming || isCreatingDemand || isCreatingAvailability || isUpdatingDemand || isCreatingTask || isUpdatingTask || isDeletingTask || isStudySessionMutating || (confirmState.status === 'error' && !confirmState.canRetry) || previewState.data.alocacoes.length === 0}>
+              <button className="button button-secondary" onClick={clearPreview}
+              disabled={
+                availabilityOutcomeUnknown ||
+                isConfirming ||
+                isUpdatingDemand ||
+                isCreatingTask ||
+                isUpdatingTask ||
+                isDeletingTask ||
+                isStudySessionMutating
+              }
+              >Descartar prévia</button>
+              <button className="button button-primary confirm-button" onClick={confirmPreview}
+              disabled={
+                availabilityOutcomeUnknown ||
+                isConfirming ||
+                isCreatingDemand ||
+                isCreatingAvailability ||
+                isUpdatingDemand ||
+                isCreatingTask ||
+                isUpdatingTask ||
+                isDeletingTask ||
+                isStudySessionMutating ||
+                (confirmState.status === 'error' && !confirmState.canRetry) ||
+                previewState.data.alocacoes.length === 0
+              }
+             >
                 {isConfirming ? 'Confirmando…' : 'Confirmar planejamento'}
               </button>
             </div>
           )}
           {previewState.status === 'confirmed' && (
-            <button className="button button-secondary planning-regenerate" onClick={clearPreview} disabled={isUpdatingDemand || isCreatingTask || isUpdatingTask || isDeletingTask || isStudySessionMutating}>Gerar outra prévia</button>
+            <button className="button button-secondary planning-regenerate" onClick={clearPreview}
+            disabled={
+              availabilityOutcomeUnknown ||
+              isUpdatingDemand ||
+              isCreatingTask ||
+              isUpdatingTask ||
+              isDeletingTask ||
+              isStudySessionMutating
+            }
+            >Gerar outra prévia</button>
           )}
         </>
       )}

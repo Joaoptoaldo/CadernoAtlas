@@ -157,7 +157,6 @@ export interface StudySessionsPanelProps {
   onCreationOutcomeUnknownChange: (value: boolean) => void
   onUpdate: (id: number, request: StudySessionRequest) => Promise<void>
   onReconcileEdit: () => Promise<StudySessionListItem[] | void>
-  onEditOutcomeUnknownChange: (value: boolean) => void
   onTransition: (id: number, transition: StudySessionTransition) => Promise<StudySession>
   onDelete: (id: number) => Promise<void>
   isTransitioning: boolean
@@ -173,7 +172,6 @@ export interface StudySessionDetailProps {
   onLoadTasks: (demandId: number, signal: AbortSignal) => Promise<StudySessionTask[]>
   onUpdate: (id: number, request: StudySessionRequest) => Promise<void>
   onReconcile: () => Promise<StudySessionListItem[] | void>
-  onEditOutcomeUnknownChange: (value: boolean) => void
   onTransition: (id: number, transition: StudySessionTransition) => Promise<StudySession>
   onDelete: (id: number) => Promise<void>
   isTransitioning: boolean
